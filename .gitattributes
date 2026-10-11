@@ -1,0 +1,2 @@
+# Unified-diff context markers include spaces on blank lines.
+packaging/media-worker-patches/*.patch -whitespace

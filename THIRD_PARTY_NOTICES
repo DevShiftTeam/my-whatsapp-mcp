@@ -1,0 +1,135 @@
+# Third-party notices
+
+WA Indexer's original application source is licensed under GPL-3.0-only.
+LICENSE contains the complete GNU General Public License, version 3.
+Third-party source, libraries, model weights and documentation retain
+their upstream licenses and copyright notices.
+
+This source distribution contains no model weights or native runtime
+binaries. The manifests identify optional downloads and their provenance.
+A binary distributor must provide the notices and corresponding source
+required by the exact components and build configuration they ship.
+
+## Go dependencies
+
+| Module | Exact version | License-file finding |
+| --- | --- | --- |
+| go.mau.fi/whatsmeow | v0.0.0-20261005195255-6bb48c0f1ff0 | MPL-2.0, module LICENSE |
+| go.mau.fi/libsignal | v0.2.2 | GNU GPL-3.0 text, module LICENSE; review per-file notices and downstream obligations before distribution |
+| github.com/modelcontextprotocol/go-sdk | v1.8.0 | Module LICENSE retains MIT and Apache-2.0 contribution terms during relicensing; documentation excludes specifications and uses CC-BY-4.0. Preserve its entire license file; do not label the complete release MIT-only. |
+| github.com/mattn/go-sqlite3 | v1.14.52 | MIT, module LICENSE; bundled SQLite public domain |
+| github.com/daulet/tokenizers | v1.27.0 | MIT, Go binding LICENSE; embedded Hugging Face tokenizer has separate Apache-2.0 terms |
+| github.com/yalue/onnxruntime_go | v1.25.0 | MIT, module LICENSE |
+| github.com/golang-jwt/jwt/v5 | v5.3.1 | MIT, module LICENSE |
+| github.com/skip2/go-qrcode | v0.0.0-20200617195104-da1b6568686e | MIT, module LICENSE |
+
+The complete dependency versions and checksums are in go.mod and go.sum.
+The table lists selected dependencies rather than the full transitive graph.
+Retain upstream license files and per-file notices when redistributing
+dependencies.
+
+The go.mau.fi/libsignal dependency retains this attribution:
+
+    libsignal-protocol-go
+    Copyright (C) 2017 RadicalApp LLC
+
+## Vendored source and optional native components
+
+| Component/profile | Exact version or revision | Present notice/license source |
+| --- | --- | --- |
+| sqlite-vec stable core | 0.1.9, release archive SHA256 3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61 | internal/sqlitevec/NOTICE.md, LICENSE-MIT and LICENSE-APACHE |
+| SQLite header | go-sqlite3 v1.14.52 bundled amalgamation | internal/sqlitevec/sqlite3.h retains public-domain disclaimer; only the driver compiles SQLite |
+| ONNX Runtime Darwin ARM64 | 1.23.2 | packaging/embedding-notices/ONNX-RUNTIME-LICENSE and ONNX-RUNTIME-ThirdPartyNotices.txt, copied from hash-verified native archive |
+| daulet tokenizer Go/native archive | v1.27.0 | packaging/embedding-notices/DAULET-TOKENIZERS-LICENSE is the upstream MIT binding license; archive/HF transitive audit incomplete |
+| Hugging Face tokenizers | embedded 0.22 family; reference fixtures 0.22.1 | packaging/embedding-notices/HF-TOKENIZERS-LICENSE, Apache-2.0 |
+| multilingual-e5-small FP32/tokenizer | 614241f622f53c4eeff9890bdc4f31cfecc418b3 | MIT declared by pinned publisher model card; no standalone LICENSE exists at that revision. packaging/embedding-notices/README.md records this qualification. |
+
+The native and model manifests under packaging/ record pinned downloads,
+hashes, sizes and artifact roles. Their release readiness flags are build
+checks; they do not certify license compliance.
+
+## Optional media components
+
+Tesseract 5.5.1 (3b7c70e34dea179549ed3e995872e2e019eb8477) and the pinned
+Hebrew/English traineddata use Apache-2.0. The media manifest records their
+revisions, license URLs and hashes.
+
+whisper.cpp 927cfce34f31707e17f2bff35c349632fb9e2c3a and llama.cpp
+4f5406761517648c23dbd60ea5ade37f77a316c9 declare MIT upstream.
+
+The Qwen3.5-0.8B model/projector pair at GGUF revision
+6ab461498e2023f6e3c1baea90a8f0fe38ab64d0 and the ivrit-ai Hebrew Whisper
+GGML revision 2130c78e4a9cb4914cc4df91a1c3031407789705 declare Apache-2.0.
+Weights and conversion dependencies are downloaded separately.
+
+The restricted FFmpeg n8.0.1 build uses revision
+894da5ca7d742e4429ffb2af534fcda0103ef593. The intended decoder configuration
+uses LGPL-2.1-or-later components. FFmpeg licensing depends on the enabled
+features and linked libraries; verify the actual configuration before
+redistributing a build.
+
+## llama.cpp patch attribution
+
+The patches under packaging/media-worker-patches modify llama.cpp revision
+4f5406761517648c23dbd60ea5ade37f77a316c9. They add caption output and fix
+GGUF filename handling. The source distribution includes these
+modifications as of 2026-10-11.
+
+Upstream license:
+https://github.com/ggml-org/llama.cpp/blob/4f5406761517648c23dbd60ea5ade37f77a316c9/LICENSE
+
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+## Go image codecs
+
+golang.org/x/image v0.46.0 supplies the Go WebP decoder. Its BSD-3-Clause
+notice follows. Retain it when redistributing that dependency.
+
+Copyright 2009 The Go Authors.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google LLC nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

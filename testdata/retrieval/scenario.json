@@ -1,0 +1,10 @@
+{
+  "fixture_kind": "authored_synthetic_keyword_regression",
+  "quality_claim": false,
+  "cases": [
+    {"id": "hebrew-niqqud", "body": "שָׁלוֹם עולם", "query": "שלום", "expected_original": "שָׁלוֹם עולם"},
+    {"id": "hebrew-quote", "body": "דו״ח חודשי 2026", "query": "דו\"ח", "expected_original": "דו״ח חודשי 2026"},
+    {"id": "english", "body": "Invoice PAYMENT approved", "query": "payment", "expected_original": "Invoice PAYMENT approved"},
+    {"id": "mixed", "body": "חשבונית invoice 42 לתשלום", "query": "invoice 42", "expected_original": "חשבונית invoice 42 לתשלום"}
+  ]
+}

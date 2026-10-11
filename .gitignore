@@ -1,0 +1,30 @@
+# Local archives, WhatsApp sessions, and development output.
+.DS_Store
+__pycache__/
+*.py[cod]
+.local/
+.artifacts/
+/data/
+/wa-data/
+*.log
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.wa-indexer-owner
+.instance.lock
+owner-url
+native.sock
+bin/
+/wa-indexer
+/wa-indexer-worker
+*.test
+# Private development tools and reports.
+.superpowers/
+.codex/
+.claude/

@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "status": "PREPARED_NOT_BUILT",
+  "platform": "darwin-arm64",
+  "source_manifest": "packaging/media-manifest.json",
+  "build_helper": "scripts/app/build-media-native.sh",
+  "native_ocr_adapter": "scripts/app/native-media-ocr.cpp",
+  "native_protocol": "inherited_readonly_fds_v1",
+  "runtime_binary_checksums": "NOT_YET_BUILT_REQUIRE_BUNDLE_MANIFEST",
+  "runtime_pins": {
+    "tesseract": "3b7c70e34dea179549ed3e995872e2e019eb8477",
+    "whisper.cpp": "927cfce34f31707e17f2bff35c349632fb9e2c3a",
+    "llama.cpp": "4f5406761517648c23dbd60ea5ade37f77a316c9",
+    "ffmpeg": "894da5ca7d742e4429ffb2af534fcda0103ef593",
+    "leptonica": "63aef18d98432b8582a1565e241f7bd2ee9cc8d9"
+  },
+  "caption_patch": "packaging/media-worker-patches/llama-cpu-caption-v2.patch",
+  "limits": {
+    "image_bytes": 10485760,
+    "image_pixels": 16000000,
+    "caption_pixels": 262144,
+    "caption_tokens": 128,
+    "caption_context_tokens": 2048,
+    "voice_bytes": 26214400,
+    "voice_duration_ms": 1200000,
+    "decoded_pcm_bytes": 38400000,
+    "audio_sample_rate": 16000,
+    "audio_channels": 1,
+    "audio_slice_ms": 30000,
+    "generated_bytes_per_result": 65536,
+    "compute_threads": 2,
+    "heavy_workers": 1,
+    "primary_root_bytes": 65536,
+    "semantic_input_range_bytes": 16384,
+    "legacy_staging_origin_bytes": 16384
+  },
+  "speech_routes": {
+    "he": "ivrit-whisper-large-v3-turbo forced he",
+    "en": "whisper-cpp-small-en-q5_1-v1 forced en; candidate; quality NOT_RUN",
+    "mixed": "ivrit forced he; original-language candidate; code-switch quality NOT_RUN"
+  },
+  "language_detection": "ivrit_auto_detection_disabled",
+  "offset_kind": "slice",
+  "model_selection": "candidate",
+  "native_smoke": "NOT_RUN",
+  "hebrew_quality": "NOT_RUN",
+  "reference_preprocessing_parity": "NOT_RUN",
+  "aggregate_rss_latency": "NOT_RUN",
+  "clean_machine": "NOT_RUN",
+  "dependency_license_audit": "NOT_RUN",
+  "build_prerequisites": [
+    "explicit shared physical-space and serialized build-lane admission",
+    "controller-verified private CMake, fixed Apple clang/make/SDK and pinned local clean source trees",
+    "codec-free static Leptonica 1.85.0 in fresh private output/prefix; no host pkg-config dependencies",
+    "native executable hashes and private owner-only bundle paths before runtime use"
+  ],
+  "worker_lifetime": {
+    "status": "PREPARED_NOT_RUN",
+    "helper": "existing verified bundled Go executable hidden --workerlife-holder mode",
+    "maximum_helpers_per_active_heavy_group": 1,
+    "maximum_media_guards": 5,
+    "guards": [
+      "instance",
+      "original artifact",
+      "global media readers",
+      "model when loaded",
+      "decoded input when inherited"
+    ],
+    "ready_before_native_start": true,
+    "cleanup_ack": "native group and leader absent, native Wait complete, stdout joined, independent holder reaped",
+    "parent_eof_releases": false,
+    "uncertain_state": "retain ownership and report cleanup_incomplete",
+    "rss_included_in_aggregate_measurement": "NOT_RUN"
+  },
+  "primary_extraction": {
+    "entry": "media.Extractor.ExtractPrimary",
+    "work": "archive.ExtractionWork",
+    "index_generation_required": false,
+    "passage_tokens": 0,
+    "source_spans": false,
+    "runtime_fingerprint": "wa-indexer/media-runtime-fingerprint/v1; uint32be role count, repeated uint32be role-name length + role bytes + raw32-byte executable SHA256",
+    "runtime_roles": {
+      "ocr": [
+        "ocr"
+      ],
+      "caption": [
+        "caption"
+      ],
+      "transcription": [
+        "decoder",
+        "speech"
+      ]
+    },
+    "profile_identity": "installed whole-profile identity including every model component",
+    "outcomes": [
+      "text",
+      "verified OCR/caption no_text",
+      "positive-length exact digital silence only"
+    ],
+    "verification": "SOURCE_REVIEW_PENDING_RUNTIME_NOT_RUN"
+  },
+  "caption_patch_sha256": "335fc4c0d9ad369a1d24e5f5efaeb8a58dbe033d2286c9209a22105b035dbf57",
+  "caption_policy_test": "scripts/app/native-caption-policy-test.cpp",
+  "caption_policy": {
+    "status": "SOURCE_PREPARED_NOT_BUILT_NOT_RUN",
+    "version": "he-grounded-canvas-v2",
+    "go_canvas_and_version_status": "SOURCE_PREPARED_NOT_RUN",
+    "canvas": {
+      "width": 512,
+      "height": 512,
+      "content": "whole EXIF-oriented image proportionally fitted and centered; no crop",
+      "padding_rgb": [
+        127,
+        127,
+        127
+      ]
+    },
+    "image_min_tokens": 8,
+    "image_max_tokens": 256,
+    "image_tokens_exclude": "vision delimiters and text; total context remains 2048",
+    "projector_prerequisites": {
+      "modality": "vision_only",
+      "projector": "qwen3vl",
+      "patch_size": 16,
+      "spatial_merge_size": 2,
+      "metadata_required": true
+    },
+    "warmup_image_size": 512,
+    "guards": "metadata before tensors; resize bounds before resized buffers; axes and image tokens before every graph builder including warmup",
+    "jinja": true,
+    "enable_thinking": false,
+    "actual_template_kwargs": true,
+    "quality": "NOT_RUN; 256 image tokens is a resource candidate, not a grounding-quality claim",
+    "model_free_test": "NOT_RUN; formatter bool/kwargs/ChatML/marker only, not GGUF or vision token validation"
+  },
+  "native_dependency_policy": {
+    "linkage": "project archives static; Darwin system libraries only after actual Mach-O audit",
+    "caption_exclusions": [
+      "OpenSSL",
+      "BoringSSL",
+      "LibreSSL",
+      "subprocess/video",
+      "GPU and dynamic backends",
+      "Accelerate",
+      "BLAS",
+      "OpenMP",
+      "ccache"
+    ],
+    "compiled_license_inventory": {
+      "tesseract": "Apache-2.0",
+      "leptonica": "BSD-2-Clause",
+      "llama_cpp_ggml_mtmd_jinja": "MIT",
+      "cpp_httplib": "MIT (still compiled with OpenSSL OFF)",
+      "nlohmann_json": "MIT",
+      "stb_image": "MIT selected from dual license",
+      "miniaudio": "MIT-0 selected from dual license at pinned 2026 source",
+      "xxhash": "BSD-2-Clause",
+      "sha1_sha256": "public-domain notices",
+      "rotate_bits": "MIT",
+      "llamafile_cpu_gemm": "MIT"
+    },
+    "redistribution_notices": "PENDING actual build closure and complete notices; upstream aggregator alone is insufficient"
+  }
+}

@@ -1,0 +1,18 @@
+diff --git a/tools/mtmd/mtmd-cli.cpp b/tools/mtmd/mtmd-cli.cpp
+--- a/tools/mtmd/mtmd-cli.cpp
++++ b/tools/mtmd/mtmd-cli.cpp
+@@ -436,0 +437,10 @@ int main(int argc, char ** argv) {
++    // WA feasibility worker: fixed bounded CPU/non-thinking baseline.
++    params.default_template_kwargs["enable_thinking"] = "false";
++    params.enable_reasoning = 0;
++    params.sampling.reasoning_budget_tokens = 0;
++    params.cpuparams.n_threads = 2;
++    params.cpuparams_batch.n_threads = 2;
++    params.n_gpu_layers = 0;
++    params.mmproj_use_gpu = false;
++    params.simple_io = true;
++
+@@ -513,0 +524 @@ int main(int argc, char ** argv) {
++        LOG("\nWA_MEDIA_CAPTION_BEGIN\n");
+@@ -516,0 +528 @@ int main(int argc, char ** argv) {
++        LOG("\nWA_MEDIA_CAPTION_END\n");

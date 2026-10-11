@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "scope": "feasibility_candidates_not_release_bundle",
+  "quality_status": "NOT_RUN",
+  "cpu_baseline": {
+    "threads": 2,
+    "gpu_offload": false,
+    "vision_projector_gpu_offload": false,
+    "models_loaded_together": false
+  },
+  "ocr_weights": [
+    {
+      "variant": "fast",
+      "revision": "87416418657359cb625c412a48b6e1d6d41c29bd",
+      "path": "eng.traineddata",
+      "bytes": 4113088,
+      "git_blob_sha1": "bbef4675053b5b468cdb477053e28b1c698ba08e",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/tesseract-ocr/tessdata_fast/blob/87416418657359cb625c412a48b6e1d6d41c29bd/LICENSE",
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    },
+    {
+      "variant": "fast",
+      "revision": "87416418657359cb625c412a48b6e1d6d41c29bd",
+      "path": "heb.traineddata",
+      "bytes": 961404,
+      "git_blob_sha1": "7356caf3cddc9c867fe6727e17726727b8284608",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/tesseract-ocr/tessdata_fast/blob/87416418657359cb625c412a48b6e1d6d41c29bd/LICENSE",
+      "sha256": "11f9e43ab227f786352a50f75c94c2e9906f1baba86d93276da19da7ce0904db"
+    },
+    {
+      "variant": "best",
+      "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+      "path": "eng.traineddata",
+      "bytes": 15400601,
+      "git_blob_sha1": "176dc3220de7db34d3b3aecbfa42043a6038348b",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/tesseract-ocr/tessdata_best/blob/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/LICENSE",
+      "sha256": "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba"
+    },
+    {
+      "variant": "best",
+      "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+      "path": "heb.traineddata",
+      "bytes": 3704077,
+      "git_blob_sha1": "0fc27335b628e0e7992c58804c0437662ec54b06",
+      "license": "Apache-2.0",
+      "license_url": "https://github.com/tesseract-ocr/tessdata_best/blob/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/LICENSE",
+      "sha256": "dbaa827aea6bc21215638447f17783a1004987c2d0bf5573d111fee397abdae5"
+    }
+  ],
+  "vision_pair": {
+    "publisher": "Qwen/Qwen3.5-0.8B",
+    "conversion": "unsloth/Qwen3.5-0.8B-GGUF",
+    "revision": "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
+    "license": "Apache-2.0",
+    "license_url": "https://huggingface.co/Qwen/Qwen3.5-0.8B/blob/2fc06364715b967f1860aea9cf38778875588b17/LICENSE",
+    "local_status": "NOT_DOWNLOADED",
+    "pair_bytes": 737504352,
+    "model": {
+      "path": "Qwen3.5-0.8B-Q4_K_M.gguf",
+      "bytes": 532517120,
+      "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517"
+    },
+    "projector": {
+      "path": "mmproj-F16.gguf",
+      "bytes": 204987232,
+      "sha256": "56e4c6cfe73b0c82e3e82bc518d7591997e61d81f723fc41a586f4fa69ea2453"
+    },
+    "output_tokens": 128,
+    "context": 2048,
+    "thinking": false,
+    "image_pixels": 262144,
+    "two_b_comparison": "NOT_RUN_only_if_0_8B_quality_requires_it",
+    "smolvlm": "English_resource_baseline_only",
+    "native_worker_patch": {
+      "path": "packaging/media-worker-patches/llama-cpu-caption.patch",
+      "sha256": "a785f4029aba430ba36626489db49339fbcb8eb5c2451f99db0aaa2af35e2403",
+      "status": "PATCH_APPLIES_TO_PINNED_SOURCE_BUILD_NOT_RUN",
+      "purpose": "fixed_non_thinking_CPU_parameters_and_caption_stdout_framing"
+    }
+  },
+  "speech": {
+    "publisher": "ivrit-ai/whisper-large-v3-turbo-ggml",
+    "revision": "2130c78e4a9cb4914cc4df91a1c3031407789705",
+    "path": "ggml-model.bin",
+    "bytes": 1624555275,
+    "sha256": "c8090411113357097bfafc2b8e228ec1639fa7f5fe4ecb5d054ac0ccef8641b1",
+    "license": "Apache-2.0",
+    "license_url": "https://huggingface.co/ivrit-ai/whisper-large-v3-turbo/blob/f33172a8c3c6efbc040a7200e00835257cac0447/README.md",
+    "language": "he",
+    "sample_rate": 16000,
+    "channels": 1,
+    "slice_ms": 30000,
+    "offset_kind": "source_slice",
+    "cross_note_context": false,
+    "local_status": "NOT_DOWNLOADED",
+    "quantized_comparison": "NOT_RUN",
+    "english_route": "explicit_separate_model_required",
+    "mixed_route": "NOT_RUN",
+    "vad": "optional_explicit_verified_local_asset_not_packaged",
+    "gigaam_he": "NOT_RUN_native_frontend_and_68_label_parity_required",
+    "whisper_he_100m": "EXCLUDED_unverifiable_artifact_custom_vocabulary"
+  },
+  "native_runtimes": [
+    {
+      "name": "tesseract",
+      "revision": "3b7c70e34dea179549ed3e995872e2e019eb8477",
+      "tag": "5.5.1",
+      "source": "https://github.com/tesseract-ocr/tesseract",
+      "license": "Apache-2.0",
+      "host_smoke_version": "5.5.1",
+      "clean_machine_status": "NOT_RUN",
+      "dependency_audit": "NOT_RUN"
+    },
+    {
+      "name": "whisper.cpp",
+      "revision": "927cfce34f31707e17f2bff35c349632fb9e2c3a",
+      "source": "https://github.com/ggml-org/whisper.cpp",
+      "license": "MIT",
+      "clean_machine_status": "NOT_RUN"
+    },
+    {
+      "name": "llama.cpp",
+      "revision": "4f5406761517648c23dbd60ea5ade37f77a316c9",
+      "source": "https://github.com/ggml-org/llama.cpp",
+      "license": "MIT",
+      "clean_machine_status": "NOT_RUN",
+      "qwen_template_preprocessing_parity": "NOT_RUN"
+    },
+    {
+      "name": "ffmpeg",
+      "revision": "894da5ca7d742e4429ffb2af534fcda0103ef593",
+      "tag": "n8.0.1",
+      "source": "https://github.com/FFmpeg/FFmpeg",
+      "license": "LGPL-2.1-or-later_for_restricted_configuration_pending_audit",
+      "host_smoke_version": "7.1.1_Homebrew_GPL_broad_codec_build_not_distributable_candidate",
+      "clean_machine_status": "NOT_RUN",
+      "restricted_build_status": "NOT_RUN",
+      "protocols": [
+        "pipe"
+      ],
+      "demuxers": [
+        "ogg",
+        "wav"
+      ],
+      "decoders": [
+        "opus",
+        "vorbis",
+        "pcm_s16le"
+      ],
+      "network": false,
+      "gpl": false
+    }
+  ],
+  "not_claimed": [
+    "human_Hebrew_ASR_quality",
+    "mixed_ASR_quality",
+    "Hebrew_caption_quality",
+    "handwriting",
+    "word_timestamps",
+    "aggregate_process_tree_RSS",
+    "cold_warm_latency",
+    "clean_machine_packaging",
+    "GPL_compatible_complete_dependency_audit"
+  ]
+}

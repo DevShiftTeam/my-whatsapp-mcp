@@ -1,0 +1,201 @@
+diff --git a/common/chat.h b/common/chat.h
+--- a/common/chat.h
++++ b/common/chat.h
+@@ -329,7 +329,9 @@
+                                       const std::vector<common_chat_msg> & past_msg,
+                                       const common_chat_msg &              new_msg,
+                                       bool                                 add_ass,
+-                                      bool                                 use_jinja);
++                                      bool                                 use_jinja,
++                                      bool                                 enable_thinking = true,
++                                      const std::map<std::string, std::string> & chat_template_kwargs = {});
+ 
+ // Returns an example of formatted chat
+ std::string common_chat_format_example(const struct common_chat_templates *       tmpls,
+diff --git a/common/chat.cpp b/common/chat.cpp
+--- a/common/chat.cpp
++++ b/common/chat.cpp
+@@ -665,9 +665,13 @@
+                                       const std::vector<common_chat_msg> & past_msg,
+                                       const common_chat_msg &              new_msg,
+                                       bool                                 add_ass,
+-                                      bool                                 use_jinja) {
++                                      bool                                 use_jinja,
++                                      bool                                 enable_thinking,
++                                      const std::map<std::string, std::string> & chat_template_kwargs) {
+     common_chat_templates_inputs inputs;
+     inputs.use_jinja = use_jinja;
++    inputs.enable_thinking = enable_thinking;
++    inputs.chat_template_kwargs = chat_template_kwargs;
+     inputs.add_bos   = tmpls->add_bos;
+     inputs.add_eos   = tmpls->add_eos;
+ 
+diff --git a/tools/mtmd/mtmd-cli.cpp b/tools/mtmd/mtmd-cli.cpp
+--- a/tools/mtmd/mtmd-cli.cpp
++++ b/tools/mtmd/mtmd-cli.cpp
+@@ -96,6 +96,7 @@
+     common_chat_templates_ptr tmpls;
+     std::vector<common_chat_msg> chat_history;
+     bool use_jinja = false;
++    std::map<std::string, std::string> chat_template_kwargs;
+     // TODO: support for --system-prompt with /clear command
+ 
+     // support for legacy templates (models not having EOT token)
+@@ -136,6 +137,7 @@
+ 
+         tmpls = common_chat_templates_init(model, params.chat_template);
+         use_jinja = params.use_jinja;
++        chat_template_kwargs = params.default_template_kwargs;
+         chat_history.clear();
+         LOG_INF("%s: chat template example:\n%s\n", __func__, common_chat_format_example(tmpls.get(), params.use_jinja, params.default_template_kwargs).c_str());
+ 
+@@ -262,7 +264,7 @@
+         new_msg.role.c_str(), new_msg.content.c_str());
+     auto formatted = common_chat_format_single(ctx.tmpls.get(), ctx.chat_history,
+         new_msg, new_msg.role == "user",
+-        ctx.use_jinja);
++        ctx.use_jinja, false, ctx.chat_template_kwargs);
+     ctx.chat_history.push_back(new_msg);
+     return formatted;
+ }
+@@ -434,6 +436,19 @@
+         return 1;
+     }
+ 
++    // WA caption-v2: fixed CPU/non-thinking resource candidate.
++    params.use_jinja = true;
++    params.default_template_kwargs["enable_thinking"] = "false";
++    params.enable_reasoning = 0;
++    params.sampling.reasoning_budget_tokens = 0;
++    params.cpuparams.n_threads = 2;
++    params.cpuparams_batch.n_threads = 2;
++    params.n_gpu_layers = 0;
++    params.mmproj_use_gpu = false;
++    params.simple_io = true;
++    params.image_min_tokens = 8;
++    params.image_max_tokens = 256;
++
+     mtmd_helper_log_set(common_log_default_callback, nullptr);
+ 
+     if (params.mmproj.path.empty()) {
+@@ -511,9 +526,11 @@
+         if (eval_message(ctx, msg)) {
+             return 1;
+         }
++        LOG("\nWA_MEDIA_CAPTION_BEGIN\n");
+         if (!g_is_interrupted && generate_response(ctx, n_predict)) {
+             return 1;
+         }
++        LOG("\nWA_MEDIA_CAPTION_END\n");
+ 
+     } else {
+         LOG("\n Running in chat mode, available commands:");
+diff --git a/tools/mtmd/clip.cpp b/tools/mtmd/clip.cpp
+--- a/tools/mtmd/clip.cpp
++++ b/tools/mtmd/clip.cpp
+@@ -931,7 +931,21 @@
+ 
+ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const clip_image_f32_batch & imgs,
+                                                             const clip_encode_params * params = nullptr) {
++    // Bound every graph, including init and warmup, before constructing it.
++    const auto & hp = ctx->model.hparams;
++    if (imgs.entries.size() != 1 || ctx->model.modality != CLIP_MODALITY_VISION ||
++            ctx->proj_type() != PROJECTOR_TYPE_QWEN3VL || hp.patch_size != 16 || hp.n_merge != 2) {
++        throw std::runtime_error("WA caption-v2 graph profile mismatch");
++    }
+     const clip_image_f32 & img = imgs.entries[0];
++    if (img.nx() <= 0 || img.ny() <= 0 || img.nx() > 512 || img.ny() > 512 ||
++            img.nx() % 32 != 0 || img.ny() % 32 != 0) {
++        throw std::runtime_error("WA caption-v2 graph image limit");
++    }
++    const int image_tokens = clip_n_output_tokens(ctx, &img);
++    if (image_tokens < 1 || image_tokens > 256) {
++        throw std::runtime_error("WA caption-v2 graph token limit");
++    }
+     std::unique_ptr<clip_graph> builder;
+ 
+     switch (ctx->proj_type()) {
+@@ -1294,6 +1308,10 @@
+                                     ? PROJECTOR_TYPE_QWEN25VL
+                                     : PROJECTOR_TYPE_QWEN2A;
+             }
++        }
++
++        if (modality != CLIP_MODALITY_VISION || model.proj_type != PROJECTOR_TYPE_QWEN3VL) {
++            throw std::runtime_error("WA caption-v2 requires Qwen3VL vision projector");
+         }
+ 
+         const bool is_vision    = model.modality == CLIP_MODALITY_VISION;
+@@ -1670,13 +1688,21 @@
+                 case PROJECTOR_TYPE_QWEN3VL:
+                 case PROJECTOR_TYPE_LING3VL:
+                     {
+-                        hparams.n_merge = 2; // default value for Qwen 2 and 2.5
++                        hparams.n_merge = 2; // metadata is mandatory for this fixed candidate
+                         hparams.image_resize_algo = RESIZE_ALGO_BICUBIC;
+-                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
++                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, true);
++                        if (hparams.patch_size != 16 || hparams.n_merge != 2 ||
++                                hparams.custom_image_min_tokens != 8 || hparams.custom_image_max_tokens != 256) {
++                            throw std::runtime_error("WA caption-v2 projector metadata/token policy mismatch");
++                        }
+                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
+                         // ref: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
+                         hparams.set_limit_image_tokens(8, 4096);
+-                        hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
++                        hparams.set_warmup_n_tokens(46*46); // clamped by the required custom max
++                        if (hparams.image_min_pixels != 8192 || hparams.image_max_pixels != 262144 ||
++                                hparams.warmup_image_size != 512) {
++                            throw std::runtime_error("WA caption-v2 preprocessing/warmup limit");
++                        }
+                         const int warn_min_pixels = 1024 * hparams.n_merge * hparams.n_merge * hparams.patch_size * hparams.patch_size;
+                         if (hparams.image_min_pixels < warn_min_pixels) {
+                             LOG_WRN("%s: Qwen-VL models require at minimum 1024 image tokens to function correctly on grounding tasks\n", __func__);
+@@ -4006,6 +4032,9 @@
+             /* skip_tensors */ false,
+             ctx_params.progress_callback,
+             ctx_params.progress_callback_user_data);
++        if (!loader.has_vision || loader.has_audio || loader.has_gen_audio) {
++            throw std::runtime_error("WA caption-v2 requires vision-only projector");
++        }
+         bool skip_audio = false;
+ 
+         if (loader.has_vision) {
+diff --git a/tools/mtmd/mtmd-image.cpp b/tools/mtmd/mtmd-image.cpp
+--- a/tools/mtmd/mtmd-image.cpp
++++ b/tools/mtmd/mtmd-image.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <stdexcept>
+ #include <vector>
+ 
+ void mtmd_image_preproc_out::append(const clip_hparams & hparams, const clip_image_u8 & img, bool normalized) {
+@@ -770,6 +771,12 @@
+ //
+ 
+ mtmd_image_preproc_out mtmd_image_preprocessor_dyn_size::preprocess(const clip_image_u8 & img) const {
++    // The Go caller supplies a complete-content, padded square canvas.
++    const auto input_size = img.get_size();
++    if (input_size.width != 512 || input_size.height != 512 || hparams.patch_size != 16 || hparams.n_merge != 2 ||
++            hparams.image_min_pixels != 8192 || hparams.image_max_pixels != 262144) {
++        throw std::runtime_error("WA caption-v2 requires bounded 512-square canvas");
++    }
+     GGML_ASSERT(hparams.image_min_pixels > 0 && hparams.image_max_pixels > 0);
+     clip_image_u8 resized_image;
+     const clip_image_size original_size = img.get_size();
+@@ -783,6 +790,13 @@
+             /* max_pixels   */ hparams.image_max_pixels,
+             /* longest_edge */ 0,
+         });
++    if (target_size.width < 32 || target_size.height < 32 ||
++            target_size.width > 512 || target_size.height > 512 ||
++            target_size.width % 32 != 0 || target_size.height % 32 != 0 ||
++            int64_t(target_size.width) * target_size.height > 262144 ||
++            (target_size.width / 32) * (target_size.height / 32) > 256) {
++        throw std::runtime_error("WA caption-v2 resized image limit");
++    }
+     img_tool::resize(img, resized_image, target_size,
+                         hparams.image_resize_algo,
+                         hparams.image_resize_pad,

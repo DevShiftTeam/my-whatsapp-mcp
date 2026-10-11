@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "unsigned_local_bundle",
+  "platform": "darwin-arm64",
+  "release_ready": false,
+  "status": "NOT_RUN",
+  "source_revision": null,
+  "selected_encoder_profile": null,
+  "artifacts": [],
+  "required_roles": [
+    "application",
+    "native_worker",
+    "native_runtime",
+    "license",
+    "third_party_notices"
+  ],
+  "ui": "embedded_in_application",
+  "qualification": "No audited native bundle inputs are selected. Assembly must reject this incomplete manifest. Candidate weights are installed separately only by explicit owner action.",
+  "pending_gates": [
+    "artifact_hash_and_size_audit",
+    "bundle_relative_dylib_audit",
+    "restricted_PATH_clean_machine_launch",
+    "complete_distribution_license_audit"
+  ],
+  "bundle_ready": false
+}

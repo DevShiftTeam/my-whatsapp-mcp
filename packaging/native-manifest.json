@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "kind": "feasibility_component_registry",
+  "release_ready": false,
+  "platform": {
+    "os": "darwin",
+    "architecture": "arm64"
+  },
+  "go_version": "go1.27.1",
+  "dependencies": [
+    {
+      "name": "whatsmeow",
+      "version": "v0.0.0-20261005195255-6bb48c0f1ff0",
+      "source_revision": "6bb48c0f1ff07cae4a2da3dad3fd0e94fdba1d64",
+      "license_status": "complete_dependency_audit_NOT_RUN"
+    },
+    {
+      "name": "official-go-mcp-sdk",
+      "version": "v1.8.0",
+      "license": "MIT and Apache-2.0 contribution terms; documentation CC-BY-4.0; retain exact upstream LICENSE"
+    },
+    {
+      "name": "go-sqlite3",
+      "version": "v1.14.52",
+      "license": "MIT"
+    }
+  ],
+  "native_components": [
+    {
+      "name": "sqlite-vec",
+      "version": "v0.1.9",
+      "status": "vendored_stable_core_development_smoke",
+      "notices": "internal/sqlitevec/NOTICE.md",
+      "source": "internal/sqlitevec/sqlite-vec.c"
+    },
+    {
+      "name": "embedding-native",
+      "manifest": "packaging/embedding-manifest.json",
+      "notices": "packaging/embedding-notices/README.md",
+      "status": "darwin_arm64_fp32_development_profile"
+    },
+    {
+      "name": "media-native",
+      "manifest": "packaging/media-manifest.json",
+      "status": "explicit_candidates_only"
+    }
+  ],
+  "models": [
+    {
+      "name": "intfloat/multilingual-e5-small",
+      "manifest": "packaging/embedding-manifest.json"
+    },
+    {
+      "name": "intfloat/multilingual-e5-small-arm64-int8-candidate",
+      "manifest": "packaging/embedding-manifest-arm64-int8.json",
+      "status": "measured_native_inference_pass_reference_drift_fail_not_release_default"
+    },
+    {
+      "name": "image_and_speech_candidates",
+      "manifest": "packaging/media-manifest.json"
+    }
+  ],
+  "artifact_contract": {
+    "required_fields": [
+      "name",
+      "version",
+      "source_revision",
+      "sha256",
+      "size_bytes",
+      "license",
+      "relative_path"
+    ],
+    "source_revision": "immutable_commit_or_exact_release",
+    "sha256": "64_lowercase_hex_characters",
+    "relative_path": "package_relative_regular_file",
+    "verification": "must_match_installed_artifact_before_release"
+  },
+  "research_references": {
+    "whatsmeow": "6bb48c0f1ff07cae4a2da3dad3fd0e94fdba1d64",
+    "sqlite_vec": "v0.1.9",
+    "ivrit_ai_whisper_ggml": "2130c78e4a9cb4914cc4df91a1c3031407789705"
+  },
+  "qualification": "component_references_are_not_a_release_bundle_or_complete_license_audit; local_assets_require_hash_verification; no_implicit_downloads",
+  "unverified_release_gates": [
+    "8gib_reference_hardware",
+    "arm64_int8_profile",
+    "human_hebrew_media_quality",
+    "aggregate_media_resources",
+    "clean_machine_installation",
+    "restricted_decoder_package",
+    "full_distribution_license_audit",
+    "real_client_and_oauth_compatibility"
+  ],
+  "source_license": "GPL-3.0-only",
+  "source_license_file": "LICENSE",
+  "third_party_notices": "THIRD_PARTY_NOTICES"
+}

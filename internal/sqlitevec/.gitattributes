@@ -1,0 +1,3 @@
+# Preserve the checksum-verified upstream amalgamation byte for byte, including
+# its existing whitespace. Handwritten integration files retain normal checks.
+sqlite-vec.c -whitespace

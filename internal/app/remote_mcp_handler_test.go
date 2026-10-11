@@ -1,0 +1,224 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+)
+
+func borrowedRemoteMCPTestApp(handler http.Handler) *Application {
+	return &Application{mcpEnabled: true, queryContext: context.Background(),
+		mcpConfig: MCPConfig{Remote: &RemoteMCPConfig{Server: mcpserver.Config{Mode: mcpserver.Bearer}}},
+		mcp:       &mcpListeners{remoteState: "ready", remoteStarted: true, remoteHandler: handler}}
+}
+
+func borrowedRemoteMCPRequest(token, body string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "https://mcp.example.com/mcp", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Accept", "application/json, text/event-stream")
+	return r
+}
+
+func TestRemoteMCPHandlerDeniesUnpublishedAuthority(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*Application)
+	}{
+		{"closed", func(a *Application) { a.closed = true }},
+		{"disabled", func(a *Application) { a.mcpEnabled = false }},
+		{"missing_owner", func(a *Application) { a.mcp = nil }},
+		{"not_ready", func(a *Application) { a.mcp.remoteState = "unavailable" }},
+		{"not_configured", func(a *Application) { a.mcpConfig.Remote = nil }},
+		{"wrong_auth_mode", func(a *Application) { a.mcpConfig.Remote.Server.Mode = mcpserver.LocalAdapter }},
+		{"pending_recovery", func(a *Application) { a.remoteRecoveryPending = true }},
+		{"invalid_journal", func(a *Application) { a.authState.RemoteInvalid = true }},
+		{"missing_handler", func(a *Application) { a.mcp.remoteHandler = nil }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			a := borrowedRemoteMCPTestApp(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			test.mutate(a)
+			response := httptest.NewRecorder()
+			a.RemoteMCPHandler().ServeHTTP(response, borrowedRemoteMCPRequest("private-token-SENTINEL", "private-body-SENTINEL"))
+			if response.Code != http.StatusServiceUnavailable || calls.Load() != 0 || strings.Contains(response.Body.String(), "SENTINEL") || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("unpublished remote transport reached private authority")
+			}
+		})
+	}
+}
+
+func TestRemoteMCPHandlerSharesCurrentOwnedHandlerAndRechecksReset(t *testing.T) {
+	var first, second atomic.Int32
+	a := borrowedRemoteMCPTestApp(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		first.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler := a.RemoteMCPHandler()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, borrowedRemoteMCPRequest("bounded", "{}"))
+	if response.Code != http.StatusNoContent || first.Load() != 1 {
+		t.Fatal("ready borrowed transport did not use the owned handler")
+	}
+	a.data.Lock()
+	a.mcp.remoteHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		second.Add(1)
+		w.WriteHeader(http.StatusAccepted)
+	})
+	a.data.Unlock()
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, borrowedRemoteMCPRequest("bounded", "{}"))
+	if response.Code != http.StatusAccepted || first.Load() != 1 || second.Load() != 1 {
+		t.Fatal("borrowed transport cached a replaced resource handler")
+	}
+	a.data.Lock()
+	if err := a.closeMCP(context.Background()); err != nil {
+		a.data.Unlock()
+		t.Fatal("bounded remote unpublication failed")
+	}
+	a.data.Unlock()
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, borrowedRemoteMCPRequest("bounded", "{}"))
+	if response.Code != http.StatusServiceUnavailable || first.Load() != 1 || second.Load() != 1 {
+		t.Fatal("reset kept a stale borrowed resource handler reachable")
+	}
+}
+
+func TestRemoteMCPHandlerRejectsLifecycleContentionBeforeAdmission(t *testing.T) {
+	var calls atomic.Int32
+	a := borrowedRemoteMCPTestApp(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	a.data.Lock()
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.RemoteMCPHandler().ServeHTTP(response, borrowedRemoteMCPRequest("anonymous-SENTINEL", "private-body-SENTINEL"))
+	}()
+	select {
+	case <-done:
+		a.data.Unlock()
+	case <-time.After(time.Second):
+		a.data.Unlock()
+		<-done
+		t.Fatal("lifecycle contention queued public request before bounded admission")
+	}
+	if response.Code != http.StatusServiceUnavailable || calls.Load() != 0 || strings.Contains(response.Body.String(), "SENTINEL") || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("lifecycle contention reached archive authority")
+	}
+}
+
+func TestRemoteMCPHandlerJoinsRequestCancellationBeforeResourceMutation(t *testing.T) {
+	entered := make(chan struct{})
+	released := make(chan struct{})
+	query, cancelQuery := context.WithCancel(context.Background())
+	defer cancelQuery()
+	a := borrowedRemoteMCPTestApp(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		select {
+		case <-r.Context().Done():
+		case <-released:
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	a.queryContext = query
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		a.RemoteMCPHandler().ServeHTTP(httptest.NewRecorder(), borrowedRemoteMCPRequest("bounded", "{}"))
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		close(released)
+		t.Fatal("borrowed transport never entered the owned handler")
+	}
+	if a.data.TryLock() {
+		a.data.Unlock()
+		close(released)
+		<-requestDone
+		t.Fatal("resource mutation overlapped a borrowed request")
+	}
+	cancelQuery()
+	select {
+	case <-requestDone:
+	case <-time.After(time.Second):
+		close(released)
+		<-requestDone
+		t.Fatal("archive query cancellation did not stop borrowed request")
+	}
+	if !a.data.TryLock() {
+		t.Fatal("finished request retained the resource read lock")
+	}
+	a.data.Unlock()
+}
+
+func TestRemoteMCPHandlerPublishesOnlyRemoteScopedCredentials(t *testing.T) {
+	a := remoteConnectionTestApp(t)
+	ownerHits, err := a.Search(context.Background(), archive.SearchRequest{Query: "Atlas", Limit: 10})
+	if err != nil || len(ownerHits.Hits) == 0 {
+		t.Fatal("synthetic scoped fixture unavailable")
+	}
+	expiry := time.Now().Add(time.Hour)
+	connection, err := a.CreateConnection(context.Background(), localui.ConnectionRequest{Client: "codex_cli", Label: "borrowed remote scoped", Mode: "remote", Chats: []archive.ChatID{ownerHits.Hits[0].ChatID}, ExpiresAt: &expiry})
+	if err != nil {
+		t.Fatal("synthetic scoped credential creation failed")
+	}
+	secret, err := a.RevealRemoteCredential(context.Background(), localui.ConnectionRevealRequest{ID: connection.ID, Revision: connection.Revision})
+	if err != nil {
+		t.Fatal("synthetic scoped credential reveal failed")
+	}
+	_, _, err = a.IssueNativeClientConfig(context.Background(), archive.CredentialCreate{Label: "borrowed native separate", Policy: archive.CredentialPolicy{AllChats: true}, ExpiresAt: expiry}, "", mcpserver.NativeAdapterEndpoint)
+	if err != nil {
+		t.Fatal("synthetic native credential creation failed")
+	}
+	native, _, err := a.readNativeFile(a.authState.NativeClients[0].ConfigName)
+	if err != nil {
+		t.Fatal("synthetic native fixture unavailable")
+	}
+	handler := a.RemoteMCPHandler()
+	call := func(token, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRecorder()
+		handler.ServeHTTP(r, borrowedRemoteMCPRequest(token, body))
+		return r
+	}
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"bounded-borrowed-test","version":"1"}}}`
+	if status := call(secret.Token, initialize).Code; status != http.StatusOK {
+		t.Fatalf("published remote credential did not initialize: status %d", status)
+	}
+	if status := call(native.Token, initialize).Code; status != http.StatusUnauthorized {
+		t.Fatalf("native credential crossed borrowed remote transport: status %d", status)
+	}
+	allowed := call(secret.Token, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_messages","arguments":{"query":"Atlas","limit":10}}}`)
+	if allowed.Code != http.StatusOK || !strings.Contains(allowed.Body.String(), "Project Atlas") {
+		t.Fatal("scoped borrowed remote search lost permitted fixture")
+	}
+	excluded := call(secret.Token, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_messages","arguments":{"query":"Travel","limit":10}}}`)
+	if excluded.Code != http.StatusOK || strings.Contains(excluded.Body.String(), "Travel planning") {
+		t.Fatal("scoped borrowed remote search exposed excluded fixture")
+	}
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(excluded.Body.Bytes(), &envelope) != nil || envelope["error"] != nil {
+		t.Fatal("excluded search failed instead of enforcing a readable empty scope")
+	}
+	if err = a.RevokeConnection(context.Background(), localui.ConnectionRevokeRequest{ID: connection.ID, Revision: connection.Revision}); err != nil {
+		t.Fatal("bounded remote credential revocation failed")
+	}
+	if status := call(secret.Token, initialize).Code; status != http.StatusUnauthorized {
+		t.Fatalf("revoked remote credential remained accepted: status %d", status)
+	}
+}

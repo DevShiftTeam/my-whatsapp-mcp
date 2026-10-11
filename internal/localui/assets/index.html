@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WhatsApp archive</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#search-query">Skip to search</a>
+  <section id="auth-screen" class="auth-screen" aria-labelledby="auth-title">
+    <div class="archive-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v12H9l-4 4V4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8h6M9 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+    <h1 id="auth-title">WA Indexer</h1>
+    <p id="auth-message" role="status" aria-live="polite">Opening your private owner session…</p>
+    <form id="admin-login-form" class="admin-login-form" hidden>
+      <label for="admin-password">Admin password</label>
+      <input id="admin-password" name="password" type="password" dir="auto" autocomplete="current-password" maxlength="512" aria-describedby="admin-password-help admin-login-feedback" required>
+      <p id="admin-password-help" class="field-help">Sign in to access your archive and manage AI connections.</p>
+      <p id="admin-login-feedback" class="feedback" role="status" aria-live="polite"></p>
+      <button id="admin-login-submit" class="primary" type="submit">Sign in</button>
+      <p class="admin-login-footnote">Private archive · <span lang="he" dir="rtl">ארכיון פרטי</span></p>
+    </form>
+  </section>
+  <main id="workspace" hidden>
+    <header class="topbar">
+      <div class="identity"><span class="archive-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v12H9l-4 4V4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8h6M9 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><h1>WA Indexer</h1><p>Your private WhatsApp archive</p></div></div>
+      <div class="top-actions"><span id="demo-label" class="demo-label" hidden>Synthetic demo</span><span class="local-label"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="4" y="8" width="12" height="9" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 8V5a3.5 3.5 0 0 1 7 0v3" stroke="currentColor" stroke-width="1.5"/></svg>Stored on this computer</span><button id="admin-logout" class="secondary" type="button" hidden>Sign out</button></div>
+    </header>
+    <div class="app-layout">
+    <aside class="archive-rail" aria-label="Archive controls">
+      <section class="connection-summary"><span class="status-name">WhatsApp connection</span><div class="connection-line"><span id="connection-dot" class="status-dot" aria-hidden="true"></span><strong id="connection-status">Checking connection</strong></div><button id="connection-open" class="text-button" type="button">Connection details</button></section>
+      <section class="archive-summary" aria-label="Archive status"><div class="saved-total"><strong id="messages-count">—</strong><span>Saved messages</span></div><div class="rail-detail"><span id="coverage-status">Waiting for history</span><p id="history-detail">Only received messages can be searched.</p></div><div class="search-readiness"><span>Keyword search</span><strong id="keyword-status">Checking</strong><p id="keyword-detail"></p></div></section>
+      <nav class="archive-navigation" aria-label="Settings"><button id="settings-open" type="button"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="5" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.5"/><circle cx="13" cy="10" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="15" r="2" fill="var(--paper)" stroke="currentColor" stroke-width="1.5"/></svg>Chats and dates</button><button id="models-open" type="button"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="m4 14 4-4 3 3 3-5 3 6" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="7" r="1" fill="currentColor"/></svg>Models and media</button><button id="clients-open" type="button"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 7V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v3M7 13v3a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-3M7 7h6v6H7V7Z" stroke="currentColor" stroke-width="1.5"/><path d="M2 10h5m6 0h5" stroke="currentColor" stroke-width="1.5"/></svg>AI connections</button></nav>
+      <div class="optional-status"><span>Optional local AI</span><p id="semantic-status">Semantic search off</p><p id="media-status">Media extraction off</p></div>
+      <button id="pause-toggle" class="text-button rail-pause" type="button">Pause import</button>
+    </aside>
+    <section class="search-space" aria-label="Search archive">
+      <div class="archive-heading"><div><h2>Your archive</h2><p>Find a conversation, a detail, or a moment.</p></div><span class="language-note">עברית / English</span></div>
+      <section id="import-panel" class="import-panel" aria-labelledby="import-title" aria-live="polite">
+        <div class="import-panel-heading"><span id="import-symbol" class="import-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><h3 id="import-title">Checking your archive</h3><p id="import-description">Checking your connection and saved messages…</p></div></div>
+        <ol id="import-progress" class="import-progress" aria-label="Setup progress"><li id="progress-link"><span class="step-marker" aria-hidden="true">1</span><div><strong>Link WhatsApp</strong><span id="progress-link-detail">Scan a code with your phone</span></div></li><li id="progress-choose"><span class="step-marker" aria-hidden="true">2</span><div><strong>Choose chats</strong><span id="progress-choose-detail">Keep the conversations you need</span></div></li><li id="progress-import"><span class="step-marker" aria-hidden="true">3</span><div><strong>Receive messages</strong><span id="progress-import-detail">Search as messages arrive</span></div></li></ol>
+        <div class="import-actions"><button id="import-action" class="primary" type="button" disabled>Checking status</button><button id="import-check" class="text-button" type="button" hidden>Check import status</button></div>
+        <p id="import-feedback" class="feedback" role="status"></p>
+      </section>
+      <p id="status-notice" class="notice" role="status" hidden></p>
+      <div id="search-content" hidden>
+      <form id="search-form" class="search-bar">
+        <div class="query-field"><label for="search-query">Find a message</label><input id="search-query" name="query" type="search" dir="auto" autocomplete="off" maxlength="4096" placeholder="A name, phrase, place, or number" required></div>
+        <button id="search-submit" class="primary" type="submit">Search</button>
+        <button id="filters-toggle" class="secondary" type="button" aria-expanded="false" aria-controls="search-filters">Filters</button>
+        <div id="search-filters" class="search-filters" hidden>
+          <label for="search-chat">Chat<select id="search-chat"><option value="">All included chats</option></select></label>
+          <label for="search-from">From, inclusive<input id="search-from" type="date"></label>
+          <label for="search-until">Through, inclusive<input id="search-until" type="date"></label>
+        </div>
+      </form>
+      <p id="search-feedback" class="feedback" role="status" aria-live="polite">Search your saved messages in Hebrew or English.</p>
+      <div class="conversation-workspace">
+        <section class="results-pane" aria-labelledby="results-title">
+          <div class="pane-heading"><h2 id="results-title">Messages</h2><span id="result-count"></span></div>
+          <div id="results-empty" class="empty-state"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="14" cy="14" r="8" stroke="currentColor" stroke-width="1.5"/><path d="m20 20 7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><h3>What are you looking for?</h3><p>Search a phrase, a name, or a number in Hebrew or English.</p></div>
+          <ol id="search-results" class="search-results"></ol>
+          <button id="search-more" class="secondary more-button" type="button" hidden>Show more messages</button>
+        </section>
+        <section class="context-pane" aria-labelledby="context-title" tabindex="-1">
+          <div class="pane-heading"><h2 id="context-title">Conversation</h2><button id="context-copy" class="text-button" type="button" hidden>Copy visible messages</button></div>
+          <p id="context-feedback" class="context-feedback" role="status">Choose a result to read the messages around it.</p>
+          <div id="conversation-messages" class="conversation-messages"></div>
+        </section>
+      </div>
+      </div>
+      <footer class="workspace-footer"><p>WhatsApp delivers the history available to this linked device. Older messages may be missing.</p></footer>
+    </section>
+    </div>
+  </main>
+
+  <dialog id="settings-dialog" aria-labelledby="settings-title">
+    <div class="dialog-heading"><div><h2 id="settings-title">Chats and dates</h2><p id="settings-intro">Choose the conversations and dates to keep on this computer.</p></div><button id="settings-close" class="icon-button" type="button" aria-label="Close archive settings">×</button></div>
+    <form id="policy-form">
+      <p id="policy-change-notice" class="field-help" hidden>Saving a narrower date range or fewer chats removes saved messages outside those choices. Older messages may not return if you later expand the archive.</p>
+      <fieldset><legend>Import messages from</legend><div class="date-options">
+        <label><input type="radio" name="date-mode" value="30" checked><span>Last 30 days</span></label>
+        <label><input type="radio" name="date-mode" value="90"><span>Last 90 days</span></label>
+        <label><input type="radio" name="date-mode" value="custom"><span>A date I choose</span></label>
+        <label><input type="radio" name="date-mode" value="all"><span>All available history</span></label>
+      </div><label id="custom-date-label" class="stacked-label" for="import-start" hidden>Start date, inclusive<input id="import-start" type="date"></label><p class="field-help">The start date is included. WhatsApp may deliver less history than you request; older messages are never guaranteed.</p></fieldset>
+      <fieldset id="chat-policy-fieldset"><legend>Chats to archive</legend><div class="chat-options"><label><input type="radio" name="chat-mode" value="all">All chats</label><label><input type="radio" name="chat-mode" value="selective" checked>Only chats I select</label></div>
+        <div id="selective-panel" hidden><p class="notice">Messages are saved only from the chats you select. While discovering chats, the app keeps their names and discards message bodies. Older history may be unavailable when you add a chat.</p><div id="chat-choices" class="chat-choices"></div><p id="chat-discovery-note" class="field-help">Link WhatsApp to discover chats. With no chat selected, no message bodies are saved.</p><button id="refresh-chats" class="text-button" type="button">Refresh discovered chats</button></div>
+      </fieldset>
+      <details class="retention-settings"><summary>Optional ongoing retention</summary><label class="stacked-label" for="retention-days">Keep messages for this many days<input id="retention-days" type="number" min="0" max="36500" value="0"></label><p class="field-help">Use 0 to keep imported messages. This ongoing deletion rule is separate from the initial import date.</p></details>
+      <p id="policy-feedback" class="feedback" role="status" aria-live="polite"></p>
+      <div class="dialog-actions"><button id="save-policy" class="primary" type="submit">Save choices</button></div>
+    </form>
+    <div class="data-settings"><h3>Local data</h3><p>Disconnecting keeps the archive. Deleting local data removes the archive, linked session, pairing, and client material on this computer.</p><button id="delete-open" class="danger-text" type="button">Delete all local data</button></div>
+  </dialog>
+
+  <dialog id="connection-dialog" aria-labelledby="connection-title">
+    <div class="dialog-heading"><div><h2 id="connection-title">Link WhatsApp</h2><p id="pairing-status">Your import choices are saved.</p></div><button id="connection-close" class="icon-button" type="button" aria-label="Close connection">×</button></div>
+    <div id="pairing-code" class="pairing-code" hidden><img id="pairing-qr" alt="WhatsApp linked-device pairing QR code" width="256" height="256"><p>On your phone, open WhatsApp → Linked devices → Link a device.</p><p id="pairing-expiry" class="field-help"></p></div>
+    <p id="connection-help" class="field-help">The pairing code is private to this owner session. Link only an account you own or have permission to archive.</p>
+    <p id="connection-scope" class="notice">No chats selected; choose after linking.</p>
+    <div id="connection-progress" class="connection-progress" hidden><span class="activity-dot" aria-hidden="true"></span><p id="connection-progress-text">Waiting for WhatsApp to send your chats.</p></div>
+    <p id="pairing-feedback" class="feedback" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="pairing-start" class="primary" type="button">Show linking code</button><button id="connection-settings" class="primary" type="button" hidden>Choose chats</button><button id="connection-check" class="secondary" type="button" hidden>Check import status</button><button id="disconnect" class="secondary" type="button">Disconnect WhatsApp</button></div>
+  </dialog>
+
+  <dialog id="models-dialog" aria-labelledby="models-title">
+    <div class="dialog-heading"><div><h2 id="models-title">Models and media</h2><p>Manage the pinned resources stored on this computer.</p></div><button id="models-close" class="icon-button" type="button" aria-label="Close Models and media">×</button></div>
+    <p class="notice model-notice">Downloading or verifying a resource does not enable local AI. Choose eligible components explicitly below. Keyword search works without these models.</p>
+    <div class="model-readiness"><p id="models-semantic">Semantic search: checking status</p><p id="models-media">Media extraction: checking status</p></div>
+    <section class="original-budget" aria-labelledby="local-ai-title">
+      <h3 id="local-ai-title">Local AI</h3>
+      <p id="local-ai-status" class="field-help" role="status" aria-live="polite">Checking the current local AI choice…</p>
+      <p id="local-ai-choice" class="field-help"></p>
+      <p class="notice">Preview is experimental and does not pass release qualification. Existing encoder memory and numerical failures remain; 8 GiB hardware, Hebrew and media quality checks are still pending.</p>
+      <form id="local-ai-form">
+        <label class="stacked-label" for="local-ai-mode">Use local AI<select id="local-ai-mode"><option value="off">Off</option><option value="preview" disabled>Preview · experimental</option><option value="accepted" disabled>Qualified · unavailable</option></select></label>
+        <div class="client-fields"><label for="local-ai-encoder">Semantic search<select id="local-ai-encoder"><option value="">Off</option></select></label><label for="local-ai-ocr">Text in images<select id="local-ai-ocr"><option value="">Off</option></select></label></div>
+        <label class="chat-choice"><input id="local-ai-caption" type="checkbox"><span>Generated image descriptions</span></label>
+        <label class="stacked-label" for="local-ai-speech">Voice transcription<select id="local-ai-speech"><option value="">Off</option></select></label>
+        <p id="local-ai-options" class="field-help"></p>
+        <p class="field-help">Off stops AI work after safe cleanup and keeps saved messages, media and search data. An unavailable saved choice stays saved; use Apply to retry when eligible resources are available.</p>
+        <p id="local-ai-feedback" class="feedback" role="status" aria-live="polite"></p>
+        <button id="local-ai-save" class="secondary" type="submit" disabled>Apply local AI choice</button>
+      </form>
+    </section>
+    <p id="models-feedback" class="feedback" role="status" aria-live="polite"></p>
+    <div id="model-list" class="model-list"></div>
+    <button id="models-refresh" class="text-button" type="button">Refresh model state</button>
+    <section class="original-budget" aria-labelledby="original-budget-title"><h3 id="original-budget-title">Original media storage</h3><p id="original-budget-summary" class="field-help">Checking stored files and reservations…</p><p id="original-budget-pressure" class="notice" hidden></p><form id="original-budget-form"><div class="client-fields"><label for="original-budget-preset">Storage limit<select id="original-budget-preset"><option value="64">64 MiB</option><option value="512">512 MiB</option><option value="2048">2 GiB</option><option value="8192">8 GiB</option><option value="custom">A size I choose</option></select></label><label for="original-budget-unit">Unit<select id="original-budget-unit"><option value="mib">MiB</option><option value="gib">GiB</option></select></label></div><label class="stacked-label" for="original-budget-size">Whole number of selected units<input id="original-budget-size" type="number" min="64" max="1048576" step="1" required inputmode="numeric"></label><p class="field-help">Allowed limits: 64 MiB to 1 TiB. Lowering the limit does not delete files immediately. New originals wait for safe cleanup; saved message text remains searchable.</p><p id="original-budget-feedback" class="feedback" role="status" aria-live="polite"></p><button id="original-budget-save" class="secondary" type="submit" disabled>Save media storage limit</button></form></section>
+  </dialog>
+
+  <dialog id="clients-dialog" aria-labelledby="clients-title">
+    <div class="dialog-heading"><div><h2 id="clients-title">AI connections</h2><p>Give an AI client read access to a scope you choose.</p></div><button id="clients-close" class="icon-button" type="button" aria-label="Close AI connections">×</button></div>
+    <p class="notice">Search results may be sent to the AI service you use. Choose the smallest scope you need. Setup instructions remain unverified until the exact client makes a successful call.</p>
+    <p id="clients-availability" class="field-help">Checking available connections…</p>
+    <p id="clients-feedback" class="feedback" role="status" aria-live="polite"></p>
+    <div id="client-list" class="model-list"></div>
+    <button id="clients-refresh" class="text-button" type="button">Refresh connections</button>
+    <details id="client-create-panel" class="client-create-panel"><summary>Create a read-only connection</summary>
+      <form id="client-form">
+        <div class="client-fields"><label for="client-choice">AI client<select id="client-choice"><option value="codex_cli">Codex CLI</option><option value="codex_desktop">Codex desktop</option><option value="claude_code">Claude Code</option><option value="claude_connectors">Claude connectors</option><option value="composio">Composio</option></select></label><label for="client-mode">Connection mode<select id="client-mode"><option value="local">Local, on this computer</option><option value="remote">Remote, configured by this app</option></select></label></div>
+        <p id="client-choice-help" class="field-help"></p>
+        <p id="client-remote-notice" class="notice" hidden>Remote search results pass through your configured HTTPS tunnel and the receiving AI service. Keep this computer and the app running. The endpoint comes from the app's launch settings; this wizard does not create a tunnel or cloud account.</p>
+        <label class="stacked-label" for="client-label">A name for this connection<input id="client-label" maxlength="128" autocomplete="off" dir="auto" required placeholder="For example, my laptop Codex"></label>
+        <fieldset><legend>Chats this client may read</legend><div class="chat-options"><label><input type="radio" name="client-scope" value="finite" checked>Only chats I select</label><label><input type="radio" name="client-scope" value="all">All archived chats, current and future</label></div><p id="client-all-warning" class="notice" hidden>This grants access to every chat you archive now or later, within the dates below. Changing your archive settings can make more chats available to this client.</p><div id="client-chat-panel"><div id="client-chat-choices" class="chat-choices"></div><p id="client-chat-note" class="field-help">Choose at least one archived chat. Unselected chats are excluded.</p></div></fieldset>
+        <div class="client-fields"><label for="client-from">From, inclusive<input id="client-from" type="date"></label><label for="client-through">Through, inclusive<input id="client-through" type="date"></label></div>
+        <p class="field-help">Leave dates empty to allow all dates your archive keeps. These choices cannot expand the archive itself.</p>
+        <label class="stacked-label" for="client-expiry">Access expires at<input id="client-expiry" type="datetime-local" required></label>
+        <div class="dialog-actions"><button id="client-create" class="primary" type="submit" disabled>Create read-only connection</button></div>
+      </form>
+    </details>
+    <section id="client-guide" class="client-guide" aria-labelledby="client-guide-title" hidden><h3 id="client-guide-title">Client setup</h3><p id="client-guide-status" class="model-state"></p><p id="client-guide-explanation"></p><div id="client-guide-remote" class="client-guide-remote" hidden><label class="stacked-label" for="client-guide-url">MCP server URL<input id="client-guide-url" type="text" dir="ltr" readonly autocomplete="off" spellcheck="false"></label><div class="model-actions"><button id="client-copy-url" class="secondary" type="button" disabled>Copy URL</button><button id="client-guide-reveal" class="secondary" type="button" disabled>Reveal remote token</button></div><p class="field-help">Use this URL and the private token for this connection in your AI client.</p></div><div id="client-guide-warnings"></div><p id="client-guide-placement" class="field-help"></p><label class="stacked-label" for="client-guide-config">Configuration, for this client only<textarea id="client-guide-config" readonly spellcheck="false" rows="6"></textarea></label><button id="client-copy-config" class="text-button" type="button">Copy configuration</button><label class="stacked-label" for="client-guide-command">Optional setup command<textarea id="client-guide-command" readonly spellcheck="false" rows="3"></textarea></label><button id="client-copy-command" class="text-button" type="button">Copy command</button><p id="client-guide-test" class="field-help"></p><p id="client-guide-revoke" class="field-help"></p><p id="client-guide-version" class="field-help"></p></section>
+  </dialog>
+
+  <dialog id="client-secret-dialog" aria-labelledby="client-secret-title">
+    <div class="dialog-heading"><div><h2 id="client-secret-title">Copy remote access token</h2><p>This token grants the scope of this connection. Paste it only into the selected client's private credential setting.</p></div><button id="client-secret-close" class="icon-button" type="button" aria-label="Close private token copy">×</button></div>
+    <p class="notice">Treat this as a password. Closing this window clears its token field. Revoking the connection stops access even if a copied token still exists.</p>
+    <p class="field-help">Configured endpoint: <bdi id="client-secret-url" dir="ltr"></bdi></p>
+    <p id="client-secret-expiry" class="field-help"></p>
+    <label class="stacked-label" for="client-secret-token">Private token<input id="client-secret-token" type="text" dir="ltr" readonly autocomplete="off" spellcheck="false"></label>
+    <p id="client-secret-feedback" class="feedback" role="status" aria-live="polite"></p>
+    <div class="dialog-actions"><button id="client-secret-copy" class="primary" type="button" disabled>Copy token and close</button></div>
+  </dialog>
+
+  <dialog id="delete-dialog" aria-labelledby="delete-title">
+    <div class="dialog-heading"><div><h2 id="delete-title">Delete all local data?</h2><p>This removes your saved messages and linked session from this computer. It does not delete messages in WhatsApp.</p></div></div>
+    <form id="delete-form"><label class="stacked-label" for="delete-confirmation">Type <bdi>DELETE LOCAL DATA</bdi> to confirm<input id="delete-confirmation" autocomplete="off" spellcheck="false" required></label><p id="delete-feedback" class="feedback" role="status"></p><div class="dialog-actions"><button id="delete-confirm" class="danger" type="submit" disabled>Delete local data</button><button id="delete-cancel" class="secondary" type="button">Keep my archive</button></div></form>
+  </dialog>
+</body>
+</html>

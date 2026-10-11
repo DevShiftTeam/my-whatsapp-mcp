@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "model": "intfloat/multilingual-e5-small",
+  "model_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "precision": "fp32",
+  "profile": "darwin-arm64-fp32-bounded-experimental",
+  "dimension": 384,
+  "maximum_tokens": 256,
+  "query_prefix": "query: ",
+  "passage_prefix": "passage: ",
+  "pooling": "masked_mean",
+  "normalization": "l2",
+  "graph": {
+    "input_names": [
+      "input_ids",
+      "attention_mask",
+      "token_type_ids"
+    ],
+    "input_element_type": "int64",
+    "hidden_output_name": "last_hidden_state",
+    "output_element_type": "float32",
+    "output_rank": 3
+  },
+  "threads": {
+    "intra_op": 2,
+    "inter_op": 1,
+    "allow_spinning": false
+  },
+  "artifacts": {
+    "model": {
+      "url": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/onnx/model.onnx",
+      "sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+      "bytes": 470268510,
+      "license": "MIT"
+    },
+    "tokenizer": {
+      "url": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/tokenizer.json",
+      "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+      "bytes": 17082730,
+      "license": "MIT"
+    },
+    "onnx_runtime_archive": {
+      "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz",
+      "sha256": "b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856",
+      "license": "MIT plus ThirdPartyNotices.txt"
+    },
+    "onnx_runtime": {
+      "sha256": "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+      "member": "onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.1.23.2.dylib"
+    },
+    "tokenizer_archive": {
+      "url": "https://github.com/daulet/tokenizers/releases/download/v1.27.0/libtokenizers.darwin-arm64.tar.gz",
+      "sha256": "fb84b8b2e349a5952767ffe80ccd862fc44084de47f3b0cc3f0b7c9d4e649cf7",
+      "license": "HF native Apache-2.0; Go binding MIT; transitive audit open"
+    },
+    "tokenizer_static": {
+      "sha256": "c91ae814afb8fe4f000099972208f60c3aa2d13899a7cd5a31fee2e9e2efbac7",
+      "member": "libtokenizers.a"
+    }
+  },
+  "bindings": {
+    "onnxruntime_go": "v1.25.0",
+    "tokenizers": "v1.27.0",
+    "hf_tokenizers": "0.22"
+  },
+  "unverified_gates": [
+    "bounded_native_frozen_fp32_reference_parity",
+    "aggregate_loaded_peak_rss_1gib",
+    "unloaded_parent_rss_150mib",
+    "8gib_machine",
+    "common_x64_native_execution",
+    "balanced_hebrew_success_at_10_90_percent",
+    "clean_machine",
+    "signed_release",
+    "full_transitive_license_audit"
+  ],
+  "allocator": "bounded",
+  "tokenizer_loading": "from_file",
+  "release_selection": "not_selected_pending_resource_and_hardware_acceptance",
+  "resource_profile": {
+    "cpu_memory_arena": false,
+    "memory_pattern": false,
+    "loaded_aggregate_peak_limit_bytes": 1073741824,
+    "unloaded_parent_limit_bytes": 157286400,
+    "hardware_8gib": "not_run"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "run_id": "schema-fixture",
+  "os": "darwin",
+  "architecture": "arm64",
+  "revisions": {"go": "go1.23.3", "source": "4e56db292a585f89fd8afefd1770f7b138e1304c"},
+  "results": [
+    {"name": "history", "outcome": "NOT_RUN", "reason": "not_configured", "evidence_files": []},
+    {"name": "embed", "outcome": "NOT_RUN", "reason": "not_configured", "evidence_files": []},
+    {"name": "media", "outcome": "NOT_RUN", "reason": "not_configured", "evidence_files": []},
+    {"name": "mcp-fixture", "outcome": "NOT_RUN", "reason": "not_configured", "evidence_files": []}
+  ]
+}

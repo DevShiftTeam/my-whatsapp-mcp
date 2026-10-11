@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "allowed_hosts": [
+    "raw.githubusercontent.com",
+    "huggingface.co",
+    "cas-bridge.xethub.hf.co",
+    "cdn-lfs.huggingface.co",
+    "cdn-lfs-us-1.huggingface.co",
+    "us.aws.cdn.hf.co",
+    "us.gcp.cdn.hf.co"
+  ],
+  "profiles": [
+    {
+      "id": "darwin-arm64-fp32-feasibility",
+      "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "manifest": "packaging/embedding-manifest.json",
+      "manifest_sha256": "4523985f9b58b813b9337875e8bc4626a94c6b473b79d13d4209a42f441c9410",
+      "selection": "failed",
+      "platform": "darwin-arm64",
+      "license": "MIT",
+      "notices": "packaging/embedding-notices/README.md",
+      "gate_status": "memory_gate_failed",
+      "runtime_requirements": [
+        "onnxruntime 1.23.2 darwin-arm64; libonnxruntime.1.23.2.dylib sha256=d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+        "daulet/tokenizers v1.27.0 darwin-arm64; libtokenizers.a sha256=c91ae814afb8fe4f000099972208f60c3aa2d13899a7cd5a31fee2e9e2efbac7"
+      ],
+      "components": [
+        {
+          "id": "model",
+          "role": "model",
+          "filename": "model.onnx",
+          "url": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/onnx/model.onnx",
+          "sha256": "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665",
+          "bytes": 470268510,
+          "license": "MIT"
+        },
+        {
+          "id": "tokenizer",
+          "role": "tokenizer",
+          "filename": "tokenizer.json",
+          "url": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/tokenizer.json",
+          "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+          "bytes": 17082730,
+          "license": "MIT"
+        }
+      ]
+    },
+    {
+      "id": "darwin-arm64-dynamic-int8-feasibility",
+      "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "manifest": "packaging/embedding-manifest-arm64-int8.json",
+      "manifest_sha256": "a109191ae0bdbe406671efef5a491074f17e3f82594623784c539eb591d1e136",
+      "selection": "failed",
+      "platform": "darwin-arm64",
+      "license": "MIT",
+      "notices": "packaging/embedding-notices/README.md",
+      "gate_status": "numerical_reference_failed",
+      "runtime_requirements": [
+        "onnxruntime 1.23.2 darwin-arm64; libonnxruntime.1.23.2.dylib sha256=d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
+        "daulet/tokenizers v1.27.0 darwin-arm64; libtokenizers.a sha256=c91ae814afb8fe4f000099972208f60c3aa2d13899a7cd5a31fee2e9e2efbac7"
+      ],
+      "components": [
+        {
+          "id": "model",
+          "role": "model",
+          "filename": "model.onnx",
+          "url": "",
+          "sha256": "8da4c9ba0ad59f58e8566839425d7fd6339d31414d0ce5cba2d7d0afb75dd8b6",
+          "bytes": 118101091,
+          "license": "MIT"
+        },
+        {
+          "id": "tokenizer",
+          "role": "tokenizer",
+          "filename": "tokenizer.json",
+          "url": "https://huggingface.co/intfloat/multilingual-e5-small/resolve/614241f622f53c4eeff9890bdc4f31cfecc418b3/tokenizer.json",
+          "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+          "bytes": 17082730,
+          "license": "MIT"
+        }
+      ]
+    },
+    {
+      "id": "qwen3.5-0.8b-vision",
+      "revision": "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
+      "manifest": "packaging/media-native-manifest.json",
+      "manifest_sha256": "cca734091bfb996a5275c9e12f2e4ced749844fb28f82108baf1f2345be3770e",
+      "selection": "candidate",
+      "platform": "any",
+      "license": "Apache-2.0",
+      "notices": "THIRD_PARTY_NOTICES",
+      "gate_status": "NOT_RUN",
+      "runtime_requirements": [
+        "llama.cpp revision=4f5406761517648c23dbd60ea5ade37f77a316c9; CPU vision worker",
+        "llama CPU caption patch sha256=335fc4c0d9ad369a1d24e5f5efaeb8a58dbe033d2286c9209a22105b035dbf57"
+      ],
+      "components": [
+        {
+          "id": "model",
+          "role": "model",
+          "filename": "Qwen3.5-0.8B-Q4_K_M.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/Qwen3.5-0.8B-Q4_K_M.gguf",
+          "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+          "bytes": 532517120,
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "projector",
+          "role": "projector",
+          "filename": "mmproj-F16.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/mmproj-F16.gguf",
+          "sha256": "56e4c6cfe73b0c82e3e82bc518d7591997e61d81f723fc41a586f4fa69ea2453",
+          "bytes": 204987232,
+          "license": "Apache-2.0"
+        }
+      ]
+    },
+    {
+      "id": "ivrit-whisper-large-v3-turbo",
+      "revision": "2130c78e4a9cb4914cc4df91a1c3031407789705",
+      "manifest": "packaging/media-manifest.json",
+      "manifest_sha256": "d39a2ebce1f5dfa1b83392f168089a00264595228c9aee5ce32f8079e0b7cbea",
+      "selection": "candidate",
+      "platform": "any",
+      "license": "Apache-2.0",
+      "notices": "THIRD_PARTY_NOTICES",
+      "gate_status": "NOT_RUN",
+      "runtime_requirements": [
+        "whisper.cpp revision=927cfce34f31707e17f2bff35c349632fb9e2c3a",
+        "FFmpeg n8.0.1 revision=894da5ca7d742e4429ffb2af534fcda0103ef593; restricted non-GPL pipe/ogg/wav/opus/vorbis/pcm_s16le configuration"
+      ],
+      "components": [
+        {
+          "id": "model",
+          "role": "model",
+          "filename": "ggml-model.bin",
+          "url": "https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ggml/resolve/2130c78e4a9cb4914cc4df91a1c3031407789705/ggml-model.bin",
+          "sha256": "c8090411113357097bfafc2b8e228ec1639fa7f5fe4ecb5d054ac0ccef8641b1",
+          "bytes": 1624555275,
+          "license": "Apache-2.0"
+        }
+      ]
+    },
+    {
+      "id": "tesseract-fast",
+      "revision": "87416418657359cb625c412a48b6e1d6d41c29bd",
+      "manifest": "packaging/media-manifest.json",
+      "manifest_sha256": "d39a2ebce1f5dfa1b83392f168089a00264595228c9aee5ce32f8079e0b7cbea",
+      "selection": "candidate",
+      "platform": "any",
+      "license": "Apache-2.0",
+      "notices": "THIRD_PARTY_NOTICES",
+      "gate_status": "NOT_RUN",
+      "runtime_requirements": [
+        "tesseract 5.5.1 revision=3b7c70e34dea179549ed3e995872e2e019eb8477"
+      ],
+      "components": [
+        {
+          "id": "eng",
+          "role": "ocr_language",
+          "filename": "eng.traineddata",
+          "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata",
+          "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+          "bytes": 4113088,
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "heb",
+          "role": "ocr_language",
+          "filename": "heb.traineddata",
+          "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/heb.traineddata",
+          "sha256": "11f9e43ab227f786352a50f75c94c2e9906f1baba86d93276da19da7ce0904db",
+          "bytes": 961404,
+          "license": "Apache-2.0"
+        }
+      ]
+    },
+    {
+      "id": "tesseract-best",
+      "revision": "e12c65a915945e4c28e237a9b52bc4a8f39a0cec",
+      "manifest": "packaging/media-manifest.json",
+      "manifest_sha256": "d39a2ebce1f5dfa1b83392f168089a00264595228c9aee5ce32f8079e0b7cbea",
+      "selection": "candidate",
+      "platform": "any",
+      "license": "Apache-2.0",
+      "notices": "THIRD_PARTY_NOTICES",
+      "gate_status": "NOT_RUN",
+      "runtime_requirements": [
+        "tesseract 5.5.1 revision=3b7c70e34dea179549ed3e995872e2e019eb8477"
+      ],
+      "components": [
+        {
+          "id": "eng",
+          "role": "ocr_language",
+          "filename": "eng.traineddata",
+          "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/eng.traineddata",
+          "sha256": "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba",
+          "bytes": 15400601,
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "heb",
+          "role": "ocr_language",
+          "filename": "heb.traineddata",
+          "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/heb.traineddata",
+          "sha256": "dbaa827aea6bc21215638447f17783a1004987c2d0bf5573d111fee397abdae5",
+          "bytes": 3704077,
+          "license": "Apache-2.0"
+        }
+      ]
+    },
+    {
+      "id": "whisper-cpp-small-en-q5_1-v1",
+      "revision": "c521a4b02f422512d734391fdf08bb08c0862f68",
+      "manifest": "packaging/media-english-manifest.json",
+      "manifest_sha256": "471636a95258b3e33aa15c60246f5fba0a0514b5a474b70f8d98d0f367fd9b4d",
+      "selection": "candidate",
+      "platform": "any",
+      "license": "MIT",
+      "notices": "packaging/media-english-manifest.json",
+      "gate_status": "NOT_RUN",
+      "runtime_requirements": [
+        "whisper.cpp revision=927cfce34f31707e17f2bff35c349632fb9e2c3a; explicit English-only --language en with translation disabled",
+        "FFmpeg n8.0.1 revision=894da5ca7d742e4429ffb2af534fcda0103ef593; restricted non-GPL pipe/ogg/wav/opus/vorbis/pcm_s16le configuration"
+      ],
+      "components": [
+        {
+          "id": "model",
+          "role": "model",
+          "filename": "ggml-small.en-q5_1.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/c521a4b02f422512d734391fdf08bb08c0862f68/ggml-small.en-q5_1.bin",
+          "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+          "bytes": 190098681,
+          "license": "MIT"
+        }
+      ]
+    }
+  ]
+}
