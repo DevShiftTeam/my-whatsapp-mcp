@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -88,6 +90,9 @@ func (s *Store) submit(ctx context.Context, payload any, account string, control
 			if c.sourceSensitive {
 				s.denyImmediate(account, UnsafeReason("control_admission_failed"))
 			}
+			if _, expiry := c.payload.(expiryCommand); expiry {
+				s.recordExpiryMaintenanceFailure("expiry_maintenance_admission", deadline.Err())
+			}
 			return nil, ErrQueueLimitExceeded
 		}
 	} else {
@@ -150,6 +155,9 @@ func (s *Store) awaitCommandResult(c command) (any, error) {
 			}
 			s.denyImmediate(c.account, reason)
 		}
+		if _, expiry := c.payload.(expiryCommand); expiry {
+			s.recordExpiryMaintenanceFailure("expiry_maintenance_wait", c.ctx.Err())
+		}
 		s.extensionCommandFailure(c.payload)
 		return nil, c.ctx.Err()
 	}
@@ -168,6 +176,7 @@ func (s *Store) writerLoop() {
 		}
 		var v any
 		var e error
+		expiryRunnerEntered := false
 		if e = c.ctx.Err(); e == nil {
 			switch x := c.payload.(type) {
 			case policyCommand:
@@ -197,7 +206,8 @@ func (s *Store) writerLoop() {
 			case mediaCommand:
 				e = s.updateMedia(c.ctx, x.key, x.version, x.availability)
 			case expiryCommand:
-				_, e = s.sweepExpired(c.ctx)
+				expiryRunnerEntered = true
+				_, e = s.runExpiryMaintenance(c.ctx, "expiry_maintenance_result")
 			case namesCommand:
 				e = s.setSourceNames(c.ctx, x.names)
 			case drainCommand:
@@ -214,6 +224,10 @@ func (s *Store) writerLoop() {
 				s.denyImmediate(c.account, UnsafeReason("control_admission_failed"))
 			}
 			s.extensionCommandFailure(c.payload)
+		}
+		if _, expiry := c.payload.(expiryCommand); expiry && !expiryRunnerEntered && e != nil {
+			// Expired commands may be rejected before the cleanup runner enters.
+			s.recordExpiryMaintenanceFailure("expiry_maintenance_result", e)
 		}
 		if _, alias := c.payload.(aliasCommand); alias {
 			recordAliasFailure(c.ctx, "alias_writer_result", e)
@@ -235,17 +249,10 @@ func (s *Store) writerLoop() {
 		case <-maintenance.C:
 			s.writerMu.Lock()
 			ctx, cancel := context.WithTimeout(context.Background(), s.options.ControlDeadline)
-			pending, err := s.sweepExpired(ctx)
+			pending, err := s.runExpiryMaintenance(ctx, "expiry_maintenance_timer")
 			cancel()
 			s.writerMu.Unlock()
-			if err != nil {
-				s.denyImmediate("", "control_admission_failed")
-			}
-			if pending {
-				maintenance.Reset(time.Millisecond)
-			} else {
-				maintenance.Reset(time.Minute)
-			}
+			maintenance.Reset(expiryMaintenanceDelay(pending, err))
 		case <-s.stop:
 			for {
 				select {
@@ -1306,6 +1313,63 @@ func (s *Store) SweepExpired(ctx context.Context) error {
 	_, e := s.submit(ctx, expiryCommand{}, "", true, 0)
 	return e
 }
+
+func expiryMaintenanceDelay(pending bool, err error) time.Duration {
+	if err == nil && pending {
+		return time.Millisecond
+	}
+	return time.Minute
+}
+
+func (s *Store) runExpiryMaintenance(ctx context.Context, stage string) (bool, error) {
+	pending, err := s.sweepExpired(ctx)
+	if err != nil {
+		s.recordExpiryMaintenanceFailure(stage, err)
+	}
+	return pending, err
+}
+
+// A failed cleanup may have an uncertain commit. Invalidate earlier responses
+// without treating deterministic, already-denied expiry as a lost phone event.
+// Existing unsafe state and physical ownership are preserved.
+func (s *Store) recordExpiryMaintenanceFailure(stage string, err error) {
+	if err == nil {
+		return
+	}
+	s.safetyMu.Lock()
+	s.safetyEpoch++
+	s.safetyMu.Unlock()
+	_, _ = os.Stderr.Write(expiryMaintenanceDiagnostic(stage, err))
+}
+
+func expiryMaintenanceDiagnostic(stage string, err error) []byte {
+	switch stage {
+	case "expiry_maintenance_admission", "expiry_maintenance_wait", "expiry_maintenance_result", "expiry_maintenance_timer":
+	default:
+		stage = "unknown"
+	}
+	class := "unknown"
+	switch {
+	case err == nil:
+		class = "none"
+	case errors.Is(err, context.Canceled):
+		class = "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		class = "deadline"
+	case errors.Is(err, ErrArchiveUnavailable):
+		class = "archive_unavailable"
+	case errors.Is(err, ErrReconciliationRequired):
+		class = "reconciliation_required"
+	}
+	encoded, _ := json.Marshal(struct {
+		Event string `json:"event"`
+		Stage string `json:"stage"`
+		Code  string `json:"code"`
+		Class string `json:"class"`
+	}{"archive_failure", stage, "expiry_cleanup_failed", class})
+	return append(encoded, '\n')
+}
+
 func (s *Store) sweepExpired(ctx context.Context) (bool, error) {
 	// Offline original-cache repair preserves committed content byte-for-byte.
 	// All source/read guards still use the actual clock and deny expired rows.

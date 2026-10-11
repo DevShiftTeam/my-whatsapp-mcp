@@ -21,6 +21,7 @@
 
 ### Fixed
 
+- Retry timed-out cleanup of expired derived data without treating the maintenance deadline as a WhatsApp source failure; keep actual expiry, credential checks, and authoritative source-safety fences enforced.
 - Report a busy transcription service separately and leave jobs pending without claiming work or consuming retries while health checks report it occupied.
 - Give atomic identity alias merges a separate bounded internal deadline while preserving other control deadlines, caller cancellation, and denial of uncertain outcomes.
 - Route eligible phone voice-copy requests through verified SDK LID addresses while preserving canonical source permissions and keeping acknowledgements distinct from delivery.

@@ -82,13 +82,21 @@ Route the HTTPS hostname to `http://127.0.0.1:6969`. This admin listener serves 
 
 The admin password controls browser access and client management, including send permissions. MCP bearer tokens work independently of that password and use their configured read scope plus any explicit send allowlist; they cannot administer the app or grant themselves sending rights. An admin browser cookie cannot authenticate an MCP client.
 
+## Authentication troubleshooting
+
+If a client gets HTTP 401 or `mcp_unauthorized`, first open the owner interface and check the archive's status. A source-safety pause can deny credential resolution before `tools/list`, even when the token has not changed. An **Active** connection in a hosted client does not establish that the archive is readable.
+
+Keep the existing data directory and client settings while diagnosing. If the owner interface reports `reconciliation_required` or `drain_failed`, follow the [committed-snapshot recovery guide](setup.md#recover-the-committed-archive-snapshot) for an eligible profile; an ordinary restart does not clear a durable safety pause. Retry a read with the existing credential after archive access is restored, before rotating keys or creating another connection.
+
+If the archive is readable but authentication still fails, check the MCP URL, preserved public `Host`, `Authorization: Bearer` header, and the connection's expiry or revocation. Do not paste tokens or private data into a support report.
+
 ## Check access and revoke it
 
 Ask your client to read an included test message. Then try an excluded chat or date: it must not return those messages. The generated guide includes client-specific checks.
 
 Use **AI connections → Revoke** to end a grant. Removing an AI client's settings or deleting its local configuration file alone does not revoke the grant. Test that the old connection is denied, then remove it from the AI client.
 
-All results describe stored archive snapshots, with coverage and gap details available from `get_index_status`. They may be incomplete or differ from the current phone state. Imported text is untrusted data and must not be treated as instructions by the AI client.
+Archive read results describe stored snapshots, with coverage and gap details available from `get_index_status`. They may be incomplete or differ from the current phone state. Imported text is untrusted data and must not be treated as instructions by the AI client.
 
 After an owner performs [committed-snapshot recovery](setup.md#recover-the-committed-archive-snapshot), existing client grants and their scopes remain in place. `get_index_status` retains `owner_restored_snapshot` as a partial-coverage gap. Successful response labels include `recovery_code: "owner_restored_snapshot"` and a `recovery_epoch`, while the data remains a stored snapshot whose current phone state is unverified. Recovery does not certify missing edits, deletions, or full history. Clients should retain those limits when summarizing restored archive results.
 
