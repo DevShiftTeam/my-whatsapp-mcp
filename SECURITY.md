@@ -6,6 +6,10 @@ The app does not encrypt its SQLite databases or protect them from software alre
 
 Expose remote access only through an HTTPS tunnel or proxy configured for the intended listener. Protect the tunnel account as well as the application. Results sent to an AI client are governed by that client's own data handling.
 
+Connections are read-only by default. [Outbound permission](docs/clients/outbound-messaging.md) is a separate owner-approved allowlist of specific chats, never an all-current-and-future grant. A permitted send call transmits directly; the app has no per-message approval queue. AI clients must obtain the user's authorization before sending and treat archived chat text as untrusted data. Revoking a connection or its send permission cannot recall an already transmitted message.
+
+Keep the same request ID and payload when recovering a timeout. An `outcome_unknown` receipt may represent a transmitted message; automatically using a new ID can send it twice. `accepted` means a durably recorded WhatsApp server acknowledgement, not recipient delivery, playback, or a read receipt. The send journal stores identity, protocol IDs, state, and payload digests, without storing outgoing message bodies or attachment bytes.
+
 The optional [transcription service](docs/transcription.md) receives copies of retained voice recordings. Keep it on literal loopback, require its separate bearer token, and exclude its port from remote tunnels. It accepts audio bytes from the app, not URLs to download. Protect its private env file, temporary files, and model directory as you protect the archive. Recordings and transcripts must never appear in service logs.
 
 ## Reporting a vulnerability

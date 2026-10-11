@@ -17,20 +17,28 @@ func (a *Application) RemoteMCPHandler() http.Handler {
 			remoteMCPUnavailable(w)
 			return
 		}
-		defer a.data.RUnlock()
 		if a.closed || !a.mcpEnabled || !a.remoteRouteReady() || a.mcp.remoteHandler == nil {
+			a.data.RUnlock()
 			remoteMCPUnavailable(w)
 			return
 		}
-		// Close and reset cancel this query owner before waiting for data.Lock.
-		// Joining its cancellation keeps borrowed requests within the same
-		// lifecycle as the dedicated listener, while the read lock fences store
-		// and reader replacement until this bounded handler has returned.
+		m, handler, root := a.mcp, a.mcp.remoteHandler, a.queryContext
+		if root.Err() != nil {
+			a.data.RUnlock()
+			remoteMCPUnavailable(w)
+			return
+		}
+		// Admission and unpublication share data.Lock. The worker lease keeps
+		// captured readers and stores alive until Close/reset joins the handler,
+		// without preventing an owner from withdrawing authority during I/O.
+		m.workers.Add(1)
+		a.data.RUnlock()
+		defer m.workers.Done()
 		ctx, cancel := context.WithCancel(r.Context())
-		stop := context.AfterFunc(a.queryContext, cancel)
+		stop := context.AfterFunc(root, cancel)
 		defer stop()
 		defer cancel()
-		a.mcp.remoteHandler.ServeHTTP(w, r.WithContext(ctx))
+		handler.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

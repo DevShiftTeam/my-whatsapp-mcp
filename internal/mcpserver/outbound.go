@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/outbound"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
 	"net/http"
 	"strings"
@@ -16,6 +16,7 @@ import (
 type Outbound interface {
 	Send(context.Context, archive.CredentialGrant, outbound.Request) (outbound.Receipt, error)
 	SendStatus(context.Context, archive.CredentialGrant, string) (outbound.Receipt, error)
+	CheckSendResponse(context.Context, archive.CredentialGrant, outbound.Receipt) error
 }
 
 const sendReceiptSchema = `{"type":"object","required":["request_id","chat_id","state","duplicate"],"properties":{"request_id":{"type":"string"},"chat_id":{"type":"string"},"message_id":{"type":"string"},"state":{"type":"string","enum":["accepted","failed","outcome_unknown"]},"accepted_at":{"type":"string","format":"date-time"},"duplicate":{"type":"boolean"}},"additionalProperties":false}`
@@ -58,6 +59,7 @@ func addOutboundTools(s *mcp.Server, c Config, credentials Credentials) {
 			if err != nil {
 				return sendToolFailure(err), nil
 			}
+			state.noteSend(grant, receipt)
 			data, _ := json.Marshal(receipt)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}, StructuredContent: json.RawMessage(data)}, nil
 		})
@@ -184,6 +186,7 @@ func serveSendAPI(w http.ResponseWriter, r *http.Request, c Config, credentials 
 		fixedHTTP(w, status, sendCode(err))
 		return
 	}
+	state.noteSend(grant, receipt)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(receipt)
 }

@@ -56,15 +56,26 @@ func (s *Store) SendTarget(ctx context.Context, g CredentialGrant, chat ChatID) 
 	}
 	bounded, cancel := s.readContext(ctx)
 	defer cancel()
+	// Wait for the read pool before taking the source/auth commit fence.
+	connection, err := s.readDB.Conn(bounded)
+	if err != nil {
+		return "", readError(bounded, err)
+	}
+	defer connection.Close()
 	sample, sampledAt := s.now(), time.Now()
+	fenced, stop := context.WithTimeout(bounded, responseDeadline)
+	defer stop()
 	s.safetyMu.RLock()
 	defer s.safetyMu.RUnlock()
-	// Immediate source/auth fences remain held through the final target query.
-	// The clock callback is sampled before taking the fence.
-	if err := s.checkCredentialGrantQueryAt(bounded, s.readDB, g, sample.Add(time.Since(sampledAt))); err != nil {
+	if err := fenced.Err(); err != nil {
 		return "", err
 	}
-	return s.sendTargetQuery(bounded, s.readDB, g, chat, true, sample, sampledAt)
+	// Both authority checks share the admitted connection and short fence;
+	// the injected clock never runs while source/auth commits are blocked.
+	if err := s.checkCredentialGrantQueryAt(fenced, connection, g, sample.Add(time.Since(sampledAt))); err != nil {
+		return "", err
+	}
+	return s.sendTargetQuery(fenced, connection, g, chat, true, sample, sampledAt)
 }
 func (s *Store) sendTargetQuery(ctx context.Context, q sqlQuerier, g CredentialGrant, chat ChatID, permission bool, sample time.Time, sampledAt time.Time) (string, error) {
 	query := `SELECT c.source_chat,(SELECT cr.expires_at FROM credentials cr WHERE cr.id=?) FROM chats c CROSS JOIN archive_policy p JOIN account_safety saf ON saf.account=c.account

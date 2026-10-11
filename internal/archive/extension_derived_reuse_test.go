@@ -19,15 +19,18 @@ import (
 func derivedTestRoots(t *testing.T, texts []string, clockHooks ...func(time.Time) time.Time) (*Store, *atomic.Int64, string, []Document, MediaID, ArchivePolicy) {
 	t.Helper()
 	ctx := context.Background()
+	t.Log("derived fixture: opening store")
 	s, clock, dir := indexTestStore(t, clockHooks...)
+	t.Log("derived fixture: setting policy")
 	p := testPolicy(t, s)
+	t.Log("derived fixture: retaining original")
 	_, media, _ := extractionTestOriginal(t, s, p, "reuse-original", JobOCR)
 	work, err := s.ClaimExtraction(ctx, ExtractionClaim{Account: "account", Version: extractionTestVersion(JobOCR), TTL: time.Minute})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("derived fixture: claiming OCR extraction: %v", err)
 	}
 	if _, err = s.LoadExtractionInput(ctx, work.Lease); err != nil {
-		t.Fatal(err)
+		t.Fatalf("derived fixture: loading OCR extraction: %v", err)
 	}
 	var roots []Document
 	for i, text := range texts {
@@ -38,10 +41,10 @@ func derivedTestRoots(t *testing.T, texts []string, clockHooks ...func(time.Time
 	}
 	caption, err := s.ClaimExtraction(ctx, ExtractionClaim{Account: "account", Version: extractionTestVersion(JobCaption), TTL: time.Minute})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("derived fixture: claiming caption extraction: %v", err)
 	}
 	if _, err = s.LoadExtractionInput(ctx, caption.Lease); err != nil {
-		t.Fatal(err)
+		t.Fatalf("derived fixture: loading caption extraction: %v", err)
 	}
 	if ok, err := s.CommitExtraction(ctx, ExtractionResult{Lease: caption.Lease, ContentHash: caption.ContentHash, Outcome: ExtractionEmpty}); err != nil || !ok {
 		t.Fatalf("independent empty caption: %v %v", ok, err)

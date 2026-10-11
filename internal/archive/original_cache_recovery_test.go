@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -402,47 +403,115 @@ func TestOriginalCacheRecoveryRejectsDeletionAliasAndExtractionPins(t *testing.T
 	})
 }
 
-func TestReadOriginalCacheWitnessesKeepsStoppedVersionTenBackupUnchanged(t *testing.T) {
-	s, _, dir := originalDownloadTestArchive(t)
-	p := testPolicy(t, s)
-	e, ref, media := originalDownloadTestSource(t, s, p, "stopped-backup", MessageVoice)
-	r := extensionAdmit(t, s, ref, media, BudgetOriginals, 128)
-	if ok, err := s.PublishOriginal(context.Background(), OriginalPublication{Reservation: r, SHA256: strings.Repeat("a", 64), Bytes: 64, ActualFormat: "ogg"}); err != nil || !ok {
-		t.Fatalf("publication: %v %v", ok, err)
+func TestReadOriginalCacheWitnessesKeepsCompatibleStoppedBackupUnchanged(t *testing.T) {
+	for _, version := range []int{10, 11, 12} {
+		t.Run(fmt.Sprintf("version %d", version), func(t *testing.T) {
+			s, _, dir := originalDownloadTestArchive(t)
+			p := testPolicy(t, s)
+			e, ref, media := originalDownloadTestSource(t, s, p, "stopped-backup", MessageVoice)
+			r := extensionAdmit(t, s, ref, media, BudgetOriginals, 128)
+			if ok, err := s.PublishOriginal(context.Background(), OriginalPublication{Reservation: r, SHA256: strings.Repeat("a", 64), Bytes: 64, ActualFormat: "ogg"}); err != nil || !ok {
+				t.Fatalf("publication: %v %v", ok, err)
+			}
+			// Remove the later empty schema as well as its migration records. Reading
+			// an older stopped backup must not invoke Open or recreate these tables.
+			originalCacheTestEarlierSchema(t, s, version)
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "archive.sqlite")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			witnesses, err := ReadOriginalCacheWitnesses(context.Background(), dir)
+			if err != nil || len(witnesses) != 1 {
+				t.Fatalf("stopped backup: %d %v", len(witnesses), err)
+			}
+			w := witnesses[0]
+			if w.Source != ref || w.Key != e.Key || w.MediaID != media || w.ArtifactID != r.ArtifactID || !bytes.Equal(w.ProtocolReference, e.Media[0].ProtocolReference) {
+				t.Fatal("backup witness rebound source")
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
+				t.Fatalf("backup bytes changed: %v", err)
+			}
+			if _, err := os.Lstat(path + "-wal"); !os.IsNotExist(err) {
+				t.Fatalf("reader created WAL: %v", err)
+			}
+			if _, err := os.Lstat(path + "-shm"); !os.IsNotExist(err) {
+				t.Fatalf("reader created shared memory: %v", err)
+			}
+		})
 	}
-	// Version 11 adds recovery audit metadata only. Reading the prior stopped
-	// schema must not invoke Open or migration to recreate it.
-	if _, err := s.writeDB.Exec(`DROP TABLE snapshot_recovery_audit`); err != nil {
+}
+
+func originalCacheTestEarlierSchema(t *testing.T, s *Store, version int) {
+	t.Helper()
+	var statements []string
+	if version < 12 {
+		statements = append(statements, `DROP TABLE send_requests`, `DROP TABLE send_permissions`)
+	}
+	if version < 11 {
+		statements = append(statements, `DROP TABLE snapshot_recovery_audit`, `ALTER TABLE archive_meta DROP COLUMN recovery_epoch`, `ALTER TABLE archive_meta DROP COLUMN recovery_code`)
+	}
+	if version < 10 {
+		statements = append(statements, `DROP TABLE unresolved_deletions`)
+	}
+	for _, statement := range statements {
+		if _, err := s.writeDB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.writeDB.Exec(`DELETE FROM schema_migrations WHERE version>?`, version); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.writeDB.Exec(`DELETE FROM schema_migrations WHERE version=11`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "archive.sqlite")
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	witnesses, err := ReadOriginalCacheWitnesses(context.Background(), dir)
-	if err != nil || len(witnesses) != 1 {
-		t.Fatalf("stopped backup: %d %v", len(witnesses), err)
-	}
-	w := witnesses[0]
-	if w.Source != ref || w.Key != e.Key || w.MediaID != media || w.ArtifactID != r.ArtifactID || !bytes.Equal(w.ProtocolReference, e.Media[0].ProtocolReference) {
-		t.Fatal("backup witness rebound source")
-	}
-	after, err := os.ReadFile(path)
-	if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
-		t.Fatalf("backup bytes changed: %v", err)
-	}
-	if _, err := os.Lstat(path + "-wal"); !os.IsNotExist(err) {
-		t.Fatalf("reader created WAL: %v", err)
-	}
-	if _, err := os.Lstat(path + "-shm"); !os.IsNotExist(err) {
-		t.Fatalf("reader created shared memory: %v", err)
+}
+
+func TestReadOriginalCacheWitnessesRefusesUnqualifiedSchemaWithoutMutation(t *testing.T) {
+	for _, name := range []string{"too old", "gap", "altered checksum", "future"} {
+		t.Run(name, func(t *testing.T) {
+			s, _, dir := originalDownloadTestArchive(t)
+			testPolicy(t, s)
+			want := ErrSchemaChanged
+			var statement string
+			switch name {
+			case "too old":
+				originalCacheTestEarlierSchema(t, s, 9)
+			case "gap":
+				statement = `DELETE FROM schema_migrations WHERE version=3`
+			case "altered checksum":
+				statement = `UPDATE schema_migrations SET checksum='changed' WHERE version=1`
+			case "future":
+				statement = `INSERT INTO schema_migrations(version,checksum) SELECT max(version)+1,'future' FROM schema_migrations`
+				want = ErrSchemaTooNew
+			}
+			if statement != "" {
+				if _, err := s.writeDB.Exec(statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "archive.sqlite")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if witnesses, err := ReadOriginalCacheWitnesses(context.Background(), dir); !errors.Is(err, want) || len(witnesses) != 0 {
+				t.Fatalf("unqualified backup accepted: %v", err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {
+				t.Fatalf("refused backup bytes changed: %v", err)
+			}
+			for _, suffix := range []string{"-wal", "-shm"} {
+				if _, err := os.Lstat(path + suffix); !os.IsNotExist(err) {
+					t.Fatalf("refused backup created sidecar %s: %v", suffix, err)
+				}
+			}
+		})
 	}
 }
 
@@ -529,13 +598,19 @@ func TestOriginalCacheRecoveryOpenRefusesMissingOldOrChangedSchema(t *testing.T)
 			t.Fatalf("missing root created: %v", err)
 		}
 	})
-	for _, name := range []string{"old schema", "altered checksum"} {
+	for _, name := range []string{"old schema", "migration gap", "altered checksum", "future"} {
 		t.Run(name, func(t *testing.T) {
 			s, _, dir := originalDownloadTestArchive(t)
 			testPolicy(t, s)
-			statement := `DELETE FROM schema_migrations WHERE version=11`
-			if name == "altered checksum" {
+			want := ErrSchemaChanged
+			statement := `DELETE FROM schema_migrations WHERE version=(SELECT max(version) FROM schema_migrations)`
+			if name == "migration gap" {
+				statement = `DELETE FROM schema_migrations WHERE version=11`
+			} else if name == "altered checksum" {
 				statement = `UPDATE schema_migrations SET checksum='changed' WHERE version=1`
+			} else if name == "future" {
+				statement = `INSERT INTO schema_migrations(version,checksum) SELECT max(version)+1,'future' FROM schema_migrations`
+				want = ErrSchemaTooNew
 			}
 			if _, err := s.writeDB.Exec(statement); err != nil {
 				t.Fatal(err)
@@ -548,11 +623,11 @@ func TestOriginalCacheRecoveryOpenRefusesMissingOldOrChangedSchema(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if recovery, err := OpenOriginalCacheRecovery(context.Background(), dir); err == nil || recovery != nil {
+			if recovery, err := OpenOriginalCacheRecovery(context.Background(), dir); !errors.Is(err, want) || recovery != nil {
 				if recovery != nil {
 					recovery.Close()
 				}
-				t.Fatal("unqualified schema opened for writes")
+				t.Fatalf("unqualified schema opened for writes: %v", err)
 			}
 			after, err := os.ReadFile(path)
 			if err != nil || sha256.Sum256(before) != sha256.Sum256(after) {

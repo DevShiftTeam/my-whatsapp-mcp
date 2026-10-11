@@ -51,8 +51,9 @@ func Send(ctx context.Context, store Store, client Client, grant archive.Credent
 	}
 	// Commit uncertainty before any provider work. A crash never permits a resend.
 	fail := func() (Receipt, error) {
-		persist(ctx, store, grant, record.RequestID, "failed", time.Time{})
-		record.State = "failed"
+		if persist(ctx, store, grant, record.RequestID, "failed", time.Time{}) == nil {
+			record.State = "failed"
+		}
 		return ReceiptFrom(record, false), nil
 	}
 	var uploaded whatsmeow.UploadResponse

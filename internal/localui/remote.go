@@ -204,7 +204,11 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		s.static(w, r)
 		return
 	}
-	if r.URL.Path == "/mcp" {
+	if r.URL.Path == "/mcp" || remoteSendRoute(r.URL.Path) {
+		if r.URL.RawPath != "" || r.URL.ForceQuery {
+			remoteFail(w, 404, "route_unavailable")
+			return
+		}
 		if s.mcpHandler == nil {
 			remoteFail(w, 404, "route_unavailable")
 			return
@@ -260,6 +264,15 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.dispatch.api(w, r, csrf)
+}
+
+func remoteSendRoute(path string) bool {
+	switch path {
+	case "/api/send/message", "/api/send/media", "/api/send/voice", "/api/send/status":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *RemoteServer) exactOrigin(r *http.Request) bool {

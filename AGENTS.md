@@ -1,11 +1,12 @@
 # Working in this repository
 
-My WhatsApp MCP is a local WhatsApp archive with scoped, read-only MCP access. The executable remains `wa-indexer`; keep existing data paths and credentials compatible unless a change explicitly includes migration.
+My WhatsApp MCP is a local WhatsApp archive with scoped MCP access, read-only by default. Optional sending requires separate owner-approved permissions for specific chats. The executable remains `wa-indexer`; keep existing data paths and credentials compatible unless a change explicitly includes migration.
 
 Before editing, read the relevant source and these guides:
 
 - [Setup](docs/setup.md) for build, launch, pairing, and user workflows.
 - [MCP](docs/mcp.md) for clients, scopes, authentication, and remote access.
+- [Outbound messaging](docs/clients/outbound-messaging.md) for send permissions, media limits, durable request IDs, and uncertain outcomes.
 - [Development](docs/development.md) for package ownership and checks.
 - [Security](SECURITY.md) for private data and reporting.
 - [Native models](docs/native-models.md) when changing media or inference.

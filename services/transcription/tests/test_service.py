@@ -233,11 +233,27 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(status, 200)
 
     def test_total_handler_admission_is_bounded(self):
-        sockets = [socket.create_connection(self.server.server_address, timeout=2) for _ in range(8)]
+        admitted = threading.Condition()
+        handler_count = 0
+        release = threading.Event()
+        process_request_thread = self.server.process_request_thread
+
+        def hold_handler(request, client_address):
+            nonlocal handler_count
+            with admitted:
+                handler_count += 1
+                admitted.notify_all()
+            # Admission is under test, independently of the idle socket deadline.
+            release.wait()
+            process_request_thread(request, client_address)
+
+        self.server.process_request_thread = hold_handler
+        sockets = []
         try:
-            deadline = time.monotonic() + 1
-            while self.server.handler_slots._value and time.monotonic() < deadline:
-                time.sleep(0.01)
+            for _ in range(8):
+                sockets.append(socket.create_connection(self.server.server_address, timeout=2))
+            with admitted:
+                self.assertTrue(admitted.wait_for(lambda: handler_count == 8, timeout=5))
             self.assertEqual(self.server.handler_slots._value, 0)
             extra = socket.create_connection(self.server.server_address, timeout=2)
             try:
@@ -245,6 +261,7 @@ class ServiceTests(unittest.TestCase):
             finally:
                 extra.close()
         finally:
+            release.set()
             for connection in sockets:
                 connection.close()
 

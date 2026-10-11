@@ -12,7 +12,9 @@ type outboundRuntime interface {
 }
 
 func (a *Application) Send(ctx context.Context, g archive.CredentialGrant, request outbound.Request) (outbound.Receipt, error) {
-	a.data.RLock()
+	if !a.data.TryRLock() {
+		return outbound.Receipt{}, outbound.ErrUnavailable
+	}
 	if a.closed || a.demo || a.paused || a.runtime == nil || ctx.Err() != nil {
 		a.data.RUnlock()
 		return outbound.Receipt{}, outbound.ErrUnavailable
@@ -33,7 +35,9 @@ func (a *Application) Send(ctx context.Context, g archive.CredentialGrant, reque
 	return runtime.SendOutbound(bounded, store, g, request)
 }
 func (a *Application) SendStatus(ctx context.Context, g archive.CredentialGrant, id string) (outbound.Receipt, error) {
-	a.data.RLock()
+	if !a.data.TryRLock() {
+		return outbound.Receipt{}, outbound.ErrUnavailable
+	}
 	defer a.data.RUnlock()
 	if a.closed || !outbound.ValidRequestID(id) {
 		return outbound.Receipt{}, outbound.ErrInvalid
@@ -43,6 +47,20 @@ func (a *Application) SendStatus(ctx context.Context, g archive.CredentialGrant,
 		return outbound.Receipt{}, err
 	}
 	return outbound.ReceiptFrom(r, false), nil
+}
+
+// CheckSendResponse makes receipt publication subject to the original grant and
+// its current finite chat permission. It performs no provider or journal work.
+func (a *Application) CheckSendResponse(ctx context.Context, g archive.CredentialGrant, receipt outbound.Receipt) error {
+	if !a.data.TryRLock() {
+		return outbound.ErrUnavailable
+	}
+	defer a.data.RUnlock()
+	if a.closed || a.store == nil || !outbound.ValidRequestID(receipt.RequestID) {
+		return outbound.ErrUnavailable
+	}
+	_, err := a.store.SendTarget(ctx, g, receipt.ChatID)
+	return err
 }
 
 // SetSendPermission is owner-only; MCP cannot grant itself outbound authority.

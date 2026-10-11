@@ -330,46 +330,8 @@ func validateOriginalCacheRecoverySchema(ctx context.Context, path string) error
 	if err = tx.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
 		return ErrArchiveUnavailable
 	}
-	entries, err := migrationFiles.ReadDir("migrations")
-	if err != nil || len(entries) != 11 {
-		return ErrSchemaChanged
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN typeof(version)='integer' THEN version ELSE 0 END,CASE WHEN typeof(checksum)='text' AND length(CAST(checksum AS BLOB))=64 THEN checksum ELSE '' END FROM schema_migrations ORDER BY version LIMIT 12`)
-	if err != nil {
-		return fixedSQLError(err)
-	}
-	applied := 0
-	for rows.Next() {
-		var version int
-		var checksum string
-		if err = rows.Scan(&version, &checksum); err != nil {
-			rows.Close()
-			return fixedSQLError(err)
-		}
-		if version > 11 {
-			rows.Close()
-			return ErrSchemaTooNew
-		}
-		if version != applied+1 || applied >= len(entries) {
-			rows.Close()
-			return ErrSchemaChanged
-		}
-		entry := entries[applied]
-		number, numberErr := strconv.Atoi(strings.SplitN(entry.Name(), "_", 2)[0])
-		contents, readErr := migrationFiles.ReadFile("migrations/" + entry.Name())
-		if entry.IsDir() || numberErr != nil || number != version || readErr != nil || extensionDownloadSHA(contents) != checksum {
-			rows.Close()
-			return ErrSchemaChanged
-		}
-		applied++
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return fixedSQLError(err)
-	}
-	if applied != 11 {
-		return ErrSchemaChanged
+	if err = validateOriginalCacheMigrationHistory(ctx, tx, true); err != nil {
+		return err
 	}
 	var integrity string
 	if err = tx.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&integrity); err != nil || integrity != "ok" {
@@ -401,6 +363,49 @@ func validateOriginalCacheRecoverySchema(ctx context.Context, path string) error
 		return ErrUnauthorized
 	}
 	return fixedSQLError(tx.Commit())
+}
+
+// Current recovery must not cause migration. Backup reads accept only a known,
+// checksummed prefix from version 10 onward, whose original-cache evidence is
+// compatible with the reader. Both paths reject gaps and future versions.
+func validateOriginalCacheMigrationHistory(ctx context.Context, tx *sql.Tx, requireCurrent bool) error {
+	entries, err := migrationFiles.ReadDir("migrations")
+	if err != nil || len(entries) < 11 {
+		return ErrSchemaChanged
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT CASE WHEN typeof(version)='integer' THEN version ELSE 0 END,CASE WHEN typeof(checksum)='text' AND length(CAST(checksum AS BLOB))=64 THEN checksum ELSE '' END FROM schema_migrations ORDER BY version LIMIT ?`, len(entries)+1)
+	if err != nil {
+		return fixedSQLError(err)
+	}
+	defer rows.Close()
+	applied := 0
+	for rows.Next() {
+		var version int
+		var checksum string
+		if err = rows.Scan(&version, &checksum); err != nil {
+			return fixedSQLError(err)
+		}
+		if version > len(entries) {
+			return ErrSchemaTooNew
+		}
+		if version != applied+1 || applied >= len(entries) {
+			return ErrSchemaChanged
+		}
+		entry := entries[applied]
+		number, numberErr := strconv.Atoi(strings.SplitN(entry.Name(), "_", 2)[0])
+		contents, readErr := migrationFiles.ReadFile("migrations/" + entry.Name())
+		if entry.IsDir() || numberErr != nil || number != version || readErr != nil || extensionDownloadSHA(contents) != checksum {
+			return ErrSchemaChanged
+		}
+		applied++
+	}
+	if err = rows.Err(); err != nil {
+		return fixedSQLError(err)
+	}
+	if applied < 10 || (requireCurrent && applied != len(entries)) {
+		return ErrSchemaChanged
+	}
+	return nil
 }
 
 func originalCacheExistingArchive(privateArchiveDir string, allowWAL bool) (string, error) {
@@ -455,7 +460,8 @@ func originalCacheExistingArchive(privateArchiveDir string, allowWAL bool) (stri
 // ReadOriginalCacheWitnesses reads an already stopped, checkpointed backup.
 // The caller owns its instance lease. It never opens a Store, migrates, changes
 // permissions, or allows SQLite to create sidecars. Nonempty WAL is rejected
-// rather than ignored by immutable mode. Schema version 10 needs no migration.
+// rather than ignored by immutable mode. Known schemas from version 10 through
+// the current embedded version are checksum-qualified without migration.
 func ReadOriginalCacheWitnesses(ctx context.Context, privateArchiveDir string) ([]OriginalCacheWitness, error) {
 	path, err := originalCacheExistingArchive(privateArchiveDir, false)
 	if err != nil {
@@ -474,6 +480,9 @@ func ReadOriginalCacheWitnesses(ctx context.Context, privateArchiveDir string) (
 		return nil, fixedSQLError(err)
 	}
 	defer tx.Rollback()
+	if err = validateOriginalCacheMigrationHistory(ctx, tx, false); err != nil {
+		return nil, err
+	}
 	var account string
 	var accounts int
 	if err = tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(MIN(CASE WHEN typeof(account)='text' AND length(CAST(account AS BLOB))<=512 THEN account ELSE '' END),'') FROM accounts`).Scan(&accounts, &account); err != nil {

@@ -30,11 +30,22 @@ type pendingCheck struct {
 	grant archive.CredentialGrant
 	guard archive.ResponseGuard
 }
+type pendingSendCheck struct {
+	grant   archive.CredentialGrant
+	receipt outbound.Receipt
+}
 type requestState struct {
 	principal principal
 	ctx       context.Context
 	mu        sync.Mutex
 	checks    []pendingCheck
+	sends     []pendingSendCheck
+}
+
+func (s *requestState) noteSend(grant archive.CredentialGrant, receipt outbound.Receipt) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sends = append(s.sends, pendingSendCheck{grant, receipt})
 }
 
 func normalizeConfig(c Config) (Config, error) {
@@ -199,6 +210,7 @@ func NewHandler(config Config, reader archive.Reader, credentials Credentials) (
 		payload := scrubProtocolError(buffer.body.Bytes())
 		state.mu.Lock()
 		checks := append([]pendingCheck(nil), state.checks...)
+		sends := append([]pendingSendCheck(nil), state.sends...)
 		state.mu.Unlock()
 		for _, check := range checks {
 			if err = credentials.CheckCredentialGrant(ctx, check.grant); err != nil {
@@ -208,6 +220,18 @@ func NewHandler(config Config, reader archive.Reader, credentials Credentials) (
 			// This shared source/credential commit fence is the final read before
 			// flushing bytes. No potentially blocking credential lookup follows it.
 			if _, err = g.CheckResponse(ctx, check.grant.Scope, archive.ResponseCheck{Guard: check.guard, Credential: &check.grant}); err != nil {
+				fixedHTTP(w, http.StatusConflict, "mcp_response_invalidated")
+				return
+			}
+		}
+		for _, check := range sends {
+			if err = credentials.CheckCredentialGrant(ctx, check.grant); err != nil {
+				fixedHTTP(w, http.StatusUnauthorized, "mcp_unauthorized")
+				return
+			}
+			// Receipt chat identity belongs to the original grant. Recheck finite
+			// send permission, policy and safety as the final authorization read.
+			if err = c.Outbound.CheckSendResponse(ctx, check.grant, check.receipt); err != nil {
 				fixedHTTP(w, http.StatusConflict, "mcp_response_invalidated")
 				return
 			}

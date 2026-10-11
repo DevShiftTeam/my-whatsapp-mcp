@@ -250,10 +250,10 @@ var routeMethods = map[string]string{
 	"/api/local-ai": http.MethodGet, "/api/local-ai/select": http.MethodPost,
 	"/api/connections": http.MethodGet, "/api/connections/create": http.MethodPost,
 	"/api/connections/guide": http.MethodPost, "/api/connections/revoke": http.MethodPost,
-	"/api/connections/reveal": http.MethodPost,
+	"/api/connections/reveal":          http.MethodPost,
 	"/api/connections/send-permission": http.MethodPost,
-	"/api/original-budget":    http.MethodGet,
-	"/api/voice/retry":        http.MethodPost,
+	"/api/original-budget":             http.MethodGet,
+	"/api/voice/retry":                 http.MethodPost,
 }
 
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {

@@ -11,7 +11,6 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -117,10 +116,7 @@ func TestSendRechecksPermissionAfterUpload(t *testing.T) {
 
 func TestVoiceMessageCarriesOpusPTTAndUploadedBytes(t *testing.T) {
 	s, g, chat := sendFixture(t)
-	bytes, err := os.ReadFile("../feasibility/testdata/media/long-silence.ogg")
-	if err != nil {
-		t.Fatal(err)
-	}
+	bytes := syntheticOpusFixture()
 	p := &provider{}
 	r := Request{ChatID: chat, RequestID: "voice", Kind: "voice", MIMEType: "audio/ogg; codecs=opus", Seconds: 60, DataBase64: base64.StdEncoding.EncodeToString(bytes)}
 	receipt, err := Send(context.Background(), s, p, g, r)

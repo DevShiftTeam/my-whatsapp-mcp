@@ -240,7 +240,7 @@ func validOpus(data []byte) bool {
 					return false
 				}
 			default:
-				if len(packet) == 0 {
+				if !validOpusPacket(packet) {
 					return false
 				}
 				audio = true
@@ -254,5 +254,102 @@ func validOpus(data []byte) bool {
 		}
 		offset += end
 	}
-	return ended && audio && packets >= 3
+	// WhatsApp Opus recordings may end without an EOS marker. Accept EOF
+	// only after complete, CRC-checked pages and a completed audio packet.
+	return audio && packets >= 3 && len(packet) == 0
+}
+
+// Check Opus packet framing without decoding the audio. Keep this aligned
+// with the retained-recording verifier in internal/media/verify_ogg.go.
+func validOpusPacket(p []byte) bool {
+	if len(p) == 0 {
+		return false
+	}
+	config := p[0] >> 3
+	duration := 480
+	if config < 12 {
+		duration = [...]int{480, 960, 1920, 2880}[config&3]
+	} else if config < 16 {
+		duration = [...]int{480, 960}[config&1]
+	} else {
+		duration = [...]int{120, 240, 480, 960}[config&3]
+	}
+	code, body := p[0]&3, p[1:]
+	switch code {
+	case 0:
+		return len(body) <= 1275
+	case 1:
+		return 2*duration <= 5760 && len(body)%2 == 0 && len(body)/2 <= 1275
+	case 2:
+		first, rest, ok := opusFrameLength(body)
+		if !ok || 2*duration > 5760 || first > len(rest) {
+			return false
+		}
+		return len(rest)-first <= 1275
+	case 3:
+		if len(body) == 0 {
+			return false
+		}
+		control := body[0]
+		count := int(control & 63)
+		body = body[1:]
+		if count == 0 || count > 48 || count*duration > 5760 {
+			return false
+		}
+		if control&64 != 0 {
+			padding := 0
+			for {
+				if len(body) == 0 {
+					return false
+				}
+				n := body[0]
+				body = body[1:]
+				if n == 255 {
+					padding += 254
+				} else {
+					padding += int(n)
+				}
+				if padding > len(body) {
+					return false
+				}
+				if n != 255 {
+					break
+				}
+			}
+			body = body[:len(body)-padding]
+		}
+		if control&128 == 0 {
+			return len(body)%count == 0 && len(body)/count <= 1275
+		}
+		total := 0
+		for i := 0; i < count-1; i++ {
+			n, rest, ok := opusFrameLength(body)
+			if !ok {
+				return false
+			}
+			total += n
+			body = rest
+			if total > len(body) {
+				return false
+			}
+		}
+		return len(body)-total <= 1275
+	}
+	return false
+}
+
+func opusFrameLength(p []byte) (int, []byte, bool) {
+	if len(p) == 0 {
+		return 0, nil, false
+	}
+	n := int(p[0])
+	p = p[1:]
+	if n >= 252 {
+		if len(p) == 0 {
+			return 0, nil, false
+		}
+		n += 4 * int(p[0])
+		p = p[1:]
+	}
+	return n, p, n <= 1275
 }

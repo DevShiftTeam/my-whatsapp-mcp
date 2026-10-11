@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -125,14 +126,17 @@ func TestRemoteMCPHandlerRejectsLifecycleContentionBeforeAdmission(t *testing.T)
 func TestRemoteMCPHandlerJoinsRequestCancellationBeforeResourceMutation(t *testing.T) {
 	entered := make(chan struct{})
 	released := make(chan struct{})
+	cancelled := make(chan struct{})
 	query, cancelQuery := context.WithCancel(context.Background())
 	defer cancelQuery()
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(released) }) }
+	defer release()
 	a := borrowedRemoteMCPTestApp(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(entered)
-		select {
-		case <-r.Context().Done():
-		case <-released:
-		}
+		<-r.Context().Done()
+		close(cancelled)
+		<-released
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	a.queryContext = query
@@ -141,28 +145,71 @@ func TestRemoteMCPHandlerJoinsRequestCancellationBeforeResourceMutation(t *testi
 		defer close(requestDone)
 		a.RemoteMCPHandler().ServeHTTP(httptest.NewRecorder(), borrowedRemoteMCPRequest("bounded", "{}"))
 	}()
+	t.Cleanup(func() {
+		cancelQuery()
+		release()
+		select {
+		case <-requestDone:
+		case <-time.After(3 * time.Second):
+			t.Error("borrowed handler did not join during cleanup")
+		}
+	})
 	select {
 	case <-entered:
 	case <-time.After(time.Second):
-		close(released)
 		t.Fatal("borrowed transport never entered the owned handler")
 	}
-	if a.data.TryLock() {
-		a.data.Unlock()
-		close(released)
-		<-requestDone
-		t.Fatal("resource mutation overlapped a borrowed request")
+	if !a.data.TryLock() {
+		t.Fatal("borrowed provider work retained the resource read lock")
 	}
+	a.data.Unlock()
+	closed := make(chan error, 1)
+	closeJoined := make(chan struct{})
+	closeContext, cancelClose := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelClose()
+	go func() {
+		defer close(closeJoined)
+		a.data.Lock()
+		defer a.data.Unlock()
+		closed <- a.closeMCP(closeContext)
+	}()
+	t.Cleanup(func() {
+		cancelQuery()
+		cancelClose()
+		release()
+		select {
+		case <-closeJoined:
+		case <-time.After(3 * time.Second):
+			t.Error("borrowed resource teardown did not join during cleanup")
+		}
+	})
 	cancelQuery()
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("archive query cancellation did not reach borrowed request")
+	}
+	select {
+	case <-closed:
+		t.Fatal("resource teardown skipped the borrowed handler acknowledgement")
+	case <-time.After(20 * time.Millisecond):
+	}
+	release()
 	select {
 	case <-requestDone:
 	case <-time.After(time.Second):
-		close(released)
-		<-requestDone
-		t.Fatal("archive query cancellation did not stop borrowed request")
+		t.Fatal("borrowed request did not return after acknowledgement")
+	}
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal("resource teardown failed after handler acknowledgement")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resource teardown did not join the borrowed request")
 	}
 	if !a.data.TryLock() {
-		t.Fatal("finished request retained the resource read lock")
+		t.Fatal("finished teardown retained the resource lock")
 	}
 	a.data.Unlock()
 }

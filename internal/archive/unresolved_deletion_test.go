@@ -240,7 +240,7 @@ func TestUnresolvedDeletionMigrationNineUpgradePreservesSourcesAndCursor(t *test
 	}
 	// Reconstruct a checksummed version-9 archive, including removal of the
 	// later empty recovery audit and its archive metadata columns.
-	for _, statement := range []string{"DROP TABLE snapshot_recovery_audit", "ALTER TABLE archive_meta DROP COLUMN recovery_epoch", "ALTER TABLE archive_meta DROP COLUMN recovery_code"} {
+	for _, statement := range []string{"DROP TABLE send_requests", "DROP TABLE send_permissions", "DROP TABLE snapshot_recovery_audit", "ALTER TABLE archive_meta DROP COLUMN recovery_epoch", "ALTER TABLE archive_meta DROP COLUMN recovery_code"} {
 		if _, err := s.writeDB.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
@@ -262,8 +262,12 @@ func TestUnresolvedDeletionMigrationNineUpgradePreservesSourcesAndCursor(t *test
 	defer s.Close()
 	var version int
 	var reopenedKey []byte
-	if err := s.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 11 {
-		t.Fatalf("version-9 archive did not upgrade to 11: %d %v", version, err)
+	entries, err := migrationFiles.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != len(entries) {
+		t.Fatalf("version-9 archive did not upgrade to current schema: %d %v", version, err)
 	}
 	if err := s.readDB.QueryRow("SELECT cursor_key FROM archive_meta WHERE id=1").Scan(&reopenedKey); err != nil || !bytes.Equal(key, reopenedKey) {
 		t.Fatalf("upgrade replaced the archive cursor identity: %v", err)

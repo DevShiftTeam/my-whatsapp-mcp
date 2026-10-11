@@ -17,7 +17,8 @@ The app uses Go, SQLite, and embedded HTML/CSS/JavaScript. The normal source bui
 | `internal/retrieval` | Keyword and optional semantic candidates, ranking, pagination, and response guards. |
 | `internal/indexing` | Source-bound document windows and durable indexing jobs. |
 | `internal/localui` | Owner HTTP API, optional password admin interface, and embedded browser assets. |
-| `internal/mcpserver` | Scoped read-only MCP tools, bearer authentication, and local stdio adapter. |
+| `internal/mcpserver` | Scoped MCP read and send tools, bearer authentication, and local stdio adapter. |
+| `internal/outbound` | Send validation, provider dispatch, and durable request/receipt semantics. |
 | `internal/clientsetup` | Client configuration and instructions rendered from app-owned settings. |
 | `internal/media` | Original downloads, format verification, OCR, image descriptions, and transcription. |
 | `internal/transcription` | Authenticated loopback adapter for optional batch voice extraction. |
@@ -49,6 +50,8 @@ An already committed PN/LID pair can return after verification in one bounded re
 Atomic alias merges use the internal `archive.Options.AliasDeadline`: 2 seconds by default, capped at 5 seconds, with an earlier caller deadline or cancellation taking precedence. Deletion and other controls retain their 500 ms default, and the extension response fence remains 100 ms. All commands still share one writer, so a long alias transaction can delay a deletion until its stricter deadline is missed. Uncertain outcomes remain denied; the separate alias budget adds no retries or relaxed authorization.
 
 The local stdio adapter talks to the running app through a private Unix socket. It does not open another WhatsApp session, archive database, or model runtime.
+
+Outbound tools use the same linked connector and a separate owner-approved finite chat allowlist. Read grants never imply send authority. `internal/outbound` validates bounded text and media, while `internal/archive` persists permission and request state. The owner API is `POST /api/connections/send-permission`; the four client JSON routes live on the MCP listener and share its authentication and bounds. Each transmission requires current credential, chat, policy, session, and source-safety authority. The journal binds credential plus request ID to a payload digest, records uncertainty before provider work, and returns acceptance only after the provider acknowledgement is durably recorded. Preserve same-key replay, conflict denial, and post-upload permission checks; never retry an unknown outcome under a new key automatically. See [outbound messaging](clients/outbound-messaging.md) for setup and the acceptance boundary.
 
 Stats uses owner/password-admin `POST /api/stats` with the existing CSRF and exact-origin checks; it adds no MCP tool. Optional filters are `from` (inclusive Unix seconds), `until` (exclusive Unix seconds), `chat_id`, and `kind` (`all`, `text`, `image`, `voice`, or `other`). Counts, media, activity, and top chats share the filtered readable policy scope and active, unexpired source checks. A bounded response includes `sampled_at` and archive revision, at most 90 adaptive UTC activity buckets, and the top eight chats. Global import and transcription processing stays in `/api/status`, independent of Stats filters. The UI refreshes every five seconds only while Stats and the document are visible, aborts when hidden, and clears stale counts and names after an error. Custom date controls use inclusive local days before conversion to Unix bounds; UTC activity buckets remain separate. Do not present saved-data fractions as complete WhatsApp history or transcription quality. See [Stats](stats.md) for the user guide.
 

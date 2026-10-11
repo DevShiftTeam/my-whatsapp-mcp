@@ -200,10 +200,12 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	client := mcp.NewClient(&mcp.Implementation{Name: "wa-indexer-stdio-adapter", Version: "1.0.0"}, &mcp.ClientOptions{Logger: quiet})
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+	initializationCtx, initializationCancel := context.WithTimeout(ctx, adapterRequestTimeout)
+	session, err := client.Connect(initializationCtx, &mcp.StreamableClientTransport{
 		Endpoint: config.Endpoint, HTTPClient: httpClient,
 		DisableStandaloneSSE: true, MaxRetries: -1, MaxEventSize: defaultResponseBytes,
 	}, nil)
+	initializationCancel()
 	if err != nil {
 		return ErrUnavailable
 	}

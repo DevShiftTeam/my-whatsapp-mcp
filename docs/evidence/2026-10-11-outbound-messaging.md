@@ -1,5 +1,7 @@
 # Outbound MCP/API implementation evidence — 2026-10-11
 
+This is a historical qualification record for the original isolated outbound branch. Its commands and results do not describe the later integrated checkout or certify its migration order and final test status. Integration requires separate validation; no live send proof is recorded here.
+
 ## Scope and isolation
 
 Implemented in the separate `codex/mcp-outbound` worktree based on `926db12`. The shared checkout was left untouched. No transcription workers, inference profiles, dashboard assets, charts, or dependency versions were changed. Review the archive migration number and the small owner routing/MCP listener edits when combining this branch with concurrent work.

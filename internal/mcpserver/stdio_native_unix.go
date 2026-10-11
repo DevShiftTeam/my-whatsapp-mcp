@@ -9,8 +9,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/outbound"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/sys/unix"
 )
 

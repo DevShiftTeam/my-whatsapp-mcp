@@ -1,6 +1,6 @@
 # Connect an AI client
 
-MCP exposes four read-only tools: `search_messages`, `get_context`, `list_chats`, and `get_index_status`. It cannot send WhatsApp messages. Every connection has its own chat scope, optional date bounds, and expiry.
+MCP exposes four read tools: `search_messages`, `get_context`, `list_chats`, and `get_index_status`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for specific chats; see [outbound messaging](clients/outbound-messaging.md).
 
 ## Local Codex or Claude Code
 
@@ -12,6 +12,8 @@ MCP exposes four read-only tools: `search_messages`, `get_context`, `list_chats`
 6. Start a new AI session and ask it to call `get_index_status`, search your distinctive test message, then use the returned `message_id` with `get_context`.
 
 The app generates a private credential file and a stdio adapter configuration. You do not need to choose a port or copy a local token. Keep the executable at the path referenced by the generated configuration; regenerate the client setup if you move it.
+
+The app also advertises outbound tools, but their presence does not grant send permission. Existing and newly created connections cannot send until the owner explicitly grants it. There is currently no send-permission button or CLI; the [outbound guide](clients/outbound-messaging.md#give-one-connection-permission-to-send) describes the authenticated owner API.
 
 Hosted Composio and Claude connectors cannot use this local adapter because they run outside your computer. They require remote access.
 
@@ -32,6 +34,8 @@ Stop the running app, then start it with a dedicated MCP listener and the public
 ```
 
 Route **only `/mcp`** from that HTTPS hostname to `http://127.0.0.1:6968/mcp`; return an error for other paths. Do not tunnel the local owner interface on port 64165. Keep the computer, app, and tunnel running.
+
+This route supports read and permitted send tools through MCP. Direct JSON sending additionally needs the four exact `/api/send/*` routes listed in the [outbound guide](clients/outbound-messaging.md#json-api); do not expose other paths on the MCP listener.
 
 Create a connection in **AI connections**, choosing **Remote**. Select a narrow scope when possible. **Show setup instructions** displays the MCP server URL; **Reveal remote token** exposes that connection's token for you to copy into the client.
 
@@ -74,9 +78,9 @@ After preparing the file, stop the app and use a configuration like this, replac
   --mcp-public-url https://archive.example.com/mcp
 ```
 
-Route the HTTPS hostname to `http://127.0.0.1:6969`. This admin listener serves the password-protected interface and forwards `/mcp` to the configured MCP handler. Never expose its HTTP origin directly on the network.
+Route the HTTPS hostname to `http://127.0.0.1:6969`. This admin listener serves the password-protected interface and forwards `/mcp` and the four outbound JSON routes to the configured MCP handler. Never expose its HTTP origin directly on the network.
 
-The admin password controls browser access and client management. MCP bearer tokens work independently of that password and grant only their configured read scope; they cannot administer the app. An admin browser cookie cannot authenticate an MCP client.
+The admin password controls browser access and client management, including send permissions. MCP bearer tokens work independently of that password and use their configured read scope plus any explicit send allowlist; they cannot administer the app or grant themselves sending rights. An admin browser cookie cannot authenticate an MCP client.
 
 ## Check access and revoke it
 

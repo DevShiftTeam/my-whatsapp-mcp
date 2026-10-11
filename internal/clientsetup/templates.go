@@ -250,7 +250,7 @@ func oauthGuide(g Guide, cfg SetupConfig) Guide {
 	}
 	g.CredentialPlacement = "Use the verified authorization server's consent flow. Do not enter a static bearer token or reuse the bearer-only hostname. Client registration and callback URLs must match this exact client surface."
 	g.TestAction = "Complete the actual OAuth consent/callback and refresh flow with the intended client, then " + testTools(g.Client)
-	g.RevokeAction = "Revoke this connection's access and refresh credentials at the authorization server and remove its My WhatsApp MCP policy grant. Repeat all four tools and refresh with the old connection; both must be denied. Then disconnect the client."
+	g.RevokeAction = "Revoke this connection's access and refresh credentials at the authorization server and remove its My WhatsApp MCP policy grant. Repeat all four read tools and refresh with the old connection; both must be denied. Then disconnect the client."
 	if cfg.CredentialID != "" {
 		g.RevokeAction += " The mapped My WhatsApp MCP credential is " + cfg.CredentialID + "."
 	}
@@ -260,7 +260,7 @@ func oauthGuide(g Guide, cfg SetupConfig) Guide {
 
 func testTools(client Client) string {
 	name := string(client)
-	return "In a new isolated " + name + " connection, list the four read-only tools and call search_messages on a synthetic permitted phrase. Use its returned message ID for get_context, then call list_chats and get_index_status. Confirm excluded chats/dates are absent, narrow the grant and repeat with the prior message ID; deny out-of-scope results."
+	return "In a new isolated " + name + " connection, list tools and verify the four read tools. Call search_messages on a synthetic permitted phrase. Use its returned message ID for get_context, then call list_chats and get_index_status. Confirm excluded chats/dates are absent, narrow the grant and repeat with the prior message ID; deny out-of-scope results."
 }
 
 func revokeCredential(id string) string {

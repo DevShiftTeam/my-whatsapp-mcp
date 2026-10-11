@@ -6,9 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/outbound"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"net/http"
 	"os"
 	"os/exec"
@@ -43,6 +43,9 @@ func (b *sendBackend) snapshot() (int, archive.CredentialGrant, outbound.Request
 func (b *sendBackend) callCount() int { n, _, _ := b.snapshot(); return n }
 func (b *sendBackend) SendStatus(_ context.Context, _ archive.CredentialGrant, id string) (outbound.Receipt, error) {
 	return outbound.Receipt{RequestID: id, State: "outcome_unknown"}, nil
+}
+func (b *sendBackend) CheckSendResponse(context.Context, archive.CredentialGrant, outbound.Receipt) error {
+	return nil
 }
 func TestOutboundMCPDiscoveryAndAuthenticatedJSONAPI(t *testing.T) {
 	b := &sendBackend{}
