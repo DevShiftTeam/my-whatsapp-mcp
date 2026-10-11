@@ -395,7 +395,9 @@ type rootReaderBatchFixture struct {
 func rootReaderBatchGuards(t *testing.T) rootReaderBatchFixture {
 	t.Helper()
 	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	s, p := readerFixture(t, &now)
+	// This fixture checks authority, not writer latency. Give its setup control
+	// commands room for CI package contention without changing read deadlines.
+	s, p := readerFixtureWithOptions(t, &now, Options{ControlDeadline: 2 * time.Second})
 	fixture := rootReaderBatchFixture{s: s, policy: p, provenance: make(map[DocumentID]DerivedProvenance)}
 	for n, chat := range []string{"batch-visible", "batch-visible", "batch-visible", "batch-shared", "batch-leaf", "batch-unrelated"} {
 		event := readerEvent(fmt.Sprintf("batch-source-%d", n), chat, fmt.Sprintf("Original source %d", n), now.Add(time.Duration(n-10)*time.Minute))

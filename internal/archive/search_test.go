@@ -20,11 +20,17 @@ import (
 
 func readerFixture(t *testing.T, now *time.Time) (*Store, ArchivePolicy) {
 	t.Helper()
+	return readerFixtureWithOptions(t, now, Options{})
+}
+
+func readerFixtureWithOptions(t *testing.T, now *time.Time, options Options) (*Store, ArchivePolicy) {
+	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(context.Background(), dir, Options{Now: func() time.Time { return *now }})
+	options.Now = func() time.Time { return *now }
+	s, err := Open(context.Background(), dir, options)
 	if err != nil {
 		t.Fatal(err)
 	}
