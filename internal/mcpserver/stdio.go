@@ -213,17 +213,12 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, adapterRequestTimeout)
 	listed, err := session.ListTools(discoveryCtx, nil)
 	discoveryCancel()
-	if err != nil || (len(listed.Tools) != 4 && len(listed.Tools) != 6 && len(listed.Tools) != 8 && len(listed.Tools) != 10) {
+	if err != nil || listed == nil || !validAdapterToolCatalog(listed.Tools) {
 		return ErrUnavailable
 	}
-	allowed := map[string]bool{"search_messages": true, "get_context": true, "list_chats": true, "search_contacts": true, "search_groups": true, "get_index_status": true, "send_message": true, "send_media": true, "send_voice_note": true, "get_send_status": true}
 	server := mcp.NewServer(&mcp.Implementation{Name: "wa-indexer-stdio-adapter", Version: "1.0.0"}, &mcp.ServerOptions{Logger: quiet})
 	semaphore := make(chan struct{}, 4)
 	for _, tool := range listed.Tools {
-		if tool == nil || !allowed[tool.Name] || !validAdapterTool(tool) {
-			return ErrUnavailable
-		}
-		delete(allowed, tool.Name)
 		name := tool.Name
 		server.AddTool(tool, func(callCtx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if !validAdapterArgumentsFor(name, request.Params.Arguments) {
@@ -258,29 +253,49 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 			return reply, nil
 		})
 	}
-	for _, name := range []string{"search_messages", "get_context", "list_chats", "get_index_status"} {
-		if allowed[name] {
-			return ErrUnavailable
-		}
-	}
-	// Accept the previous four-read-tool daemon during an upgrade, but require
-	// complete optional capability sets rather than forwarding partial sets.
-	if allowed["search_contacts"] != allowed["search_groups"] {
-		return ErrUnavailable
-	}
-	missingOutbound := 0
-	for _, name := range []string{"send_message", "send_media", "send_voice_note", "get_send_status"} {
-		if allowed[name] {
-			missingOutbound++
-		}
-	}
-	if missingOutbound != 0 && missingOutbound != 4 {
-		return ErrUnavailable
-	}
 	if err := server.Run(ctx, transport); err != nil {
 		return ErrUnavailable
 	}
 	return nil
+}
+
+// Accept complete catalogs from previous daemons during upgrades. Attachments
+// require contact search; their eight-read-tool catalog differs from the
+// previous four-read-plus-four-send catalog by its exact tool names.
+func validAdapterToolCatalog(tools []*mcp.Tool) bool {
+	if len(tools) != 4 && len(tools) != 6 && len(tools) != 8 && len(tools) != 10 && len(tools) != 12 {
+		return false
+	}
+	missing := map[string]bool{
+		"search_messages": true, "get_context": true, "list_chats": true, "get_index_status": true,
+		"search_contacts": true, "search_groups": true,
+		"search_attachments": true, "get_attachment": true,
+		"send_message": true, "send_media": true, "send_voice_note": true, "get_send_status": true,
+	}
+	for _, tool := range tools {
+		if tool == nil || !missing[tool.Name] || !validAdapterTool(tool) {
+			return false
+		}
+		delete(missing, tool.Name)
+	}
+	for _, name := range []string{"search_messages", "get_context", "list_chats", "get_index_status"} {
+		if missing[name] {
+			return false
+		}
+	}
+	if missing["search_contacts"] != missing["search_groups"] || missing["search_attachments"] != missing["get_attachment"] {
+		return false
+	}
+	if !missing["search_attachments"] && missing["search_contacts"] {
+		return false
+	}
+	missingOutbound := 0
+	for _, name := range []string{"send_message", "send_media", "send_voice_note", "get_send_status"} {
+		if missing[name] {
+			missingOutbound++
+		}
+	}
+	return missingOutbound == 0 || missingOutbound == 4
 }
 
 func validAdapterArguments(raw json.RawMessage) bool {

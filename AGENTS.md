@@ -6,6 +6,7 @@ Before editing, read the relevant source and these guides:
 
 - [Setup](docs/setup.md) for build, launch, pairing, and user workflows.
 - [MCP](docs/mcp.md) for clients, scopes, authentication, and remote access.
+- [Attachments](docs/attachments.md) for document retention, scoped file search, and private original downloads.
 - [Outbound messaging](docs/clients/outbound-messaging.md) for send permissions, media limits, durable request IDs, and uncertain outcomes.
 - [Development](docs/development.md) for package ownership and checks.
 - [Security](SECURITY.md) for private data and reporting.

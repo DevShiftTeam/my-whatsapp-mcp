@@ -66,6 +66,7 @@ type ResponseGuard struct {
 	minSent, minExpiry time.Time
 	rolling            time.Duration
 	roots              []extensionRootResponsePin
+	attachments        []attachmentResponsePin
 	Sources            []SourceReadVersion // every excerpt/reply contributor, not only anchors
 	PolicyGeneration   Generation
 	Generation         IndexGenerationID

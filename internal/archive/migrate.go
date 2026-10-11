@@ -42,10 +42,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return ErrArchiveUnavailable
 	}
 
-	const latest = 13
+	const latest = 14
 	contents := make([][]byte, latest)
 	checksums := make([]string, latest)
-	names := []string{"001_archive.sql", "002_indexing.sql", "003_media.sql", "004_credentials.sql", "005_media_identity.sql", "006_index_reuse.sql", "007_fts_secure_delete.sql", "008_publication_extraction.sql", "009_original_downloads.sql", "010_unresolved_deletions.sql", "011_snapshot_recovery.sql", "012_outbound.sql", "013_send_permission_modes.sql"}
+	names := []string{"001_archive.sql", "002_indexing.sql", "003_media.sql", "004_credentials.sql", "005_media_identity.sql", "006_index_reuse.sql", "007_fts_secure_delete.sql", "008_publication_extraction.sql", "009_original_downloads.sql", "010_unresolved_deletions.sql", "011_snapshot_recovery.sql", "012_outbound.sql", "013_send_permission_modes.sql", "014_documents.sql"}
 	for i, name := range names {
 		contents[i], err = migrationFiles.ReadFile("migrations/" + name)
 		if err != nil {
@@ -102,7 +102,36 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if err = tx.QueryRowContext(ctx, "SELECT normalization_version FROM archive_meta WHERE id=1").Scan(&norm); err != nil || strings.TrimSpace(norm) != LexicalNormalizationVersion {
 		return ErrSchemaChanged
 	}
+	if applied < latest {
+		if err = finishMigrationForeignKeys(ctx, tx); err != nil {
+			return err
+		}
+	}
 	if err = tx.Commit(); err != nil {
+		return ErrArchiveUnavailable
+	}
+	return nil
+}
+
+func finishMigrationForeignKeys(ctx context.Context, tx *sql.Tx) error {
+	// The parent rebuild defers NO ACTION checks while its same-name table is
+	// replaced. SQLite retains transient drop counters even after that table
+	// is restored; reset those counters only after checking the actual graph.
+	var enabled int
+	if err := tx.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil || enabled != 1 {
+		return ErrArchiveUnavailable
+	}
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return ErrArchiveUnavailable
+	}
+	broken := rows.Next()
+	err = rows.Err()
+	closeErr := rows.Close()
+	if broken || err != nil || closeErr != nil {
+		return ErrArchiveUnavailable
+	}
+	if _, err = tx.ExecContext(ctx, "PRAGMA defer_foreign_keys=OFF"); err != nil {
 		return ErrArchiveUnavailable
 	}
 	return nil

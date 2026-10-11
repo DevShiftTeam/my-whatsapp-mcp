@@ -329,6 +329,7 @@ func newToolServer(c Config, reader guardedReader, credentials Credentials) *mcp
 		}
 		return statusDTO{sourceLabel(p.Snapshot), p.Connection, p.Paused, p.ReconciliationRequired, p.Coverage, chatDTOs(p.Chats), p.Messages, progress(p.Keyword), progress(p.Semantic), progress(p.Media), p.Codes}, g, nil
 	})
+	addAttachmentTools(c, add)
 	if c.Outbound != nil {
 		addOutboundTools(s, c, credentials)
 	}

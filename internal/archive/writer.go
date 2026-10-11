@@ -314,7 +314,7 @@ func (s *Store) ApplySourceEvent(ctx context.Context, e SourceEvent, expected Ge
 	control := e.Kind == EventDelete || e.Kind == EventEditInvalidation
 	n := int64(len(e.Body) + len(e.Caption) + len(e.Key.Account) + len(e.Key.Chat) + len(e.Key.Sender) + len(e.Key.Message) + 512)
 	for _, m := range e.Media {
-		n += int64(128 + len(m.ProtocolReference) + len(m.MimeType) + len(m.Kind) + len(m.Availability))
+		n += int64(128 + len(m.ProtocolReference) + len(m.MimeType) + len(m.Filename) + len(m.Kind) + len(m.Availability))
 	}
 	if e.ReplyTo != nil {
 		n += int64(len(e.ReplyTo.Account) + len(e.ReplyTo.Chat) + len(e.ReplyTo.Sender) + len(e.ReplyTo.Message) + 128)
@@ -410,7 +410,7 @@ func validateEvent(e SourceEvent) error {
 		return ErrInvalidEvent
 	}
 	switch e.BodyKind {
-	case "", MessageText, MessageImage, MessageVoice, MessageUnsupported:
+	case "", MessageText, MessageImage, MessageVoice, MessageDocument, MessageUnsupported:
 	default:
 		return ErrInvalidEvent
 	}
@@ -424,7 +424,7 @@ func validateEvent(e SourceEvent) error {
 		return ErrInvalidEvent
 	}
 	for _, m := range e.Media {
-		if len(m.ProtocolReference) > maxProtocolReferenceBytes || m.DeclaredBytes < 0 || len(m.MimeType) > 256 || len(m.Kind) > 64 || !utf8.ValidString(m.MimeType) || !validMediaAvailability(m.Availability) {
+		if len(m.ProtocolReference) > maxProtocolReferenceBytes || m.DeclaredBytes < 0 || len(m.MimeType) > 256 || len(m.Kind) > 64 || !utf8.ValidString(m.MimeType) || !validDocumentFilename(m.Filename) || !validMediaAvailability(m.Availability) {
 			return ErrInvalidEvent
 		}
 	}
@@ -861,6 +861,7 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 		if err != nil {
 			return err
 		}
+		documentDateMatches := exists && v.known && e.OriginalDateKnown && unixms(e.OriginalSentAt) == v.sent
 		metadataChanged := false
 		if exists && v.known {
 			sent = v.sent
@@ -1038,7 +1039,14 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 			}
 			return tx.QueryRowContext(ctx, "SELECT archive_revision FROM archive_meta WHERE id=1").Scan(&result.ArchiveRevision)
 		}
-		conflict := !terminal && !missing && same && exists && allowed && v.state == "active" && v.kind == string(e.Kind) && (v.hash != hash || !exactFields || v.mediaIdentity != "" && v.mediaIdentity != mediaIdentity) && (e.Kind == EventOriginal || e.Kind == EventEditContent)
+		promotedDocument := false
+		if !terminal && !missing && !metadataChanged && !securityChanged && same && exists && allowed {
+			promotedDocument, err = documentPromotionEligible(ctx, tx, v, e, documentDateMatches)
+			if err != nil {
+				return err
+			}
+		}
+		conflict := !promotedDocument && !terminal && !missing && same && exists && allowed && v.state == "active" && v.kind == string(e.Kind) && (v.hash != hash || !exactFields || v.mediaIdentity != "" && v.mediaIdentity != mediaIdentity) && (e.Kind == EventOriginal || e.Kind == EventEditContent)
 		state := "invalidated"
 		body, caption, normalBody, normalCaption := "", "", "", ""
 		availability := "not_retained"
@@ -1135,6 +1143,11 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 		}
 		if _, err = tx.ExecContext(ctx, "UPDATE messages SET original_sent_at=?,original_date_known=?,protocol_revision=?,local_revision=local_revision+1,state=?,source_kind=?,body=?,caption=?,normalized_body=?,normalized_caption=?,body_kind=?,content_hash=?,extension_media_identity=?,edited=?,expires_at=?,media_availability=?,view_once=?,revision_barrier=?,reply_account=?,reply_chat=?,reply_sender=?,reply_message=?,reply_from_me=? WHERE id=?", sent, e.OriginalDateKnown, protocol, state, sourceKind, body, caption, normalBody, normalCaption, kind, hash, mediaIdentity, edited, expires, availability, viewOnce, barrier, reply.Account, reply.Chat, reply.Sender, reply.Message, reply.FromMe, v.id); err != nil {
 			return err
+		}
+		if promotedDocument {
+			if _, err = tx.ExecContext(ctx, "DELETE FROM extension_document_promotions WHERE message_id=?", v.id); err != nil {
+				return err
+			}
 		}
 		if state == "active" {
 			if _, err = tx.ExecContext(ctx, "INSERT INTO message_fts(rowid,normalized_body,normalized_caption) VALUES(?,?,?)", v.rowid, normalBody, normalCaption); err != nil {

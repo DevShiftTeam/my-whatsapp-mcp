@@ -36,6 +36,7 @@ type Options struct {
 	ExpectedDevice                       uint64
 	Admission                            diskspace.Admission
 	ImageMaximumBytes, VoiceMaximumBytes int64
+	DocumentMaximumBytes                 int64
 	LeaseTTL                             time.Duration
 	// OnTransition observes private body-free lifecycle checkpoints. It executes
 	// synchronously and must not reenter this store. No paths or protocol keys

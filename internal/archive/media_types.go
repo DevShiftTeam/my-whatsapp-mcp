@@ -50,6 +50,7 @@ type MediaArtifact struct {
 	Budget        BudgetKind
 	ReservedBytes int64
 	State         string // reserved, staged, retained, evicting; fixed allowlist
+	ActualFormat  string // verified byte classification, not the declared MIME type
 }
 type MediaCleanup struct {
 	ReservationID ReservationID

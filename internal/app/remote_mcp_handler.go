@@ -22,8 +22,8 @@ func (a *Application) RemoteMCPHandler() http.Handler {
 			remoteMCPUnavailable(w)
 			return
 		}
-		m, handler, root := a.mcp, a.mcp.remoteHandler, a.queryContext
-		if root.Err() != nil {
+		m, handler, query := a.mcp, a.mcp.remoteHandler, a.queryContext
+		if m.root == nil || m.root.Err() != nil || query == nil || query.Err() != nil {
 			a.data.RUnlock()
 			remoteMCPUnavailable(w)
 			return
@@ -35,8 +35,40 @@ func (a *Application) RemoteMCPHandler() http.Handler {
 		a.data.RUnlock()
 		defer m.workers.Done()
 		ctx, cancel := context.WithCancel(r.Context())
-		stop := context.AfterFunc(root, cancel)
-		defer stop()
+		stopLifetime := context.AfterFunc(m.root, cancel)
+		stopQuery := context.AfterFunc(query, cancel)
+		defer stopLifetime()
+		defer stopQuery()
+		defer cancel()
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// mcpRequestHandler gives each dedicated transport request the current query
+// cancellation signal while retaining the separate MCP/archive lifetime.
+// The same wrapper is borrowed by the tunnel route, so every transport joins
+// resource teardown before its captured reader can be closed.
+func (a *Application) mcpRequestHandler(m *mcpListeners, handler http.Handler) http.Handler {
+	store, resources := a.store, a.resources
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !a.data.TryRLock() {
+			remoteMCPUnavailable(w)
+			return
+		}
+		query := a.queryContext
+		if a.closed || !a.mcpEnabled || a.mcp != m || a.store != store || a.resources != resources || m.root == nil || m.root.Err() != nil || query == nil || query.Err() != nil {
+			a.data.RUnlock()
+			remoteMCPUnavailable(w)
+			return
+		}
+		m.workers.Add(1)
+		a.data.RUnlock()
+		defer m.workers.Done()
+		ctx, cancel := context.WithCancel(r.Context())
+		stopLifetime := context.AfterFunc(m.root, cancel)
+		stopQuery := context.AfterFunc(query, cancel)
+		defer stopLifetime()
+		defer stopQuery()
 		defer cancel()
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	})

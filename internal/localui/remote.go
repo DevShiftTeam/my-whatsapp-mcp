@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 )
 
 const remoteOwnerCookie = "__Host-wa_owner"
@@ -204,7 +206,7 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		s.static(w, r)
 		return
 	}
-	if r.URL.Path == "/mcp" || remoteSendRoute(r.URL.Path) {
+	if r.URL.Path == "/mcp" || remoteSendRoute(r.URL.Path) || mcpserver.AttachmentDownloadRoute(r.URL.Path) {
 		if r.URL.RawPath != "" || r.URL.ForceQuery {
 			remoteFail(w, 404, "route_unavailable")
 			return

@@ -5,6 +5,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
@@ -51,6 +52,9 @@ type RemoteClientRegistry interface {
 type Config struct {
 	// Optional app-owned sender. Nil preserves the read-only surface.
 	Outbound Outbound
+	// Optional app-owned attachment service. It receives only resolved grants
+	// and opaque archive identities, never caller URLs or filesystem paths.
+	Attachments Attachments
 
 	Mode AuthMode
 	// Required for LocalAdapter; checked on every fresh credential resolution.
@@ -70,6 +74,25 @@ type Config struct {
 	MaxConcurrent    int
 	RequestTimeout   time.Duration
 	Access           AccessConfig
+}
+
+// Attachments keeps file retrieval inside the app's source and physical-owner
+// boundaries. Its HTTP method accepts only the configured opaque ticket route;
+// the ticket retains the original grant and response guard on the server.
+type Attachments interface {
+	Search(context.Context, archive.CredentialGrant, archive.AttachmentSearchRequest) (archive.AttachmentPage, archive.ResponseGuard, error)
+	Prepare(context.Context, archive.CredentialGrant, archive.MediaID, bool, bool) (AttachmentDelivery, archive.ResponseGuard, error)
+	ServeDownload(http.ResponseWriter, *http.Request)
+}
+
+type AttachmentDelivery struct {
+	Attachment   archive.AttachmentView
+	Snapshot     archive.ReadSnapshot
+	Status       string
+	Code         string
+	DownloadURL  string
+	ExpiresAt    time.Time
+	InlineBase64 string
 }
 
 // AccessConfig pins one issuer and audience to explicit subject/client grants.

@@ -17,9 +17,10 @@ import (
 )
 
 func borrowedRemoteMCPTestApp(handler http.Handler) *Application {
+	root, cancel := context.WithCancel(context.Background())
 	return &Application{mcpEnabled: true, queryContext: context.Background(),
 		mcpConfig: MCPConfig{Remote: &RemoteMCPConfig{Server: mcpserver.Config{Mode: mcpserver.Bearer}}},
-		mcp:       &mcpListeners{remoteState: "ready", remoteStarted: true, remoteHandler: handler}}
+		mcp:       &mcpListeners{root: root, cancel: cancel, remoteState: "ready", remoteStarted: true, remoteHandler: handler}}
 }
 
 func borrowedRemoteMCPRequest(token, body string) *http.Request {
@@ -44,6 +45,12 @@ func TestRemoteMCPHandlerDeniesUnpublishedAuthority(t *testing.T) {
 		{"pending_recovery", func(a *Application) { a.remoteRecoveryPending = true }},
 		{"invalid_journal", func(a *Application) { a.authState.RemoteInvalid = true }},
 		{"missing_handler", func(a *Application) { a.mcp.remoteHandler = nil }},
+		{"missing_lifetime", func(a *Application) { a.mcp.root = nil }},
+		{"ended_lifetime", func(a *Application) {
+			root, cancel := context.WithCancel(context.Background())
+			cancel()
+			a.mcp.root = root
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var calls atomic.Int32
@@ -120,6 +127,72 @@ func TestRemoteMCPHandlerRejectsLifecycleContentionBeforeAdmission(t *testing.T)
 	}
 	if response.Code != http.StatusServiceUnavailable || calls.Load() != 0 || strings.Contains(response.Body.String(), "SENTINEL") || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("lifecycle contention reached archive authority")
+	}
+}
+
+func TestMCPRequestUsesCurrentQueryAndRetainsTransportLifetime(t *testing.T) {
+	for _, transport := range []string{"dedicated", "borrowed"} {
+		t.Run(transport, func(t *testing.T) {
+			entered, cancelled := make(chan struct{}), make(chan struct{})
+			var calls atomic.Int32
+			owned := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if calls.Add(1) == 1 {
+					close(entered)
+					<-r.Context().Done()
+					close(cancelled)
+				} else if r.Context().Err() != nil {
+					t.Error("fresh query inherited an ended query context")
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			a := borrowedRemoteMCPTestApp(owned)
+			defer a.mcp.cancel()
+			query, cancelQuery := context.WithCancel(context.Background())
+			defer cancelQuery()
+			a.queryContext = query
+			var handler http.Handler
+			if transport == "dedicated" {
+				handler = a.mcpRequestHandler(a.mcp, owned)
+			} else {
+				handler = a.RemoteMCPHandler()
+			}
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				handler.ServeHTTP(httptest.NewRecorder(), borrowedRemoteMCPRequest("bounded", "{}"))
+			}()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				cancelQuery()
+				t.Fatal("request did not enter its captured handler")
+			}
+			a.data.Lock()
+			cancelQuery()
+			a.queryContext = context.Background()
+			a.data.Unlock()
+			select {
+			case <-cancelled:
+			case <-time.After(time.Second):
+				t.Fatal("query cancellation did not stop in-flight MCP work")
+			}
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("cancelled MCP work did not return")
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, borrowedRemoteMCPRequest("bounded", "{}"))
+			if response.Code != http.StatusNoContent || calls.Load() != 2 || a.mcp.root.Err() != nil {
+				t.Fatal("query replacement ended the transport lifetime")
+			}
+			a.mcp.cancel()
+			response = httptest.NewRecorder()
+			handler.ServeHTTP(response, borrowedRemoteMCPRequest("bounded", "{}"))
+			if response.Code != http.StatusServiceUnavailable || calls.Load() != 2 {
+				t.Fatal("cancelled MCP lifetime retained handler authority")
+			}
+		})
 	}
 }
 

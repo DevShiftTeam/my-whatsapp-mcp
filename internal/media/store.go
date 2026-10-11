@@ -83,10 +83,13 @@ func Open(paths appdata.Paths, repo archive.MediaStore, o Options) (*Store, erro
 	if o.VoiceMaximumBytes == 0 {
 		o.VoiceMaximumBytes = 25 << 20
 	}
+	if o.DocumentMaximumBytes == 0 {
+		o.DocumentMaximumBytes = archive.MaximumDocumentBytes
+	}
 	if o.LeaseTTL == 0 {
 		o.LeaseTTL = 2 * time.Minute
 	}
-	if o.ImageMaximumBytes < 1 || o.VoiceMaximumBytes < 1 || o.ImageMaximumBytes > maximumMediaBytes || o.VoiceMaximumBytes > maximumMediaBytes || o.LeaseTTL < time.Second || o.LeaseTTL > time.Hour {
+	if o.ImageMaximumBytes < 1 || o.VoiceMaximumBytes < 1 || o.DocumentMaximumBytes < 1 || o.ImageMaximumBytes > maximumMediaBytes || o.VoiceMaximumBytes > maximumMediaBytes || o.DocumentMaximumBytes > archive.MaximumDocumentBytes || o.LeaseTTL < time.Second || o.LeaseTTL > time.Hour {
 		return nil, ErrInvalidRequest
 	}
 	root, err := openDirectory(paths.Root)
@@ -182,14 +185,16 @@ func artifactName(id archive.ArtifactID, suffix string) string {
 // every Open descriptor after the complete native process group has exited,
 // then Close the Original. Close refuses live duplicated descriptors.
 type Original struct {
-	mu          sync.Mutex
-	store       *Store
-	file, guard *os.File
-	readers     *os.File
-	children    []*os.File
-	metadata    OriginalMetadata
-	closed      bool
-	exported    bool
+	mu           sync.Mutex
+	store        *Store
+	file, guard  *os.File
+	readers      *os.File
+	children     []*os.File
+	metadata     OriginalMetadata
+	kind         archive.MessageKind
+	actualFormat string
+	closed       bool
+	exported     bool
 }
 
 func (s *Store) OpenOriginal(ctx context.Context, scope archive.ReadScope, id archive.MediaID) (*Original, error) {
@@ -230,24 +235,101 @@ func (s *Store) OpenOriginal(ctx context.Context, scope archive.ReadScope, id ar
 		_ = releaseLock(readers)
 		return nil, err
 	}
-	digest, size, format, err := verifyMediaFile(ctx, f, "", a.Bytes)
+	kind := archive.MessageKind("")
+	if a.ActualFormat == "document" || a.ActualFormat == "pdf" {
+		kind = archive.MessageDocument
+	}
+	digest, size, format, err := verifyMediaFile(ctx, f, kind, a.Bytes)
 	if err != nil {
 		return closeFail(err)
 	}
-	if size != a.Bytes || digest != a.SHA256 {
+	if size != a.Bytes || digest != a.SHA256 || a.ActualFormat != "" && format != a.ActualFormat {
 		return closeFail(ErrAuthentication)
 	}
 	current, err := s.repo.AuthorizeOriginal(ctx, scope, id)
 	if err != nil {
 		return closeFail(err)
 	}
-	if current.ID != a.ID || current.SHA256 != a.SHA256 || current.Bytes != a.Bytes || !sameSource(current.Source, a.Source) {
+	if current.ID != a.ID || current.SHA256 != a.SHA256 || current.Bytes != a.Bytes || current.ActualFormat != a.ActualFormat || !sameSource(current.Source, a.Source) {
 		return closeFail(ErrSourceChanged)
 	}
 	failed = false
-	return &Original{store: s, file: f, guard: guard, readers: readers, metadata: OriginalMetadata{MediaID: id, ArtifactID: a.ID, Source: a.Source, SHA256: digest, Bytes: size, Format: format}}, nil
+	return &Original{store: s, file: f, guard: guard, readers: readers, kind: kind, actualFormat: a.ActualFormat, metadata: OriginalMetadata{MediaID: id, ArtifactID: a.ID, Source: a.Source, SHA256: digest, Bytes: size, Format: format}}, nil
 }
 func (o *Original) Metadata() OriginalMetadata { return o.metadata }
+
+// Recheck keeps the original cleanup guards and captured metadata while
+// validating current source authority and the held file. Callers returning
+// buffered bytes must separately compare their buffer's length and digest to
+// Metadata, then recheck their current credential and response guard.
+func (o *Original) Recheck(ctx context.Context, scope archive.ReadScope) error {
+	if o == nil {
+		return os.ErrClosed
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.closed || o.store == nil || o.file == nil || o.guard == nil || o.readers == nil {
+		return os.ErrClosed
+	}
+	if ctx == nil {
+		return ErrInvalidRequest
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	authorize := func() error {
+		artifact, err := o.store.repo.AuthorizeOriginal(ctx, scope, o.metadata.MediaID)
+		if err != nil {
+			return err
+		}
+		if artifact.MediaID != o.metadata.MediaID || artifact.ID != o.metadata.ArtifactID ||
+			artifact.Budget != archive.BudgetOriginals || artifact.State != "retained" ||
+			artifact.SHA256 != o.metadata.SHA256 || artifact.Bytes != o.metadata.Bytes ||
+			artifact.ActualFormat != o.actualFormat || !sameSource(artifact.Source, o.metadata.Source) {
+			return ErrSourceChanged
+		}
+		return nil
+	}
+	files := func() error {
+		for _, held := range []struct {
+			name string
+			file *os.File
+		}{
+			{artifactName(o.metadata.ArtifactID, ".original"), o.file},
+			{artifactName(o.metadata.ArtifactID, ".lock"), o.guard},
+			{"media-readers.lock", o.readers},
+		} {
+			if err := o.store.media.same(held.name, held.file); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := authorize(); err != nil {
+		return err
+	}
+	if err := files(); err != nil {
+		return err
+	}
+	digest, size, format, err := verifyMediaFile(ctx, o.file, o.kind, o.metadata.Bytes)
+	if err != nil {
+		return err
+	}
+	if digest != o.metadata.SHA256 || size != o.metadata.Bytes || format != o.metadata.Format {
+		return ErrAuthentication
+	}
+	if err := files(); err != nil {
+		return err
+	}
+	if err := authorize(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return files()
+}
+
 func (o *Original) Reader() io.ReaderAt {
 	o.mu.Lock()
 	defer o.mu.Unlock()

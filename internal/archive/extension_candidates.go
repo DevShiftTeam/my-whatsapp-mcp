@@ -910,6 +910,9 @@ func (s *Store) CheckResponse(ctx context.Context, scope ReadScope, check Respon
 	if err = f.extensionCheckRootPinsWithSources(check.Guard.roots, expected, currentSources); err != nil {
 		return ReadSnapshot{}, err
 	}
+	if err = f.checkAttachmentPins(check.Guard.attachments, expected); err != nil {
+		return ReadSnapshot{}, err
+	}
 	f.note(check.Guard.minSent, check.Guard.minExpiry)
 	if err = tx.Commit(); err != nil {
 		return ReadSnapshot{}, readError(fenced, err)

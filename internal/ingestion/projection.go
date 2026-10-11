@@ -77,6 +77,9 @@ func rawProtocolStatus(m *waE2E.Message) (*waE2E.ProtocolMessage, error) {
 		if m == nil {
 			return nil, nil
 		}
+		if m.GetDocumentMessage() != nil && !standaloneDocument(m) {
+			return nil, archive.ErrInvalidEvent
+		}
 		var next *waE2E.Message
 		for _, child := range []*waE2E.Message{m.GetDeviceSentMessage().GetMessage(), m.GetBotInvokeMessage().GetMessage(), m.GetEphemeralMessage().GetMessage(), m.GetViewOnceMessage().GetMessage(), m.GetViewOnceMessageV2().GetMessage(), m.GetViewOnceMessageV2Extension().GetMessage(), m.GetLottieStickerMessage().GetMessage(), m.GetDocumentWithCaptionMessage().GetMessage(), m.GetEditedMessage().GetMessage()} {
 			if child == nil {

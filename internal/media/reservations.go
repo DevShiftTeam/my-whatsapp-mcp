@@ -29,10 +29,15 @@ func (s *Store) bind(ctx context.Context, q DownloadRequest) (archive.SourceRef,
 	if q.MediaID == "" || q.Key.Account == "" || q.Version.MessageID == "" || q.Version.Deleted || q.Version.Excluded || q.ProtocolSHA256 == ([32]byte{}) {
 		return archive.SourceRef{}, 0, 0, ErrInvalidRequest
 	}
-	maximum := s.options.ImageMaximumBytes
-	if q.Kind == archive.MessageVoice {
+	var maximum int64
+	switch q.Kind {
+	case archive.MessageImage:
+		maximum = s.options.ImageMaximumBytes
+	case archive.MessageVoice:
 		maximum = s.options.VoiceMaximumBytes
-	} else if q.Kind != archive.MessageImage {
+	case archive.MessageDocument:
+		maximum = s.options.DocumentMaximumBytes
+	default:
 		return archive.SourceRef{}, 0, 0, ErrFormat
 	}
 	if q.DeclaredBytes < 0 || q.DeclaredBytes > maximum {

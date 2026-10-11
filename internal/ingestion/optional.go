@@ -323,10 +323,11 @@ func (r *Runtime) settleOptionalTail(tail *optionalTail) error {
 }
 func validOriginalWork(work archive.OriginalDownloadWork, account string) bool {
 	_, err := hex.DecodeString(work.Source.ContentHash)
-	return account != "" && work.Source.Account == account && work.Lease.MediaID != "" && len(work.Lease.MediaID) <= 128 && work.Lease.LeaseID != "" && len(work.Lease.LeaseID) <= 128 && work.Source.Version.MessageID != "" && work.Source.Version.Revision > 0 && work.Source.Version.PolicyGeneration > 0 && !work.Source.Version.Deleted && !work.Source.Version.Excluded && len(work.Source.ContentHash) == 64 && err == nil && work.Attempts > 0 && !work.LeaseUntil.IsZero() && work.DeclaredBytes >= 0 && (work.Kind == archive.MessageImage || work.Kind == archive.MessageVoice)
+	return account != "" && work.Source.Account == account && work.Lease.MediaID != "" && len(work.Lease.MediaID) <= 128 && work.Lease.LeaseID != "" && len(work.Lease.LeaseID) <= 128 && work.Source.Version.MessageID != "" && work.Source.Version.Revision > 0 && work.Source.Version.PolicyGeneration > 0 && !work.Source.Version.Deleted && !work.Source.Version.Excluded && len(work.Source.ContentHash) == 64 && err == nil && work.Attempts > 0 && !work.LeaseUntil.IsZero() && work.DeclaredBytes >= 0 && (work.Kind == archive.MessageImage || work.Kind == archive.MessageVoice || work.Kind == archive.MessageDocument && work.DeclaredBytes <= archive.MaximumDocumentBytes)
 }
 func decodeOriginal(input archive.OriginalDownloadInput, maximum int64) (*pendingMedia, error) {
 	work := input.Work
+	maximum = originalMaximum(work.Kind, maximum)
 	if len(input.ProtocolReference) == 0 || len(input.ProtocolReference) > 8192 || input.Key.Account != work.Source.Account || input.Key.Message == "" || input.Key.Chat == "" || input.Key.Sender == "" || maximum < 1 || work.DeclaredBytes > maximum {
 		return nil, ErrMediaInvalidAdmission
 	}
@@ -346,6 +347,13 @@ func decodeOriginal(input archive.OriginalDownloadInput, maximum int64) (*pendin
 			return nil, ErrMediaInvalidAdmission
 		}
 		attachment.attachment = &waE2E.AudioMessage{DirectPath: proto.String(m.GetDirectPath()), MediaKey: append([]byte(nil), m.GetMediaKey()...), FileSHA256: append([]byte(nil), m.GetFileSHA256()...), FileEncSHA256: append([]byte(nil), m.GetFileEncSHA256()...), FileLength: proto.Uint64(m.GetFileLength())}
+	} else if work.Kind == archive.MessageDocument {
+		var m waE2E.DocumentMessage
+		defer func() { clear(m.MediaKey); clear(m.FileSHA256); clear(m.FileEncSHA256) }()
+		if options.Unmarshal(input.ProtocolReference, &m) != nil {
+			return nil, ErrMediaInvalidAdmission
+		}
+		attachment.attachment = &waE2E.DocumentMessage{DirectPath: proto.String(m.GetDirectPath()), MediaKey: append([]byte(nil), m.GetMediaKey()...), FileSHA256: append([]byte(nil), m.GetFileSHA256()...), FileEncSHA256: append([]byte(nil), m.GetFileEncSHA256()...), FileLength: proto.Uint64(m.GetFileLength())}
 	} else {
 		return nil, ErrMediaInvalidAdmission
 	}

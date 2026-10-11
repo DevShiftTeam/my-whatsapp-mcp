@@ -27,8 +27,11 @@ func verifyMediaFile(ctx context.Context, f *os.File, kind archive.MessageKind, 
 	if err := ctx.Err(); err != nil {
 		return "", 0, "", err
 	}
-	if kind != "" && kind != archive.MessageImage && kind != archive.MessageVoice {
+	if kind != "" && kind != archive.MessageImage && kind != archive.MessageVoice && kind != archive.MessageDocument {
 		return "", 0, "", ErrFormat
+	}
+	if kind == archive.MessageDocument {
+		maximum = min(maximum, archive.MaximumDocumentBytes)
 	}
 	if err := checkPrivateFD(f, false); err != nil {
 		return "", 0, "", err
@@ -115,6 +118,12 @@ func (v mediaVerification) read(offset, length int64) ([]byte, error) {
 }
 
 func (v mediaVerification) format(kind archive.MessageKind) (string, error) {
+	if kind == archive.MessageDocument {
+		if v.pdf() {
+			return "pdf", nil
+		}
+		return "document", nil
+	}
 	p, err := v.read(0, min(v.size, 12))
 	if err != nil {
 		return "", err

@@ -201,8 +201,19 @@ func extensionMediaDigest(v string) bool {
 }
 func extensionMediaFormat(v string) bool {
 	switch v {
-	case "png", "jpeg", "webp", "ogg", "opus", "wav", "mp3", "flac", "m4a":
+	case "png", "jpeg", "webp", "ogg", "opus", "wav", "mp3", "flac", "m4a", "pdf", "document":
 		return true
+	}
+	return false
+}
+func extensionMediaKindFormat(kind, format string) bool {
+	switch kind {
+	case "image":
+		return format == "png" || format == "jpeg" || format == "webp"
+	case "voice":
+		return format == "ogg" || format == "opus" || format == "wav" || format == "mp3" || format == "flac" || format == "m4a"
+	case "document":
+		return format == "pdf" || format == "document"
 	}
 	return false
 }
@@ -231,7 +242,7 @@ func (s *Store) extensionAssociateMedia(ctx context.Context, tx *sql.Tx, ref Sou
 	}
 	ids := make([]MediaID, 0, len(refs))
 	for ordinal, m := range refs {
-		if m.ViewOnce || len(m.ProtocolReference) == 0 || (m.Kind != "image" && m.Kind != "voice") {
+		if m.ViewOnce || (m.Kind != "image" && m.Kind != "voice" && m.Kind != "document") || (len(m.ProtocolReference) == 0 && m.Kind != "document") {
 			continue
 		}
 		var id MediaID
@@ -242,14 +253,22 @@ func (s *Store) extensionAssociateMedia(ctx context.Context, tx *sql.Tx, ref Sou
 				return nil, err
 			}
 			id = MediaID(created)
-			_, err = tx.ExecContext(ctx, `INSERT INTO extension_media_associations(id,account,message_id,local_revision,policy_generation,content_hash,source_expires_at,ordinal,kind,protocol_reference,mime_type,declared_bytes,view_once,availability,active,artifact_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,?,1,'')`, id, ref.Account, ref.Version.MessageID, ref.Version.Revision, ref.Version.PolicyGeneration, ref.ContentHash, unixms(ref.Version.ExpiresAt), ordinal, m.Kind, m.ProtocolReference, m.MimeType, m.DeclaredBytes, m.Availability)
+			protocol := m.ProtocolReference
+			if protocol == nil {
+				protocol = []byte{}
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO extension_media_associations(id,account,message_id,local_revision,policy_generation,content_hash,source_expires_at,ordinal,kind,protocol_reference,mime_type,declared_bytes,filename,view_once,availability,active,artifact_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,1,'')`, id, ref.Account, ref.Version.MessageID, ref.Version.Revision, ref.Version.PolicyGeneration, ref.ContentHash, unixms(ref.Version.ExpiresAt), ordinal, m.Kind, protocol, m.MimeType, m.DeclaredBytes, m.Filename, m.Availability)
 			if err != nil {
 				return nil, ErrArchiveUnavailable
 			}
 		} else if err != nil {
 			return nil, ErrArchiveUnavailable
 		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE extension_media_associations SET artifact_id=CASE WHEN active=1 AND policy_generation=? AND content_hash=? THEN artifact_id ELSE '' END,account=?,policy_generation=?,content_hash=?,source_expires_at=?,kind=?,protocol_reference=?,mime_type=?,declared_bytes=?,availability=?,view_once=0,active=1 WHERE id=?`, ref.Version.PolicyGeneration, ref.ContentHash, ref.Account, ref.Version.PolicyGeneration, ref.ContentHash, unixms(ref.Version.ExpiresAt), m.Kind, m.ProtocolReference, m.MimeType, m.DeclaredBytes, m.Availability, id)
+			protocol := m.ProtocolReference
+			if protocol == nil {
+				protocol = []byte{}
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE extension_media_associations SET artifact_id=CASE WHEN active=1 AND policy_generation=? AND content_hash=? THEN artifact_id ELSE '' END,account=?,policy_generation=?,content_hash=?,source_expires_at=?,kind=?,protocol_reference=?,mime_type=?,declared_bytes=?,filename=?,availability=?,view_once=0,active=1 WHERE id=?`, ref.Version.PolicyGeneration, ref.ContentHash, ref.Account, ref.Version.PolicyGeneration, ref.ContentHash, unixms(ref.Version.ExpiresAt), m.Kind, protocol, m.MimeType, m.DeclaredBytes, m.Filename, m.Availability, id)
 			if err != nil {
 				return nil, ErrArchiveUnavailable
 			}
@@ -277,7 +296,7 @@ func (s *Store) extensionMediaAssociation(ctx context.Context, q sqlQuerier, ref
 	return kind, artifact, nil
 }
 
-const extensionMediaArtifactColumns = `a.id,a.media_id,a.account,a.message_id,a.local_revision,a.policy_generation,a.content_hash,a.source_expires_at,a.sha256,a.bytes,a.reservation_id,a.cleanup_lease,a.budget,a.charged_bytes,a.state`
+const extensionMediaArtifactColumns = `a.id,a.media_id,a.account,a.message_id,a.local_revision,a.policy_generation,a.content_hash,a.source_expires_at,a.sha256,a.bytes,a.reservation_id,a.cleanup_lease,a.budget,a.charged_bytes,a.state,a.actual_format`
 
 type extensionStoredMedia struct {
 	reservation MediaReservation
@@ -290,7 +309,7 @@ func extensionLoadMedia(ctx context.Context, q sqlQuerier, id ArtifactID) (exten
 	var v extensionStoredMedia
 	var expiry, deadline int64
 	var ack int
-	err := q.QueryRowContext(ctx, `SELECT `+extensionMediaArtifactColumns+`,a.maximum_bytes,a.lease_id,a.lease_until,a.actual_format,a.cleanup_ack FROM extension_media_artifacts a WHERE a.id=?`, id).Scan(&v.artifact.ID, &v.artifact.MediaID, &v.artifact.Source.Account, &v.artifact.Source.Version.MessageID, &v.artifact.Source.Version.Revision, &v.artifact.Source.Version.PolicyGeneration, &v.artifact.Source.ContentHash, &expiry, &v.artifact.SHA256, &v.artifact.Bytes, &v.artifact.ReservationID, &v.artifact.CleanupLease, &v.artifact.Budget, &v.artifact.ReservedBytes, &v.artifact.State, &v.reservation.MaximumBytes, &v.reservation.LeaseID, &deadline, &v.format, &ack)
+	err := q.QueryRowContext(ctx, `SELECT `+extensionMediaArtifactColumns+`,a.maximum_bytes,a.lease_id,a.lease_until,a.actual_format,a.cleanup_ack FROM extension_media_artifacts a WHERE a.id=?`, id).Scan(&v.artifact.ID, &v.artifact.MediaID, &v.artifact.Source.Account, &v.artifact.Source.Version.MessageID, &v.artifact.Source.Version.Revision, &v.artifact.Source.Version.PolicyGeneration, &v.artifact.Source.ContentHash, &expiry, &v.artifact.SHA256, &v.artifact.Bytes, &v.artifact.ReservationID, &v.artifact.CleanupLease, &v.artifact.Budget, &v.artifact.ReservedBytes, &v.artifact.State, &v.artifact.ActualFormat, &v.reservation.MaximumBytes, &v.reservation.LeaseID, &deadline, &v.format, &ack)
 	if errors.Is(err, sql.ErrNoRows) {
 		return v, ErrNoWork
 	}
@@ -323,9 +342,12 @@ func extensionMediaLeaseMatches(stored, caller MediaReservation) bool {
 }
 
 func (s *Store) extensionAdmitMedia(ctx context.Context, tx *sql.Tx, request MediaAdmissionRequest) (MediaReservation, error) {
-	_, inputArtifact, err := s.extensionMediaAssociation(ctx, tx, request.Source, request.MediaID)
+	kind, inputArtifact, err := s.extensionMediaAssociation(ctx, tx, request.Source, request.MediaID)
 	if err != nil {
 		return MediaReservation{}, err
+	}
+	if kind == "document" && (request.Budget != BudgetOriginals || request.MaximumBytes > MaximumDocumentBytes+26) {
+		return MediaReservation{}, ErrInvalidExtension
 	}
 	if request.Budget == BudgetDecoded && inputArtifact != "" {
 		var available int
@@ -447,7 +469,7 @@ func (s *Store) extensionPublishOriginal(ctx context.Context, tx *sql.Tx, p Orig
 		}
 		return false, nil
 	}
-	if (kind == "image" && p.ActualFormat != "png" && p.ActualFormat != "jpeg" && p.ActualFormat != "webp") || (kind == "voice" && (p.ActualFormat == "png" || p.ActualFormat == "jpeg" || p.ActualFormat == "webp")) {
+	if !extensionMediaKindFormat(kind, p.ActualFormat) || (kind == "document" && p.Bytes > MaximumDocumentBytes) {
 		return false, ErrInvalidExtension
 	}
 	if v.artifact.State == "retained" {
@@ -582,7 +604,7 @@ func extensionMediaExtractionDoneSQL(kind string) string {
 	 OR (x.outcome='silent' AND x.kind='transcription' AND NOT EXISTS(SELECT 1 FROM extension_extraction_outputs o WHERE o.job_id=x.id))))`
 }
 func extensionMediaIndependentProcessedSQL() string {
-	return `((l.kind='image' AND ` + extensionMediaExtractionDoneSQL(`'ocr'`) + ` AND ` + extensionMediaExtractionDoneSQL(`'caption'`) + `) OR (l.kind='voice' AND ` + extensionMediaExtractionDoneSQL(`'transcription'`) + `))`
+	return `(l.kind='document' OR (l.kind='image' AND ` + extensionMediaExtractionDoneSQL(`'ocr'`) + ` AND ` + extensionMediaExtractionDoneSQL(`'caption'`) + `) OR (l.kind='voice' AND ` + extensionMediaExtractionDoneSQL(`'transcription'`) + `))`
 }
 func extensionMediaReadyForEvictionSQL() string {
 	return `NOT EXISTS(SELECT 1 FROM extension_extraction_jobs x WHERE x.media_id=l.id AND x.state IN ('pending','leased'))
@@ -866,7 +888,7 @@ func (s *Store) extensionReconcileMedia(ctx context.Context, tx *sql.Tx, limit i
 		var a MediaArtifact
 		var expiry int64
 		var downloadLease LeaseID
-		if err = rows.Scan(&a.ID, &a.MediaID, &a.Source.Account, &a.Source.Version.MessageID, &a.Source.Version.Revision, &a.Source.Version.PolicyGeneration, &a.Source.ContentHash, &expiry, &a.SHA256, &a.Bytes, &a.ReservationID, &a.CleanupLease, &a.Budget, &a.ReservedBytes, &a.State, &downloadLease); err != nil {
+		if err = rows.Scan(&a.ID, &a.MediaID, &a.Source.Account, &a.Source.Version.MessageID, &a.Source.Version.Revision, &a.Source.Version.PolicyGeneration, &a.Source.ContentHash, &expiry, &a.SHA256, &a.Bytes, &a.ReservationID, &a.CleanupLease, &a.Budget, &a.ReservedBytes, &a.State, &a.ActualFormat, &downloadLease); err != nil {
 			rows.Close()
 			return nil, ErrArchiveUnavailable
 		}
@@ -957,7 +979,7 @@ func (s *Store) AuthorizeOriginal(ctx context.Context, scope ReadScope, media Me
 	var revision uint64
 	var message MessageID
 	var hash string
-	err = f.tx.QueryRowContext(f.ctx, query, args...).Scan(&a.ID, &a.MediaID, &a.Source.Account, &a.Source.Version.MessageID, &a.Source.Version.Revision, &a.Source.Version.PolicyGeneration, &a.Source.ContentHash, &sourceExpiry, &a.SHA256, &a.Bytes, &a.ReservationID, &a.CleanupLease, &a.Budget, &a.ReservedBytes, &a.State, &message, &hash, &sent, &expiry, &revision)
+	err = f.tx.QueryRowContext(f.ctx, query, args...).Scan(&a.ID, &a.MediaID, &a.Source.Account, &a.Source.Version.MessageID, &a.Source.Version.Revision, &a.Source.Version.PolicyGeneration, &a.Source.ContentHash, &sourceExpiry, &a.SHA256, &a.Bytes, &a.ReservationID, &a.CleanupLease, &a.Budget, &a.ReservedBytes, &a.State, &a.ActualFormat, &message, &hash, &sent, &expiry, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MediaArtifact{}, ErrSourceUnavailable
 	}

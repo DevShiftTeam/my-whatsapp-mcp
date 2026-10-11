@@ -134,7 +134,7 @@ func (s *Store) extensionOriginalDownloadResponse(ctx context.Context, in Origin
 	var kind MessageKind
 	var declared, rolling int64
 	var key SourceKey
-	err = tx.QueryRowContext(bounded, `SELECT CASE WHEN typeof(a.kind)='text' AND length(CAST(a.kind AS BLOB))<=5 THEN a.kind ELSE '' END,CASE WHEN typeof(a.declared_bytes)='integer' AND a.declared_bytes>=0 THEN a.declared_bytes ELSE -1 END,CASE WHEN typeof(a.protocol_reference)='blob' AND length(a.protocol_reference) BETWEEN 1 AND 8192 THEN a.protocol_reference ELSE NULL END,
+	err = tx.QueryRowContext(bounded, `SELECT CASE WHEN typeof(a.kind)='text' AND a.kind IN ('image','voice','document') AND length(CAST(a.kind AS BLOB))<=8 THEN a.kind ELSE '' END,CASE WHEN typeof(a.declared_bytes)='integer' AND a.declared_bytes>=0 THEN a.declared_bytes ELSE -1 END,CASE WHEN typeof(a.protocol_reference)='blob' AND length(a.protocol_reference) BETWEEN 1 AND 8192 THEN a.protocol_reference ELSE NULL END,
  CASE WHEN typeof(m.account)='text' AND length(CAST(m.account AS BLOB))<=512 THEN m.account ELSE '' END,
  CASE WHEN typeof(m.source_chat)='text' AND length(CAST(m.source_chat AS BLOB))<=512 THEN m.source_chat ELSE '' END,
  CASE WHEN typeof(m.source_sender)='text' AND length(CAST(m.source_sender AS BLOB))<=512 THEN m.source_sender ELSE '' END,
@@ -248,6 +248,15 @@ func extensionDownloadDescriptor(kind MessageKind, reference []byte, declared in
 			return "", "", false
 		}
 		path, key, plain, encrypted, length = m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), m.GetFileEncSHA256(), m.GetFileLength()
+	case MessageDocument:
+		var m waE2E.DocumentMessage
+		if options.Unmarshal(reference, &m) != nil {
+			return "", "", false
+		}
+		path, key, plain, encrypted, length = m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), m.GetFileEncSHA256(), m.GetFileLength()
+		if length > uint64(MaximumDocumentBytes) {
+			return "", "", false
+		}
 	default:
 		return "", "", false
 	}
@@ -320,7 +329,7 @@ func (s *Store) extensionReadDownloadReference(ctx context.Context, q sqlQuerier
 	if _, err := s.extensionCheckSources(ctx, q, []SourceRef{r.work.Source}, true); err != nil {
 		return in, err
 	}
-	err := q.QueryRowContext(ctx, `SELECT CASE WHEN typeof(a.kind)='text' AND length(CAST(a.kind AS BLOB))<=5 THEN a.kind ELSE '' END,CASE WHEN typeof(a.declared_bytes)='integer' AND a.declared_bytes>=0 THEN a.declared_bytes ELSE -1 END,
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN typeof(a.kind)='text' AND a.kind IN ('image','voice','document') AND length(CAST(a.kind AS BLOB))<=8 THEN a.kind ELSE '' END,CASE WHEN typeof(a.declared_bytes)='integer' AND a.declared_bytes>=0 THEN a.declared_bytes ELSE -1 END,
  CASE WHEN typeof(a.protocol_reference)='blob' AND length(a.protocol_reference) BETWEEN 1 AND 8192 THEN a.protocol_reference ELSE NULL END,
  CASE WHEN typeof(m.account)='text' AND length(CAST(m.account AS BLOB))<=512 THEN m.account ELSE '' END,
  CASE WHEN typeof(m.source_chat)='text' AND length(CAST(m.source_chat AS BLOB))<=512 THEN m.source_chat ELSE '' END,
@@ -345,7 +354,7 @@ func (s *Store) extensionReadDownloadReference(ctx context.Context, q sqlQuerier
 // Physical accounting belongs to MediaStore. Even a genuinely new reference
 // in the same source slot waits for its older synchronous writer's cleanup.
 const extensionDownloadNoPhysicalSQL = `NOT EXISTS(SELECT 1 FROM extension_media_artifacts physical LEFT JOIN extension_media_associations owner ON owner.id=physical.media_id WHERE physical.cleanup_ack=0 AND (physical.id=a.artifact_id OR physical.media_id=a.id OR (owner.account=a.account AND owner.message_id=a.message_id AND owner.ordinal=a.ordinal)))`
-const extensionDownloadCurrentSQL = `a.active=1 AND a.view_once=0 AND a.kind IN ('image','voice') AND a.declared_bytes>=0 AND typeof(a.protocol_reference)='blob' AND length(a.protocol_reference) BETWEEN 1 AND 8192
+const extensionDownloadCurrentSQL = `a.active=1 AND a.view_once=0 AND a.kind IN ('image','voice','document') AND a.declared_bytes>=0 AND (a.kind<>'document' OR a.declared_bytes<=8388608) AND typeof(a.protocol_reference)='blob' AND length(a.protocol_reference) BETWEEN 1 AND 8192
  AND a.account=d.account AND a.message_id=d.message_id AND a.local_revision=d.local_revision AND a.policy_generation=d.policy_generation AND a.content_hash=d.content_hash AND a.source_expires_at=d.source_expires_at
  AND EXISTS(SELECT 1 FROM ` + authorizedTables + ` WHERE m.id=d.message_id AND m.account=d.account AND m.state='active' AND m.original_date_known=1 AND m.view_once=0 AND m.local_revision=d.local_revision AND m.content_hash=d.content_hash AND m.expires_at=d.source_expires_at AND ap.generation=d.policy_generation
  AND (m.expires_at=0 OR m.expires_at>?) AND (ap.chat_mode='all' OR EXISTS(SELECT 1 FROM policy_chats pc WHERE pc.chat_id=m.chat_id)) AND (ap.date_mode='all_available' OR m.original_sent_at>=ap.import_start) AND ` + extensionMediaRollingSQL + `)`
@@ -593,7 +602,7 @@ func extensionPrepareOriginalDownloads(ctx context.Context, tx *sql.Tx, id Messa
  CASE WHEN typeof(a.policy_generation)='integer' AND a.policy_generation>0 THEN a.policy_generation ELSE 0 END,
  CASE WHEN typeof(a.content_hash)='text' AND length(CAST(a.content_hash AS BLOB))<=64 THEN a.content_hash ELSE '' END,
  CASE WHEN typeof(a.source_expires_at)='integer' THEN a.source_expires_at ELSE 0 END,
- CASE WHEN typeof(a.kind)='text' AND length(CAST(a.kind AS BLOB))<=5 THEN a.kind ELSE '' END,CASE WHEN typeof(a.declared_bytes)='integer' AND a.declared_bytes>=0 THEN a.declared_bytes ELSE -1 END,
+ CASE WHEN typeof(a.kind)='text' AND a.kind IN ('image','voice','document') AND length(CAST(a.kind AS BLOB))<=8 THEN a.kind ELSE '' END,CASE WHEN typeof(a.declared_bytes)='integer' AND a.declared_bytes>=0 THEN a.declared_bytes ELSE -1 END,
  CASE WHEN typeof(a.mime_type)='text' AND length(CAST(a.mime_type AS BLOB))<=256 THEN a.mime_type ELSE '' END,
  CASE WHEN typeof(a.ordinal)='integer' AND a.ordinal BETWEEN 0 AND 7 AND typeof(a.protocol_reference)='blob' AND length(a.protocol_reference) BETWEEN 1 AND 8192 THEN a.protocol_reference ELSE NULL END
  FROM extension_media_associations a JOIN messages m ON m.id=a.message_id AND m.account=a.account WHERE a.message_id=? AND a.active=1 AND a.view_once=0 AND m.state='active' AND m.view_once=0 AND m.local_revision=a.local_revision AND m.content_hash=a.content_hash AND m.expires_at=a.source_expires_at ORDER BY a.ordinal LIMIT 9`, id)
@@ -665,7 +674,7 @@ func extensionCompleteOriginalDownloadPublication(ctx context.Context, tx *sql.T
 	var kind MessageKind
 	var declared int64
 	var reference []byte
-	err = tx.QueryRowContext(ctx, `SELECT CASE WHEN typeof(kind)='text' AND length(CAST(kind AS BLOB))<=5 THEN kind ELSE '' END,CASE WHEN typeof(declared_bytes)='integer' AND declared_bytes>=0 THEN declared_bytes ELSE -1 END,CASE WHEN typeof(protocol_reference)='blob' AND length(protocol_reference) BETWEEN 1 AND 8192 THEN protocol_reference ELSE NULL END FROM extension_media_associations WHERE id=? AND account=? AND message_id=? AND local_revision=? AND policy_generation=? AND content_hash=? AND source_expires_at=? AND active=1 AND view_once=0 AND last_original_sha256=?`, id, r.work.Source.Account, r.work.Source.Version.MessageID, r.work.Source.Version.Revision, r.work.Source.Version.PolicyGeneration, r.work.Source.ContentHash, unixms(r.work.Source.Version.ExpiresAt), sha).Scan(&kind, &declared, &reference)
+	err = tx.QueryRowContext(ctx, `SELECT CASE WHEN typeof(kind)='text' AND kind IN ('image','voice','document') AND length(CAST(kind AS BLOB))<=8 THEN kind ELSE '' END,CASE WHEN typeof(declared_bytes)='integer' AND declared_bytes>=0 THEN declared_bytes ELSE -1 END,CASE WHEN typeof(protocol_reference)='blob' AND length(protocol_reference) BETWEEN 1 AND 8192 THEN protocol_reference ELSE NULL END FROM extension_media_associations WHERE id=? AND account=? AND message_id=? AND local_revision=? AND policy_generation=? AND content_hash=? AND source_expires_at=? AND active=1 AND view_once=0 AND last_original_sha256=?`, id, r.work.Source.Account, r.work.Source.Version.MessageID, r.work.Source.Version.Revision, r.work.Source.Version.PolicyGeneration, r.work.Source.ContentHash, unixms(r.work.Source.Version.ExpiresAt), sha).Scan(&kind, &declared, &reference)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}

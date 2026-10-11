@@ -1,6 +1,6 @@
 # Connect an AI client
 
-MCP exposes six read tools: `search_contacts`, `search_groups`, `list_chats`, `search_messages`, `get_context`, and `get_index_status`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for selected chats or all permitted chats; see [outbound messaging](clients/outbound-messaging.md).
+MCP exposes eight read tools: `search_contacts`, `search_groups`, `list_chats`, `search_messages`, `get_context`, `get_index_status`, `search_attachments`, and `get_attachment`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for selected chats or all permitted chats; see [outbound messaging](clients/outbound-messaging.md).
 
 ## Local Codex or Claude Code
 
@@ -35,6 +35,10 @@ Use a returned opaque `chat_id` in `search_messages`' `chat_ids` filter, then us
 
 After upgrading the app, use **Sync** or refresh tool discovery in Composio if the new search tools are missing. Keep the existing connection and token. For a local client, restart its MCP session to refresh the tool list.
 
+## Find a document or other attachment
+
+Use `search_attachments` to filter filenames, file types, dates and nearby conversation text. Results include an opaque `attachment_id` and optional neighboring messages. `get_attachment` retrieves a retained original through a private two-minute download URL, or returns files up to 64 KiB as Base64 when `inline` is requested. Both tools keep the connection's scope and expiry. See [attachments](attachments.md) for examples, remote routing, availability limits and recovery of documents imported by older versions.
+
 ## Remote bearer access
 
 Remote access is an advanced setup. You need an HTTPS hostname, a tunnel or reverse proxy to this computer, and a client that can send an `Authorization` header. My WhatsApp MCP does not configure the tunnel or run an OAuth authorization server.
@@ -51,7 +55,7 @@ Stop the running app, then start it with a dedicated MCP listener and the public
   --mcp-public-url https://archive.example.com/mcp
 ```
 
-Route **only `/mcp`** from that HTTPS hostname to `http://127.0.0.1:6968/mcp`; return an error for other paths. Do not tunnel the local owner interface on port 64165. Keep the computer, app, and tunnel running.
+Route `/mcp` and canonical `/mcp/attachments/<ticket>` paths from that HTTPS hostname to the dedicated listener at `http://127.0.0.1:6968`, preserving the path; return an error for other paths. Do not tunnel the local owner interface on port 64165. Keep the computer, app, and tunnel running. The attachment URL is a short-lived capability bound to its original client grant; see [attachments](attachments.md#retrieve-the-file).
 
 This route supports read and permitted send tools through MCP. Direct JSON sending additionally needs the four exact `/api/send/*` routes listed in the [outbound guide](clients/outbound-messaging.md#json-api); do not expose other paths on the MCP listener.
 
@@ -96,7 +100,7 @@ After preparing the file, stop the app and use a configuration like this, replac
   --mcp-public-url https://archive.example.com/mcp
 ```
 
-Route the HTTPS hostname to `http://127.0.0.1:6969`. This admin listener serves the password-protected interface and forwards `/mcp` and the four outbound JSON routes to the configured MCP handler. Never expose its HTTP origin directly on the network.
+Route the HTTPS hostname to `http://127.0.0.1:6969`. This admin listener serves the password-protected interface and forwards `/mcp`, canonical attachment download paths and the four outbound JSON routes to the configured MCP handler. Never expose its HTTP origin directly on the network.
 
 The admin password controls browser access and client management, including send permissions. MCP bearer tokens work independently of that password and use their configured read scope plus the owner-approved send mode; they cannot administer the app or grant themselves sending rights. An admin browser cookie cannot authenticate an MCP client.
 

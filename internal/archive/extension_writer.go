@@ -67,8 +67,13 @@ type extensionCommitSource struct {
 	ref   SourceRef
 	media bool
 }
+type extensionCommitCredential struct {
+	grant     CredentialGrant
+	expiresAt time.Time
+}
 type extensionCommitGuard struct {
 	sources         map[MessageID]extensionCommitSource
+	credentials     map[CredentialID]extensionCommitCredential
 	activations     map[IndexGenerationID]bool
 	roots           map[DocumentID]extensionRootResponsePin
 	rootSources     int
@@ -80,6 +85,43 @@ type extensionCommitGuard struct {
 type extensionGuardState struct {
 	mu           sync.Mutex
 	transactions map[*sql.Tx]*extensionCommitGuard
+}
+
+// A credential-authorized background mutation pins both its captured grant
+// and expiry for this transaction. Final validation shares the commit fence.
+func (s *Store) extensionRegisterCredential(ctx context.Context, tx *sql.Tx, grant CredentialGrant) error {
+	chats, err := canonicalChats(grant.Scope.Chats)
+	if err != nil {
+		return ErrUnauthorized
+	}
+	grant.Scope.Chats = chats
+	now := s.now()
+	s.safetyMu.RLock()
+	credential, err := loadCredentialQuery(ctx, tx, grant.CredentialID)
+	if err == nil {
+		err = s.checkCredentialGrantValueAt(ctx, tx, grant, credential, now)
+	}
+	s.safetyMu.RUnlock()
+	if err != nil {
+		return err
+	}
+	s.extensionGuards.mu.Lock()
+	defer s.extensionGuards.mu.Unlock()
+	guard := s.extensionGuards.transactions[tx]
+	if guard == nil {
+		return ErrInvalidExtension
+	}
+	if old, exists := guard.credentials[grant.CredentialID]; exists {
+		if old.grant.CredentialRevision != grant.CredentialRevision || !sameCredentialScope(old.grant.Scope, grant.Scope) || !old.expiresAt.Equal(credential.ExpiresAt) {
+			return ErrUnauthorized
+		}
+		return nil
+	}
+	if len(guard.credentials) >= extensionMaxDocuments {
+		return ErrLimitExceeded
+	}
+	guard.credentials[grant.CredentialID] = extensionCommitCredential{grant: grant, expiresAt: credential.ExpiresAt}
+	return nil
 }
 
 func (s *Store) extensionRegisterDeadline(q sqlQuerier, deadline time.Time) {
@@ -209,7 +251,7 @@ func (s *Store) extensionTransaction(ctx context.Context, account string, fn fun
 	if s.extensionGuards.transactions == nil {
 		s.extensionGuards.transactions = make(map[*sql.Tx]*extensionCommitGuard)
 	}
-	s.extensionGuards.transactions[tx] = &extensionCommitGuard{sources: make(map[MessageID]extensionCommitSource), activations: make(map[IndexGenerationID]bool), roots: make(map[DocumentID]extensionRootResponsePin), generations: make(map[IndexGenerationID]IndexVersion)}
+	s.extensionGuards.transactions[tx] = &extensionCommitGuard{sources: make(map[MessageID]extensionCommitSource), credentials: make(map[CredentialID]extensionCommitCredential), activations: make(map[IndexGenerationID]bool), roots: make(map[DocumentID]extensionRootResponsePin), generations: make(map[IndexGenerationID]IndexVersion)}
 	s.extensionGuards.mu.Unlock()
 	defer func() {
 		s.extensionGuards.mu.Lock()
@@ -232,6 +274,10 @@ func (s *Store) extensionTransaction(ctx context.Context, account string, fn fun
 	var refs []extensionCommitSource
 	for _, ref := range s.extensionGuards.transactions[tx].sources {
 		refs = append(refs, ref)
+	}
+	credentials := make([]extensionCommitCredential, 0, len(s.extensionGuards.transactions[tx].credentials))
+	for _, credential := range s.extensionGuards.transactions[tx].credentials {
+		credentials = append(credentials, credential)
 	}
 	var activations []IndexGenerationID
 	for id := range s.extensionGuards.transactions[tx].activations {
@@ -261,6 +307,7 @@ func (s *Store) extensionTransaction(ctx context.Context, account string, fn fun
 	})
 	sort.Slice(roots, func(i, j int) bool { return roots[i].ID < roots[j].ID })
 	sort.Slice(generations, func(i, j int) bool { return generations[i].id < generations[j].id })
+	sort.Slice(credentials, func(i, j int) bool { return credentials[i].grant.CredentialID < credentials[j].grant.CredentialID })
 	now := s.now()
 	sample := time.Now()
 	bounded, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
@@ -324,7 +371,17 @@ func (s *Store) extensionTransaction(ctx context.Context, account string, fn fun
 			note(time.Time{}, fromMillis(expiry.Int64))
 		}
 	}
+	var credentialExpiry time.Time
+	for _, pin := range credentials {
+		if err = s.checkCredentialGrantQueryAt(bounded, tx, pin.grant, now.Add(time.Since(sample))); err != nil {
+			return err
+		}
+		credentialExpiry = earlier(credentialExpiry, pin.expiresAt)
+	}
 	finalNow := now.Add(time.Since(sample))
+	if !credentialExpiry.IsZero() && !finalNow.Before(credentialExpiry) {
+		return ErrUnauthorized
+	}
 	if !deadline.IsZero() && !finalNow.Before(deadline) {
 		return ErrNoWork
 	}
@@ -470,7 +527,7 @@ func sourceMediaIdentity(refs []MediaReference) (string, error) {
 		return "", ErrInvalidEvent
 	}
 	for _, ref := range refs {
-		if len(ref.Kind) > 64 || len(ref.MimeType) > 256 || !utf8.ValidString(ref.MimeType) || len(ref.ProtocolReference) > maxProtocolReferenceBytes {
+		if len(ref.Kind) > 64 || len(ref.MimeType) > 256 || !utf8.ValidString(ref.MimeType) || !validDocumentFilename(ref.Filename) || len(ref.ProtocolReference) > maxProtocolReferenceBytes {
 			return "", ErrInvalidEvent
 		}
 	}
@@ -484,6 +541,13 @@ func sourceMediaIdentity(refs []MediaReference) (string, error) {
 			binary.BigEndian.PutUint32(length[:], uint32(len(field)))
 			_, _ = h.Write(length[:])
 			_, _ = h.Write(field)
+		}
+		// Keep image/voice v1 identities byte-for-byte compatible. Documents
+		// additionally bind their display name to prevent same-revision swaps.
+		if ref.Kind == string(MessageDocument) {
+			binary.BigEndian.PutUint32(length[:], uint32(len(ref.Filename)))
+			_, _ = h.Write(length[:])
+			_, _ = h.Write([]byte(ref.Filename))
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil

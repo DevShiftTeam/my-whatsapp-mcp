@@ -6,16 +6,19 @@ import (
 	"crypto/sha256"
 	"errors"
 	"io"
+	"mime"
 	"os"
 	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type pendingMedia struct {
@@ -38,6 +41,9 @@ func (r *Runtime) projectViewOnce(e *archive.SourceEvent, m *waE2E.Message) {
 	} else if audio := m.GetAudioMessage(); audio != nil {
 		e.BodyKind = archive.MessageVoice
 		mime = audio.GetMimetype()
+	} else if document := m.GetDocumentMessage(); document != nil {
+		e.BodyKind = archive.MessageDocument
+		mime = documentMIME(document.GetMimetype())
 	}
 	if len(mime) > 256 {
 		mime = ""
@@ -72,6 +78,9 @@ func (r *Runtime) projectBody(ctx context.Context, e *archive.SourceEvent, m *wa
 	if m == nil {
 		return nil, nil
 	}
+	if m.GetDocumentMessage() != nil && !standaloneDocument(m) {
+		return nil, archive.ErrInvalidEvent
+	}
 	var pending *pendingMedia
 	e.BodyKind = archive.MessageUnsupported
 	if m.Conversation != nil {
@@ -90,6 +99,14 @@ func (r *Runtime) projectBody(ctx context.Context, e *archive.SourceEvent, m *wa
 		e.BodyKind = archive.MessageVoice
 		descriptor := &waE2E.AudioMessage{DirectPath: proto.String(audio.GetDirectPath()), MediaKey: append([]byte(nil), audio.GetMediaKey()...), FileSHA256: append([]byte(nil), audio.GetFileSHA256()...), FileEncSHA256: append([]byte(nil), audio.GetFileEncSHA256()...), FileLength: proto.Uint64(audio.GetFileLength())}
 		pending = r.mediaReference(e, descriptor, archive.MessageVoice, audio.GetMimetype(), audio.GetViewOnce())
+	} else if document := m.GetDocumentMessage(); document != nil {
+		e.BodyKind = archive.MessageDocument
+		e.Caption = document.GetCaption()
+		descriptor := &waE2E.DocumentMessage{DirectPath: proto.String(document.GetDirectPath()), MediaKey: append([]byte(nil), document.GetMediaKey()...), FileSHA256: append([]byte(nil), document.GetFileSHA256()...), FileEncSHA256: append([]byte(nil), document.GetFileEncSHA256()...), FileLength: proto.Uint64(document.GetFileLength())}
+		pending = r.mediaReference(e, descriptor, archive.MessageDocument, documentMIME(document.GetMimetype()), false)
+		if name := document.GetFileName(); len(name) <= 255 && utf8.ValidString(name) && !strings.ContainsRune(name, 0) {
+			e.Media[0].Filename = name
+		}
 	}
 	if c := messageContext(m); c != nil {
 		if id := c.GetStanzaID(); id != "" && len(id) <= 256 {
@@ -111,7 +128,7 @@ func (r *Runtime) mediaReference(e *archive.SourceEvent, descriptor whatsmeow.Do
 	}
 	length := descriptor.(interface{ GetFileLength() uint64 }).GetFileLength()
 	availability := "not_retained"
-	valid := validMediaDescriptor(descriptor, r.config.MediaMax)
+	valid := validMediaDescriptor(descriptor, originalMaximum(kind, r.config.MediaMax))
 	if !valid {
 		availability = "unavailable"
 	}
@@ -137,6 +154,39 @@ func (r *Runtime) mediaReference(e *archive.SourceEvent, descriptor whatsmeow.Do
 	}
 	return &pendingMedia{kind: kind, attachment: descriptor, hash: append([]byte(nil), descriptor.GetFileSHA256()...)}
 }
+
+// Documents carry arbitrary bytes. The display metadata is kept separately
+// from the authenticated download reference and never becomes a local path.
+func standaloneDocument(m *waE2E.Message) bool {
+	valid := true
+	m.ProtoReflect().Range(func(field protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		switch field.Name() {
+		case "documentMessage", "messageContextInfo", "senderKeyDistributionMessage":
+			return true
+		default:
+			valid = false
+			return false
+		}
+	})
+	return valid
+}
+
+func documentMIME(value string) string {
+	if len(value) <= 256 && utf8.ValidString(value) && !strings.ContainsRune(value, 0) {
+		if base, _, err := mime.ParseMediaType(value); err == nil && strings.Contains(base, "/") {
+			return strings.ToLower(base)
+		}
+	}
+	return "application/octet-stream"
+}
+
+func originalMaximum(kind archive.MessageKind, configured int64) int64 {
+	if kind == archive.MessageDocument {
+		return min(configured, archive.MaximumDocumentBytes)
+	}
+	return configured
+}
+
 func validMediaDescriptor(descriptor whatsmeow.DownloadableMessage, maximum int64) bool {
 	length := descriptor.(interface{ GetFileLength() uint64 }).GetFileLength()
 	return maximum > 0 && strings.HasPrefix(descriptor.GetDirectPath(), "/") && len(descriptor.GetDirectPath()) <= 4096 && len(descriptor.GetMediaKey()) == 32 && len(descriptor.GetFileSHA256()) == 32 && len(descriptor.GetFileEncSHA256()) == 32 && length <= uint64(maximum)
@@ -214,12 +264,13 @@ func (r *Runtime) transferMedia(ctx context.Context, p *pendingMedia, cleanup *m
 		return ErrMediaSourceChanged
 	}
 	declared := p.attachment.(interface{ GetFileLength() uint64 }).GetFileLength()
-	if declared > uint64(r.config.MediaMax) {
+	maximum := originalMaximum(p.kind, r.config.MediaMax)
+	if maximum < 1 || declared > uint64(maximum) {
 		return ErrMediaLimit
 	}
 	plainMaximum := int64(declared)
 	if plainMaximum == 0 {
-		plainMaximum = r.config.MediaMax
+		plainMaximum = maximum
 	}
 	wireMaximum, err := mediaCiphertextMaximum(plainMaximum)
 	if err != nil {
@@ -348,7 +399,8 @@ func (r *Runtime) downloadLegacyMedia(ctx context.Context, p *pendingMedia) erro
 	r.activeCancel = cancel
 	r.activeMu.Unlock()
 	defer func() { r.activeMu.Lock(); r.activeCancel = nil; r.activeMu.Unlock() }()
-	wireMaximum, err := mediaCiphertextMaximum(r.config.MediaMax)
+	maximum := originalMaximum(p.kind, r.config.MediaMax)
+	wireMaximum, err := mediaCiphertextMaximum(maximum)
 	if err != nil {
 		return err
 	}
@@ -368,15 +420,15 @@ func (r *Runtime) downloadLegacyMedia(ctx context.Context, p *pendingMedia) erro
 	if err != nil {
 		return archive.ErrSourceUnavailable
 	}
-	if stat.Size() > r.config.MediaMax {
+	if stat.Size() > maximum {
 		return r.store.UpdateMedia(ctx, p.key, p.version, "unavailable")
 	}
 	if _, err = raw.Seek(0, io.SeekStart); err != nil {
 		return archive.ErrSourceUnavailable
 	}
 	hash := sha256.New()
-	count, err := io.Copy(hash, io.LimitReader(raw, r.config.MediaMax+1))
-	if err != nil || count > r.config.MediaMax || !bytes.Equal(hash.Sum(nil), p.hash) {
+	count, err := io.Copy(hash, io.LimitReader(raw, maximum+1))
+	if err != nil || count > maximum || !bytes.Equal(hash.Sum(nil), p.hash) {
 		return r.store.UpdateMedia(ctx, p.key, p.version, "unavailable")
 	}
 	eligible, err = r.store.EligibleMedia(ctx, p.key, p.version)

@@ -13,6 +13,10 @@ import (
 
 type ownerVoiceRedeliveryStore interface {
 	VoiceRedeliverySources(context.Context, archive.ReadScope, int) ([]archive.VoiceRedeliverySource, error)
+	phoneRedeliverySourceStore
+}
+
+type phoneRedeliverySourceStore interface {
 	CurrentSource(context.Context, archive.SourceKey) (archive.SourceRef, error)
 }
 
@@ -114,7 +118,7 @@ func (r *Runtime) RequestVoiceRedelivery(ctx context.Context, scope archive.Read
 	return requested, nil
 }
 
-func (r *Runtime) voiceRedeliveryJIDs(ctx context.Context, scope archive.ReadScope, store ownerVoiceRedeliveryStore, item archive.VoiceRedeliverySource) (types.JID, types.JID, error) {
+func (r *Runtime) voiceRedeliveryJIDs(ctx context.Context, scope archive.ReadScope, store phoneRedeliverySourceStore, item archive.VoiceRedeliverySource) (types.JID, types.JID, error) {
 	var zero types.JID
 	if item.Key.Account != scope.Account || item.Source.Account != scope.Account || item.Source.Version.PolicyGeneration != scope.PolicyGeneration || item.Source.Version.Deleted || item.Source.Version.Excluded || item.OriginalSentAt.IsZero() || len(item.Key.Message) == 0 || len(item.Key.Message) > 512 || !utf8.ValidString(item.Key.Message) || strings.ContainsRune(item.Key.Message, 0) {
 		return zero, zero, ErrMediaInvalidAdmission

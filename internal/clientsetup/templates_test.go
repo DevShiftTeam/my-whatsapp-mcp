@@ -205,12 +205,12 @@ func TestSupportedGuidesIncludeScopedContactAndGroupSearch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, phrase := range []string{"six read tools", "search_contacts", "search_groups", "next_cursor", "same query"} {
+			for _, phrase := range []string{"six core read tools", "With attachment support configured", "eight read tools", "search_contacts", "search_groups", "search_attachments", "get_attachment", "next_cursor", "same query", "before/after context"} {
 				if !strings.Contains(guide.TestAction, phrase) {
 					t.Fatalf("%s/%s setup guide omitted name-search verification", client, mode)
 				}
 			}
-			for _, tool := range []string{"search_contacts", "search_groups"} {
+			for _, tool := range []string{"search_contacts", "search_groups", "search_attachments", "get_attachment"} {
 				if !strings.Contains(guide.RevokeAction, tool) {
 					t.Fatalf("%s/%s setup guide omitted name search from revoked-access checks", client, mode)
 				}

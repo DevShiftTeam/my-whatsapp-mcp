@@ -111,7 +111,8 @@ func normalizeConfig(c Config) (Config, error) {
 	return c, nil
 }
 
-// NewHandler exposes only /mcp. The caller owns the dedicated loopback listener.
+// NewHandler exposes /mcp and separately configured send/attachment routes.
+// The caller owns the dedicated loopback listener.
 // SDK transport is stateless: a transport session never caches archive authority.
 func NewHandler(config Config, reader archive.Reader, credentials Credentials) (http.Handler, error) {
 	c, err := normalizeConfig(config)
@@ -136,12 +137,23 @@ func NewHandler(config Config, reader archive.Reader, credentials Credentials) (
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if (r.URL.Path != "/mcp" && !(c.Outbound != nil && sendAPIRoute(r.URL.Path))) || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
+		download := c.Attachments != nil && AttachmentDownloadRoute(r.URL.Path)
+		if (r.URL.Path != "/mcp" && !(c.Outbound != nil && sendAPIRoute(r.URL.Path)) && !download) || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
 			fixedHTTP(w, http.StatusNotFound, "mcp_not_found")
 			return
 		}
-		if !contains(c.Hosts, r.Host) || len(r.Header.Values("Origin")) > 1 || (r.Header.Get("Origin") != "" && !contains(c.Origins, r.Header.Get("Origin"))) {
+		if !contains(c.Hosts, r.Host) || (r.URL.Host != "" && r.URL.Host != r.Host) || len(r.Header.Values("Origin")) > 1 || (r.Header.Get("Origin") != "" && !contains(c.Origins, r.Header.Get("Origin"))) {
 			fixedHTTP(w, http.StatusForbidden, "mcp_forbidden")
+			return
+		}
+		if download {
+			if r.Method != http.MethodGet {
+				fixedHTTP(w, http.StatusNotFound, "mcp_not_found")
+				return
+			}
+			// The app-owned capability retains the original credential and guard.
+			// No supplied header, owner cookie or URL parameter replaces them.
+			c.Attachments.ServeDownload(w, r)
 			return
 		}
 		if r.Method != http.MethodPost {

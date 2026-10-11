@@ -87,6 +87,7 @@ const (
 	MessageText        MessageKind = "text"
 	MessageImage       MessageKind = "image"
 	MessageVoice       MessageKind = "voice"
+	MessageDocument    MessageKind = "document"
 	MessageUnsupported MessageKind = "unsupported"
 )
 
@@ -104,6 +105,7 @@ type MediaReference struct {
 	Kind              string
 	ProtocolReference []byte // bounded, connector-authenticated reference only
 	MimeType          string
+	Filename          string // untrusted display metadata, UTF-8 <=255 bytes; never a path
 	DeclaredBytes     int64
 	ViewOnce          bool
 	Availability      string

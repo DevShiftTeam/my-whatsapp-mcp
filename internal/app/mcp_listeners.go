@@ -29,6 +29,8 @@ var errMCPListener = errors.New("mcp_listener_unavailable")
 
 type mcpListeners struct {
 	mu                            sync.Mutex
+	root                          context.Context
+	cancel                        context.CancelFunc
 	servers                       []*http.Server
 	listeners                     []net.Listener
 	native                        *appdata.NativeSocket
@@ -36,6 +38,7 @@ type mcpListeners struct {
 	localState, remoteState, code string
 	localStarted, remoteStarted   bool
 	remoteHandler                 http.Handler
+	attachments                   *attachmentService
 }
 
 func copyMCPConfig(cfg *MCPConfig) MCPConfig {
@@ -87,6 +90,11 @@ func (m *mcpListeners) serve(ctx context.Context, listener net.Listener, handler
 	go func() { defer m.workers.Done(); _ = server.Serve(listener) }()
 }
 func (m *mcpListeners) close(ctx context.Context) error {
+	// The transport lifetime outlives an individual query configuration, but
+	// must end before shutdown waits for handlers that borrow archive readers.
+	if m.cancel != nil {
+		m.cancel()
+	}
 	for _, listener := range m.listeners {
 		_ = listener.Close()
 	}
@@ -128,7 +136,16 @@ func (a *Application) startMCP(ctx context.Context) error {
 		return errMCPListener
 	}
 	if a.mcp == nil {
-		a.mcp = &mcpListeners{localState: "unavailable", remoteState: "not_configured"}
+		root, cancel := context.WithCancel(context.Background())
+		a.mcp = &mcpListeners{root: root, cancel: cancel, localState: "unavailable", remoteState: "not_configured"}
+	}
+	if a.mcp.root == nil || a.mcp.root.Err() != nil {
+		return errMCPListener
+	}
+	if a.mcp.attachments == nil {
+		if err = a.startAttachments(); err != nil {
+			return err
+		}
 	}
 	localErr := a.startLocalMCP(ctx)
 	remoteErr := a.startRemoteMCP(ctx)
@@ -151,7 +168,7 @@ func (a *Application) startLocalMCP(ctx context.Context) error {
 	m.localState = "unavailable"
 	m.mu.Unlock()
 	if m.native == nil {
-		socket, err := appdata.ListenNativeSocket(a.queryContext, a.paths, a.lease)
+		socket, err := appdata.ListenNativeSocket(m.root, a.paths, a.lease)
 		if err != nil {
 			m.code = "native_transport_unavailable"
 			return errMCPListener
@@ -163,12 +180,12 @@ func (a *Application) startLocalMCP(ctx context.Context) error {
 		return err
 	}
 	if !m.localStarted {
-		cfg := mcpserver.Config{Outbound: a, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
+		cfg := mcpserver.Config{Outbound: a, Attachments: m.attachments, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
 		handler, err := mcpserver.NewHandler(cfg, a.resources.retrieval, a.store)
 		if err != nil {
 			return errMCPListener
 		}
-		m.serve(a.queryContext, m.native.Listener(), handler)
+		m.serve(m.root, m.native.Listener(), a.mcpRequestHandler(m, handler))
 		m.localStarted = true
 		m.mu.Lock()
 		m.localState = "ready"
@@ -203,6 +220,7 @@ func (a *Application) startRemoteMCP(ctx context.Context) error {
 		}
 		cfg := remote.Server
 		cfg.Outbound = a
+		cfg.Attachments = m.attachments
 		cfg.NativeClients = &a.nativeRegistry
 		cfg.RemoteClients = &a.remoteRegistry
 		cfg.LocalCredentialID = ""
@@ -210,11 +228,12 @@ func (a *Application) startRemoteMCP(ctx context.Context) error {
 		if err != nil {
 			return errMCPListener
 		}
-		listener, err := newMCPLoopback(a.queryContext, remote.Listen)
+		listener, err := newMCPLoopback(m.root, remote.Listen)
 		if err != nil {
 			return err
 		}
-		m.serve(a.queryContext, listener, handler)
+		handler = a.mcpRequestHandler(m, handler)
+		m.serve(m.root, listener, handler)
 		m.remoteHandler = handler
 		m.remoteStarted = true
 		m.mu.Lock()
@@ -231,7 +250,7 @@ func (a *Application) ensureMCP(ctx context.Context) {
 	if a.closed || !a.mcpEnabled {
 		return
 	}
-	if a.mcp != nil && a.mcp.localStarted && !a.nativeRecoveryPending {
+	if a.mcp != nil && a.mcp.root != nil && a.mcp.root.Err() == nil && a.mcp.localStarted && !a.nativeRecoveryPending {
 		if a.mcpConfig.Remote == nil || (a.mcp.remoteStarted && !a.remoteRecoveryPending) {
 			return
 		}
@@ -247,11 +266,58 @@ func (a *Application) closeMCP(ctx context.Context) error {
 	// Reset and close revoke borrowed HTTP publication before teardown. Even a
 	// failed shutdown must not leave a handler for the old archive reachable.
 	a.mcp.remoteHandler = nil
+	if a.mcp.attachments != nil {
+		a.mcp.attachments.invalidate()
+		a.mcp.attachments = nil
+	}
 	if err := a.mcp.close(ctx); err != nil {
 		return err
 	}
 	a.mcp = nil
 	a.nativeEndpoint = mcpserver.NativeEndpoint{}
+	return nil
+}
+
+// startAttachments captures one archive/resource lifetime under data.Lock.
+// Requests borrow the same service through local and remote MCP transports.
+func (a *Application) startAttachments() error {
+	m, store, r := a.mcp, a.store, a.resources
+	if m == nil || store == nil || r == nil || r.media == nil || m.root == nil || m.root.Err() != nil {
+		return errMCPListener
+	}
+	root := m.root
+	originals := r.media
+	publicURL := ""
+	if a.mcpConfig.Remote != nil {
+		publicURL = a.mcpConfig.Remote.PublicURL
+	}
+	var service *attachmentService
+	current := func() bool {
+		if !a.data.TryRLock() {
+			return false
+		}
+		defer a.data.RUnlock()
+		return !a.closed && a.mcp == m && m.attachments == service && a.store == store && a.resources == r && r.media == originals && root.Err() == nil
+	}
+	queue := func(ctx context.Context, grant archive.CredentialGrant, id archive.MessageID) (bool, error) {
+		result, err := store.RetryCredentialDocumentDownloads(ctx, grant, []archive.MessageID{id})
+		if err != nil {
+			return false, err
+		}
+		if result.Queued > 0 && a.data.TryRLock() {
+			if !a.closed && a.mcp == m && m.attachments == service && a.store == store && a.resources == r && r.media == originals && root.Err() == nil {
+				a.wakeOriginalDownloads()
+			}
+			a.data.RUnlock()
+		}
+		return result.Queued > 0, nil
+	}
+	var err error
+	service, err = newAttachmentService(attachmentServiceConfig{root: root, archive: store, originals: newAttachmentOriginals(originals), publicURL: publicURL, nativeClients: &a.nativeRegistry, remoteClients: &a.remoteRegistry, current: current, queue: queue})
+	if err != nil {
+		return errMCPListener
+	}
+	m.attachments = service
 	return nil
 }
 func nativeTransportPending(w http.ResponseWriter, _ *http.Request) {
