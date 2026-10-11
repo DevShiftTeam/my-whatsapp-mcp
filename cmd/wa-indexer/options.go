@@ -23,23 +23,24 @@ var (
 )
 
 type options struct {
-	command        string
-	profile        string
-	config         string
-	listen         string
-	dataDir        string
-	demo           bool
-	demoAcceptance bool
-	noOpen         bool
-	openExisting   bool
-	help           bool
-	originalBudget *int64
-	mcpListen      string
-	mcpPublicURL   string
-	mcpHeaderAuth  bool
-	adminListen    string
-	adminPublicURL string
-	adminEnvFile   string
+	command              string
+	profile              string
+	config               string
+	listen               string
+	dataDir              string
+	demo                 bool
+	demoAcceptance       bool
+	noOpen               bool
+	openExisting         bool
+	help                 bool
+	originalBudget       *int64
+	mcpListen            string
+	mcpPublicURL         string
+	mcpHeaderAuth        bool
+	adminListen          string
+	adminPublicURL       string
+	adminEnvFile         string
+	transcriptionEnvFile string
 }
 
 // Supplied values never form part of an error or the flag parser's output.
@@ -95,6 +96,7 @@ func parseArgs(args []string) (options, error) {
 		flags.StringVar(&opts.adminListen, "admin-listen", "", "")
 		flags.StringVar(&opts.adminPublicURL, "admin-public-url", "", "")
 		flags.StringVar(&opts.adminEnvFile, "admin-env-file", "", "")
+		flags.StringVar(&opts.transcriptionEnvFile, "transcription-env-file", "", "")
 		flags.StringVar(&opts.mcpPublicURL, "mcp-public-url", "", "")
 		flags.BoolVar(&opts.mcpHeaderAuth, "mcp-header-auth-available", false, "")
 		flags.StringVar(&opts.listen, "listen", "127.0.0.1:64165", "")
@@ -167,7 +169,16 @@ func parseArgs(args []string) (options, error) {
 	if adminExplicit && !validAdminRoute(opts) {
 		return options{}, errArguments
 	}
-	if opts.openExisting && (adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance) {
+	transcriptionExplicit := false
+	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "transcription-env-file" {
+			transcriptionExplicit = true
+		}
+	})
+	if transcriptionExplicit && (!filepath.IsAbs(opts.transcriptionEnvFile) || filepath.Clean(opts.transcriptionEnvFile) != opts.transcriptionEnvFile) {
+		return options{}, errArguments
+	}
+	if opts.openExisting && (adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
 		return options{}, errArguments
 	}
 	return opts, nil

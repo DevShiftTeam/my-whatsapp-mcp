@@ -25,9 +25,9 @@ func (r *resources) progress(status *archive.StatusSnapshot) {
 		}
 		r.index.mu.Unlock()
 	}
-	if !r.mediaConfigured {
+	if !r.mediaConfigured && r.voice == nil {
 		status.Media = archive.Progress{State: "not_configured"}
-	} else if r.extraction == nil {
+	} else if r.extraction == nil && r.voice == nil {
 		status.Media.State = "unavailable"
 		status.Media.Code = "media_not_accepted"
 	} else if status.Media.State == "" || status.Media.State == "not_configured" {
@@ -47,5 +47,8 @@ func (r *resources) progress(status *archive.StatusSnapshot) {
 			status.Media.Code = r.primaryJobs.code
 		}
 		r.primaryJobs.mu.Unlock()
+	}
+	if r.voice != nil {
+		r.voice.progress(&status.Media)
 	}
 }

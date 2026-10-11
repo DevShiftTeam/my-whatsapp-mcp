@@ -42,6 +42,9 @@ Password-protected admin access requires --admin-listen 127.0.0.1:FIXED_PORT
 with --admin-public-url https://PUBLIC_HOST and WA_INDEXER_ADMIN_PASSWORD_HASH.
 Use --admin-env-file ABSOLUTE_PRIVATE_ENV to load only that hash from a private
 local file. Admin credentials and scoped MCP client credentials are separate.
+Voice transcription uses WA_INDEXER_TRANSCRIPTION_URL and TOKEN with optional
+WA_INDEXER_TRANSCRIPTION_LANGUAGE (auto) and TIMEOUT_SECONDS (600). Use
+--transcription-env-file ABSOLUTE_PRIVATE_ENV to load the private service setup.
 Use --open-existing to open an authenticated running owner without starting an
 app or changing its configuration. Missing owner metadata fails without startup.
 `
@@ -71,7 +74,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if err := execute(ctx, opts, stdout, stderr); err != nil {
 		if errors.Is(err, errRestartRequired) {
-			fmt.Fprintln(stderr, "My WhatsApp MCP must restart to apply the supplied remote route settings.")
+			fmt.Fprintln(stderr, "My WhatsApp MCP must restart to apply the supplied service settings.")
 			return 1
 		}
 		fmt.Fprintln(stderr, startupErrorMessage(err))
@@ -81,9 +84,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 func startupErrorMessage(err error) string {
+	if message, ok := voiceConfigErrorMessage(err); ok {
+		return message
+	}
 	// Inspect only fixed sentinels. Error text can contain paths, credentials or
 	// source identifiers and must never become terminal output.
 	switch app.StartupErrorCode(err) {
+	case "transcription_config_invalid":
+		return "My WhatsApp MCP could not run (transcription_config_invalid). Check the private voice service configuration, then restart."
 	case "native_namespace_unavailable":
 		return "My WhatsApp MCP could not run (native_namespace_unavailable). Local runtime files could not be prepared. Restart the app and keep the existing data folder."
 	case "extraction_recovery_pending":
@@ -92,6 +100,8 @@ func startupErrorMessage(err error) string {
 		return "My WhatsApp MCP could not run (local_ai_bundle_unavailable). Local AI resources are unavailable. Start the app from its complete app bundle."
 	}
 	switch {
+	case errors.Is(err, errTranscriptionConfig):
+		return "My WhatsApp MCP could not run (transcription_config_invalid). Check the private voice service configuration, then restart."
 	case errors.Is(err, errAdminConfig):
 		return "My WhatsApp MCP could not run (admin_auth_unavailable). Configure the private admin password hash and HTTPS admin route, then restart."
 	case errors.Is(err, appdata.ErrUnsafeDataPath), errors.Is(err, archive.ErrUnsafeDataPath):
@@ -129,7 +139,7 @@ func startupErrorMessage(err error) string {
 
 func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result error) {
 	if opts.openExisting {
-		if opts.adminListen != "" || opts.adminPublicURL != "" || opts.adminEnvFile != "" || opts.mcpListen != "" || opts.mcpPublicURL != "" || opts.mcpHeaderAuth || opts.originalBudget != nil || opts.demoAcceptance {
+		if opts.adminListen != "" || opts.adminPublicURL != "" || opts.adminEnvFile != "" || opts.mcpListen != "" || opts.mcpPublicURL != "" || opts.mcpHeaderAuth || opts.originalBudget != nil || opts.demoAcceptance || opts.transcriptionEnvFile != "" {
 			return errStartup
 		}
 		candidate, err := app.OwnerAttachURL(app.Config{DataDir: opts.dataDir, Demo: opts.demo})
@@ -142,10 +152,14 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err != nil {
 		return errAdminConfig
 	}
+	voiceConfig, err := transcriptionLaunchConfig(opts)
+	if err != nil {
+		return err
+	}
 	// Bind before opening any local data, including a WhatsApp session store.
 	listener, err := bindLoopback(ctx, opts.listen)
 	if errors.Is(err, errListenOccupied) {
-		if opts.mcpListen != "" || adminConfig != nil {
+		if opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -175,7 +189,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err != nil {
 		return errStartup
 	}
-	cfg := app.Config{DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget}
+	cfg := app.Config{DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig}
 	if opts.mcpListen != "" {
 		cfg.MCP, err = remoteLaunchConfig(opts)
 		if err != nil {
@@ -190,7 +204,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		}
 	}
 	if errors.Is(err, appdata.ErrInstanceAlreadyRunning) {
-		if opts.mcpListen != "" || adminConfig != nil {
+		if opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {

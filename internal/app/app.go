@@ -14,6 +14,7 @@ import (
 	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/transcription"
 	"github.com/skip2/go-qrcode"
 )
 
@@ -24,6 +25,7 @@ type Config struct {
 	Offline                bool
 	Native                 *NativeConfig
 	Media                  *MediaConfig
+	Transcription          *transcription.Options
 	MCP                    *MCPConfig
 	ExecutablePath         string
 	OriginalBudgetBytes    *int64
@@ -69,6 +71,7 @@ type Application struct {
 	recoveryOwner                 recoveryLifecycle
 	localAI                       *localAIOwner
 	backfillRequests              int
+	transcriptionConfig           *transcription.Options
 	connectionOwner               connectionRecoveryOwner
 	connectionWake                chan struct{}
 	runtime                       connector
@@ -96,6 +99,9 @@ func newApplication(ctx context.Context, cfg Config, factory runtimeFactory) (*A
 
 func newApplicationWithResources(ctx context.Context, cfg Config, factory runtimeFactory, open func(context.Context, appdata.Paths, *archive.Store, Config, bool) (*resources, error)) (*Application, error) {
 	cfg = copyApplicationConfig(cfg)
+	if err := validateTranscriptionConfig(cfg); err != nil {
+		return nil, err
+	}
 	if cfg.BackfillRequests == 0 {
 		cfg.BackfillRequests = productBackfillLimit
 	}
@@ -191,7 +197,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	queries, cancel := context.WithCancel(context.Background())
 	cfg.instanceGuard = lease
-	a := &Application{paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, connectionWake: make(chan struct{}, 1)}
+	a := &Application{paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
 	a.resources, err = open(ctx, paths, store, cfg, state.Paused)
 	startupResources = a.resources
 	if err != nil {
@@ -649,7 +655,7 @@ func (a *Application) DeleteLocalData(ctx context.Context, confirmed bool) error
 		return err
 	}
 	a.store = store
-	resetConfig := Config{Demo: a.demo, instanceGuard: a.lease, ExecutablePath: a.executablePath}
+	resetConfig := Config{Demo: a.demo, Offline: a.offline, instanceGuard: a.lease, ExecutablePath: a.executablePath, Transcription: a.transcriptionConfig}
 	resetConfig.Native, resetConfig.Media, _ = LoadBundledAI(a.executablePath)
 	a.resources, err = a.openResources(ctx, a.paths, store, resetConfig, false)
 	if err != nil {
@@ -874,7 +880,7 @@ func (a *Application) Status(ctx context.Context) (archive.StatusSnapshot, error
 	if !diagnostic.ReconciliationRequired {
 		scope, scopeErr := a.scope(ctx)
 		if scopeErr == nil {
-			status, err = a.store.Status(ctx, scope)
+			status, err = a.resources.archiveReader(a.store).Status(ctx, scope)
 			if err != nil {
 				return archive.StatusSnapshot{}, err
 			}

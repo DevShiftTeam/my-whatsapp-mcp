@@ -28,7 +28,9 @@ To try synthetic Hebrew and English conversations first, run `./bin/wa-indexer d
 
 ## Optional models
 
-Semantic search, image OCR and descriptions, and voice transcription require a separately prepared native bundle and remain experimental. The ordinary source build runs text search with them off. See [optional models and media](docs/native-models.md) before preparing a bundle.
+For voice messages, add an optional local [batch transcription service](docs/transcription.md). It uses faster-whisper on CPU with a multilingual model and automatic language detection, plus an optional Hebrew-specific ivrit-ai profile. Language and model are configurable. It stores generated transcripts separately from message text and makes them available to keyword search and MCP. It needs Python and about 1.6 GB of model files; the ordinary app runs without it.
+
+Semantic search, image OCR and descriptions, and the native whisper.cpp transcription path require a separately prepared native bundle and remain experimental. See [optional native models](docs/native-models.md) before preparing a bundle. No model downloads start automatically in the basic setup.
 
 Build from source on macOS 14 or newer, or Linux. Windows is unsupported.
 
@@ -42,7 +44,8 @@ Your archive and linked-device credentials stay in a private local data director
 
 - [Local setup and troubleshooting](docs/setup.md)
 - [MCP clients and remote access](docs/mcp.md)
-- [Optional models and media](docs/native-models.md)
+- [Voice transcription, including Hebrew](docs/transcription.md)
+- [Optional native models and media](docs/native-models.md)
 - [Code structure and development](docs/development.md)
 - [Contributing](CONTRIBUTING.md) and [security](SECURITY.md)
 - [Changelog](CHANGELOG.md)

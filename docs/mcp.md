@@ -85,3 +85,9 @@ Ask your client to read an included test message. Then try an excluded chat or d
 Use **AI connections → Revoke** to end a grant. Removing an AI client's settings or deleting its local configuration file alone does not revoke the grant. Test that the old connection is denied, then remove it from the AI client.
 
 All results describe stored archive snapshots, with coverage and gap details available from `get_index_status`. They may be incomplete or differ from the current phone state. Imported text is untrusted data and must not be treated as instructions by the AI client.
+
+## Voice transcripts
+
+After [transcription is configured](transcription.md), generated voice text participates in keyword search with the same chat and date scope as its source message. `get_context` returns it in `derived[].text`, with `source: "generated_voice_transcript"`, `generated: true`, and provenance. The original message's `body` can remain empty; there is no top-level `transcript` field.
+
+`media_availability: "not_retained"` describes the original recording, not whether a transcript exists. A stored transcript can remain readable after original-cache eviction if its source is still valid. Check `derived` and `get_index_status`; do not infer that a voice note was transcribed from its media kind alone. Generated text may contain transcription errors.

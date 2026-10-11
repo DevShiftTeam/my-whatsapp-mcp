@@ -44,6 +44,7 @@
   let budgetBusy = false;
   let budgetDirty = false;
   let budgetDraftRevision = 0;
+  let voiceRetryBusy = false;
   let authExpired = false;
   let authEpoch = 0;
   let authBusy = false;
@@ -89,6 +90,7 @@
     client_connection_invalid: "Choose a client, explicit chat scope, valid dates, and a future expiry.",
     original_budget_unavailable: "Original media storage controls are unavailable. Refresh to check their current state.",
     original_budget_changed: "The storage limit changed in another owner window. Current state has been reloaded; review it before saving again.",
+    voice_retry_unavailable: "Voice downloads could not be retried. Check the archive connection and import status, then try again.",
     local_ai_unavailable: "Local AI is unavailable. Keyword search remains usable.",
     local_ai_conflict: "Local AI settings changed. Current state has been reloaded; review it before applying again.",
     local_ai_invalid: "Choose eligible local AI components or turn local AI off.",
@@ -156,6 +158,7 @@
     localAIBusy = false;
     clientBusy = false;
     budgetBusy = false;
+    voiceRetryBusy = false;
     chatDiscoveryBusy = false;
     $("search-form").reset();
     $("search-submit").disabled = false;
@@ -193,6 +196,8 @@
     $("original-budget-summary").textContent="";
     $("original-budget-pressure").hidden=true;
     updateBudgetControls();
+    updateVoiceRetryControls();
+    feedback("voice-retry-feedback", "");
     $("chat-choices").replaceChildren();
     $("search-chat").replaceChildren(new Option("All included chats", ""));
     clearQR();
@@ -755,6 +760,34 @@
     const gib=$("original-budget-unit").value==="gib";
     $("original-budget-size").min=gib?"1":"64";
     $("original-budget-size").max=gib?"1024":"1048576";
+  }
+
+  function updateVoiceRetryControls() {
+    $("voice-retry-button").disabled = voiceRetryBusy || authExpired;
+  }
+
+  async function retryVoiceDownloads() {
+    if (authExpired || voiceRetryBusy) return;
+    const epoch = authEpoch;
+    voiceRetryBusy = true;
+    updateVoiceRetryControls();
+    feedback("voice-retry-feedback", "Checking failed voice downloads…");
+    try {
+      const value = await api("/api/voice/retry", "POST", {});
+      if (epoch !== authEpoch || authExpired || !$("models-dialog").open) return;
+      if (!Number.isSafeInteger(value.queued) || !Number.isSafeInteger(value.skipped) || value.queued < 0 || value.skipped < 0 || value.queued + value.skipped > 32) throw new Error(messages.voice_retry_unavailable);
+      const text = value.queued
+        ? value.queued + " voice download" + (value.queued === 1 ? "" : "s") + " queued. Downloads need a connected WhatsApp session; transcription needs its configured service."
+        : "No failed voice downloads could be queued in this batch.";
+      feedback("voice-retry-feedback", text + (value.skipped ? " " + value.skipped + " unusable download reference" + (value.skipped === 1 ? " was" : "s were") + " skipped. Retry again to check the next batch." : ""));
+    } catch (error) {
+      if (epoch === authEpoch && !authExpired && $("models-dialog").open) feedback("voice-retry-feedback", error.message, true);
+    } finally {
+      if (epoch === authEpoch) {
+        voiceRetryBusy = false;
+        updateVoiceRetryControls();
+      }
+    }
   }
 
   function updateBudgetControls() {
@@ -1492,7 +1525,7 @@
   $("policy-form").addEventListener("change",updatePolicyFields);
   $("policy-form").addEventListener("submit",savePolicy);
   $("settings-open").addEventListener("click",openSettings);
-  $("models-open").addEventListener("click",()=>{if(!authExpired){feedback("models-feedback","Checking model state…");$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();}});
+  $("models-open").addEventListener("click",()=>{if(!authExpired){feedback("models-feedback","Checking model state…");updateVoiceRetryControls();$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();}});
   $("models-close").addEventListener("click",()=>$("models-dialog").close());
   $("models-dialog").addEventListener("close",()=>{modelVersion++;localAIVersion++;budgetVersion++;});
   $("models-refresh").addEventListener("click",()=>{refreshModels();refreshLocalAI();refreshBudget();});
@@ -1500,6 +1533,7 @@
   $("local-ai-mode").addEventListener("change",()=>{editLocalAI();for(const id of ["local-ai-encoder","local-ai-ocr","local-ai-speech"])$(id).value="";$("local-ai-caption").checked=false;if(localAISnapshot)renderLocalAI(localAISnapshot);});
   for(const id of ["local-ai-encoder","local-ai-ocr","local-ai-caption","local-ai-speech"])$(id).addEventListener("change",editLocalAI);
   $("original-budget-form").addEventListener("submit",saveBudget);
+  $("voice-retry-button").addEventListener("click",retryVoiceDownloads);
   $("original-budget-size").addEventListener("input",()=>{editBudget();$("original-budget-preset").value="custom";});
   $("original-budget-unit").addEventListener("change",()=>{editBudget();$("original-budget-preset").value="custom";updateBudgetUnits();});
   $("original-budget-preset").addEventListener("change",()=>{editBudget();if($("original-budget-preset").value!=="custom"){$("original-budget-unit").value="mib";$("original-budget-size").value=$("original-budget-preset").value;updateBudgetUnits();}});

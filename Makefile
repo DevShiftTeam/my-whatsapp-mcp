@@ -28,3 +28,4 @@ formatcheck:
 script-test:
 	$(PYTHON) -m unittest discover -s scripts/app -p 'test_*.py'
 	$(PYTHON) -m unittest discover -s scripts/package -p 'test_*.py'
+	$(PYTHON) -m unittest discover -s services/transcription/tests -p 'test_*.py'

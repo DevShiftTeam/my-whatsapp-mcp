@@ -889,17 +889,17 @@ func (s *Store) chatPage(ctx context.Context, scope ReadScope, request ChatListR
 	return page, nil
 }
 func (s *Store) Status(ctx context.Context, scope ReadScope) (StatusSnapshot, error) {
-	return s.statusPage(ctx, scope, nil)
+	return s.statusPage(ctx, scope, nil, nil)
 }
 func (s *Store) StatusGuarded(ctx context.Context, scope ReadScope) (StatusSnapshot, ResponseGuard, error) {
 	var guard ResponseGuard
-	page, err := s.statusPage(ctx, scope, &guard)
+	page, err := s.statusPage(ctx, scope, &guard, nil)
 	if err != nil {
 		return StatusSnapshot{}, ResponseGuard{}, err
 	}
 	return page, guard, nil
 }
-func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *ResponseGuard) (StatusSnapshot, error) {
+func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *ResponseGuard, extraction *ExtractionVersion) (StatusSnapshot, error) {
 	f, err := s.beginRead(ctx, scope, nil, time.Time{}, time.Time{})
 	if err != nil {
 		return StatusSnapshot{}, err
@@ -979,6 +979,12 @@ func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *Respo
 		status.Coverage = "partial"
 		status.Codes = append(status.Codes, "source_revision_conflict")
 		f.note(fromMillis(conflictSent.Int64), fromMillis(conflictExpiry.Int64))
+	}
+	if extraction != nil {
+		status.Media, err = s.extractionProgressFrame(f, *extraction)
+		if err != nil {
+			return StatusSnapshot{}, err
+		}
 	}
 	horizon, err := f.expiryHorizon()
 	if err != nil {

@@ -20,6 +20,8 @@ The app uses Go, SQLite, and embedded HTML/CSS/JavaScript. The normal source bui
 | `internal/mcpserver` | Scoped read-only MCP tools, bearer authentication, and local stdio adapter. |
 | `internal/clientsetup` | Client configuration and instructions rendered from app-owned settings. |
 | `internal/media` | Original downloads, format verification, OCR, image descriptions, and transcription. |
+| `internal/transcription` | Authenticated loopback adapter for optional batch voice extraction. |
+| `services/transcription` | Optional Python faster-whisper installer, service, and synthetic tests. |
 | `internal/modelstore` | Pinned model catalog, downloads, integrity checks, and installation. |
 | `internal/inference` | Optional native encoder and worker supervision. |
 | `internal/compute`, `internal/diskspace`, `internal/workerlife` | Work admission, disk reservations, and child-process lifetime. |
@@ -39,6 +41,8 @@ Phone → whatsmeow → ingestion → archive
 `app` constructs and owns these components. The archive has one serialized writer and a separate bounded read pool. Read paths apply the archive policy and client scope, then recheck source and credential validity before returning a response. Known deletions and conflicting source revisions withhold affected text; nonfatal sync gaps remain visible as partial coverage.
 
 The local stdio adapter talks to the running app through a private Unix socket. It does not open another WhatsApp session, archive database, or model runtime.
+
+The optional voice service runs separately: retained recording → `internal/transcription` upload → local faster-whisper service → source-bound transcript commit → keyword search and scoped MCP. Its worker lifetime is independent of native previews. It has its own CPU and model-memory budget; cancelling HTTP does not immediately terminate inference. See [transcription](transcription.md) for its configuration and resource limits.
 
 ## Storage
 
@@ -65,6 +69,14 @@ The portable build helper and optional macOS package tooling have Python tests. 
 ```sh
 make script-test
 ```
+
+The optional transcription service has synthetic standard-library tests that do not download a model:
+
+```sh
+python3 -m unittest discover -s services/transcription/tests
+```
+
+Exercise the retained-original, extraction, keyword search, MCP scope, source-invalidation, and restart boundaries when changing voice processing. A passing synthetic suite does not establish real Hebrew recognition quality or performance.
 
 For browser JavaScript changes, Node.js can check syntax:
 

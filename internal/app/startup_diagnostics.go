@@ -6,6 +6,8 @@ import "errors"
 // startup failure. It never formats the supplied error; unknown errors return "".
 func StartupErrorCode(err error) string {
 	switch {
+	case errors.Is(err, errTranscriptionConfig):
+		return "transcription_config_invalid"
 	case errors.Is(err, errNativeNamespace):
 		return "native_namespace_unavailable"
 	case errors.Is(err, errExtractionRecovery):

@@ -68,6 +68,8 @@ type resources struct {
 	mediaExtractor        *media.Extractor
 	mediaJobs             *mediaJobs
 	primaryJobs           *primaryMediaJobs
+	voice                 *voiceOwner
+	voiceStatus           atomic.Pointer[voiceOwner]
 	nativeConfigured      bool
 	mediaConfigured       bool
 }
@@ -109,7 +111,7 @@ func openResources(ctx context.Context, paths appdata.Paths, store *archive.Stor
 	}
 	r.recovery, err = recoverExtractionPins(ctx, store, account)
 	r.recoveryPending.Store(err != nil || !r.recovery.complete)
-	service, err := retrieval.NewService(retrieval.Config{Reader: store, Candidates: store, Index: store.ActiveIndex})
+	service, err := retrieval.NewService(retrieval.Config{Reader: r.archiveReader(store), Candidates: store, Index: store.ActiveIndex})
 	if err != nil {
 		return fail(err)
 	}
@@ -198,7 +200,7 @@ func (r *resources) initializeRuntime(ctx context.Context, store *archive.Store,
 	if err = r.configureMedia(cfg.Media); err != nil {
 		return err
 	}
-	retrievalCfg := retrieval.Config{Reader: store, Candidates: store, Index: store.ActiveIndex}
+	retrievalCfg := retrieval.Config{Reader: r.archiveReader(store), Candidates: store, Index: store.ActiveIndex}
 	if encoder != nil {
 		retrievalCfg.Encoder = encoder
 	}
@@ -230,6 +232,9 @@ func (r *resources) startBackground(store *archive.Store, cfg Config) {
 	if r.recoveryPending.Load() {
 		return
 	}
+	if cfg.Transcription != nil && !cfg.Offline && r.voice == nil {
+		r.startVoice(store, *cfg.Transcription)
+	}
 	if cfg.Native != nil && cfg.Native.Experimental && cfg.Native.IndexVersion != nil && r.runDone == nil {
 		r.startIndexing(store, *cfg.Native.IndexVersion)
 	}
@@ -241,6 +246,9 @@ func (r *resources) startBackground(store *archive.Store, cfg Config) {
 func (r *resources) close(ctx context.Context) error {
 	if r == nil {
 		return nil
+	}
+	if r.voice != nil {
+		r.voice.cancel()
 	}
 	// Cancellation requests shutdown; admission guards remain actor-owned until
 	// AwaitCleanup acknowledges complete process-group and component cleanup.
@@ -278,6 +286,13 @@ func (r *resources) close(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+	if r.voice != nil {
+		if err := r.voice.close(ctx); err != nil {
+			return err
+		}
+		r.voice = nil
+		r.voiceStatus.Store(nil)
 	}
 	if r.extraction != nil {
 		if err := r.extraction.Close(ctx); err != nil {

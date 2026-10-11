@@ -108,66 +108,75 @@ func privateAdminEnvEntry(info os.FileInfo, directory bool) bool {
 	return true
 }
 
-func readAdminEnvFile(path string) (hash string, result error) {
+func readPrivateEnvFile(path string) (data []byte, result error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	parentPath, name := filepath.Dir(path), filepath.Base(path)
 	canonical, err := filepath.EvalSymlinks(parentPath)
 	if err != nil || canonical != parentPath {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	beforeParent, err := os.Lstat(parentPath)
 	if err != nil || !privateAdminEnvEntry(beforeParent, true) {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	root, err := os.OpenRoot(parentPath)
 	if err != nil {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	defer func() {
 		if root.Close() != nil {
-			hash, result = "", errAdminConfig
+			data, result = nil, errAdminConfig
 		}
 	}()
 	parent, err := root.Open(".")
 	if err != nil {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	heldParent, statErr := parent.Stat()
 	safeParent := statErr == nil && privateAdminEnvEntry(heldParent, true) && os.SameFile(beforeParent, heldParent) && adminEnvNoACL(parent)
 	closeErr := parent.Close()
 	if !safeParent || closeErr != nil {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	before, err := root.Lstat(name)
 	if err != nil || !privateAdminEnvEntry(before, false) {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	// Nonblocking/no-follow prevents a FIFO or symlink substituted after Lstat
 	// from blocking startup or opening an unrelated file.
 	file, err := root.OpenFile(name, adminEnvOpenFlags(), 0)
 	if err != nil {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	defer func() {
 		if file.Close() != nil {
-			hash, result = "", errAdminConfig
+			data, result = nil, errAdminConfig
 		}
 	}()
 	opened, err := file.Stat()
 	if err != nil || !privateAdminEnvEntry(opened, false) || !os.SameFile(before, opened) || !adminEnvNoACL(file) {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxAdminEnvBytes+1))
+	data, err = io.ReadAll(io.LimitReader(file, maxAdminEnvBytes+1))
 	if err != nil || len(data) > maxAdminEnvBytes || strings.ContainsRune(string(data), '\x00') {
-		return "", errAdminConfig
+		return nil, errAdminConfig
 	}
 	after, err := root.Lstat(name)
 	afterOpened, openedErr := file.Stat()
 	if err != nil || openedErr != nil || !privateAdminEnvEntry(after, false) || !privateAdminEnvEntry(afterOpened, false) || !os.SameFile(opened, after) || !os.SameFile(opened, afterOpened) || opened.Size() != afterOpened.Size() || !opened.ModTime().Equal(afterOpened.ModTime()) {
+		return nil, errAdminConfig
+	}
+	return data, nil
+}
+
+func readAdminEnvFile(path string) (string, error) {
+	data, err := readPrivateEnvFile(path)
+	if err != nil {
 		return "", errAdminConfig
 	}
+	var hash string
 	seen := false
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)

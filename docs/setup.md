@@ -74,6 +74,8 @@ Stop the app with Ctrl+C, start it again with `./bin/wa-indexer serve`, and repe
 
 ## Everyday use
 
+To transcribe voice notes, follow the optional [Hebrew transcription setup](transcription.md). The basic setup above imports text; it does not install a speech model. Voice transcription works without configuring semantic search or image models.
+
 Start the app with `./bin/wa-indexer serve`. It reuses the saved linked-device session when available. Ctrl+C stops the app; saved messages remain on disk.
 
 To reopen the owner window while the app is already running, use a second terminal in the source directory:
@@ -106,7 +108,7 @@ Disconnecting WhatsApp keeps the saved archive. **Chats and dates → Delete all
 | Owner session ended | Run `serve --open-existing` while the app is running. If it has stopped, run `serve`. |
 | Port already in use | Reopen the existing app. If another program owns the port, stop it or choose a different literal loopback port with `--listen 127.0.0.1:64166`. |
 | `unsafe_data_path` | Use the original data directory or a fresh empty local directory. Check ownership, private permissions, and symlinks; do not loosen permissions to bypass the check. |
-| `reconciliation_required` | Keep the data directory unchanged. Restart with the same or a newer compatible app, and report the fixed diagnostic code if recovery fails. |
+| `reconciliation_required` | Keep the data directory unchanged and report the fixed diagnostic codes. A durable source-safety failure such as `drain_failed` persists across restart and Resume; the app currently has no reconciliation command to clear it. Import and content reads remain blocked until verified recovery. |
 | Partial history or sync gaps | Readable stored messages may still be searchable. Coverage warnings remain because unavailable messages and missed edits or deletions cannot be reconstructed reliably. |
 
 For an offline diagnostic report, stop the app first, then run `./bin/wa-indexer doctor`. Review it before sharing; do not attach your data directory.

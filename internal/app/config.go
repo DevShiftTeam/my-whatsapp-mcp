@@ -2,6 +2,10 @@ package app
 
 // Deferred recovery retains immutable trusted composition, never caller slices.
 func copyApplicationConfig(cfg Config) Config {
+	if cfg.Transcription != nil {
+		value := *cfg.Transcription
+		cfg.Transcription = &value
+	}
 	if cfg.Native != nil {
 		value := *cfg.Native
 		value.WorkerLifetime.Args = append([]string(nil), value.WorkerLifetime.Args...)

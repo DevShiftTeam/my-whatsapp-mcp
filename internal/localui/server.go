@@ -251,6 +251,7 @@ var routeMethods = map[string]string{
 	"/api/connections/guide": http.MethodPost, "/api/connections/revoke": http.MethodPost,
 	"/api/connections/reveal": http.MethodPost,
 	"/api/original-budget":    http.MethodGet,
+	"/api/voice/retry":        http.MethodPost,
 }
 
 func (s *Server) static(w http.ResponseWriter, r *http.Request) {
@@ -466,6 +467,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 		s.revealRemote(w, r, ctx)
 	case "/api/original-budget":
 		s.originalBudget(w, r, ctx)
+	case "/api/voice/retry":
+		s.voiceRetry(w, r, ctx)
 	case "/api/connections", "/api/connections/create", "/api/connections/guide", "/api/connections/revoke":
 		s.connections(w, r, ctx)
 	case "/api/models", "/api/models/state", "/api/models/operations", "/api/models/operations/cancel":

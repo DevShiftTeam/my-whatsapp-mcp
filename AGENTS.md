@@ -9,6 +9,7 @@ Before editing, read the relevant source and these guides:
 - [Development](docs/development.md) for package ownership and checks.
 - [Security](SECURITY.md) for private data and reporting.
 - [Native models](docs/native-models.md) when changing media or inference.
+- [Transcription](docs/transcription.md) for the optional voice service, configuration, and generated transcripts.
 
 Keep documentation beside the code changes. Update the authoritative guide and add a concise entry under [Changelog → Unreleased](CHANGELOG.md#unreleased) for behavior, setup, or API changes. Describe the resulting behavior and limitations in plain language; do not invent validation or release claims.
 

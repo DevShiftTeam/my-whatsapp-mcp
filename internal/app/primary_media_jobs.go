@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/transcription"
 	"sync"
 	"time"
 )
@@ -23,6 +24,7 @@ type primaryMediaJobs struct {
 	store    archive.ExtractionStore
 	open     func(context.Context, archive.ReadScope, archive.MediaID) (primaryOriginal, error)
 	produce  func(context.Context, archive.ExtractionWork, primaryOriginal) (archive.ExtractionResult, error)
+	ready    func(context.Context) error
 	versions []archive.ExtractionVersion
 	cancel   context.CancelFunc
 	done     chan struct{}
@@ -32,11 +34,7 @@ type primaryMediaJobs struct {
 }
 
 func (r *resources) startPrimaryMedia(store *archive.Store, extractor *media.Extractor, versions []archive.ExtractionVersion) {
-	ctx, cancel := context.WithCancel(context.Background())
-	jobs := &primaryMediaJobs{store: store, versions: append([]archive.ExtractionVersion(nil), versions...), cancel: cancel, done: make(chan struct{})}
-	jobs.open = func(ctx context.Context, scope archive.ReadScope, id archive.MediaID) (primaryOriginal, error) {
-		return r.media.OpenOriginal(ctx, scope, id)
-	}
+	jobs, ctx := r.newPrimaryMediaJobs(store, versions)
 	jobs.produce = func(ctx context.Context, work archive.ExtractionWork, owner primaryOriginal) (archive.ExtractionResult, error) {
 		original, ok := owner.(*media.Original)
 		if !ok {
@@ -46,6 +44,15 @@ func (r *resources) startPrimaryMedia(store *archive.Store, extractor *media.Ext
 	}
 	r.primaryJobs = jobs
 	go jobs.run(ctx, store, r)
+}
+
+func (r *resources) newPrimaryMediaJobs(store *archive.Store, versions []archive.ExtractionVersion) (*primaryMediaJobs, context.Context) {
+	ctx, cancel := context.WithCancel(context.Background())
+	jobs := &primaryMediaJobs{store: store, versions: append([]archive.ExtractionVersion(nil), versions...), cancel: cancel, done: make(chan struct{})}
+	jobs.open = func(ctx context.Context, scope archive.ReadScope, id archive.MediaID) (primaryOriginal, error) {
+		return r.media.OpenOriginal(ctx, scope, id)
+	}
+	return jobs, ctx
 }
 func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *resources) {
 	defer close(j.done)
@@ -58,8 +65,19 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 		account, err := store.BoundAccount(ctx)
 		if err == nil && account != "" && !r.compute.Snapshot().Paused {
 			for _, version := range j.versions {
+				if j.ready != nil {
+					if err := j.ready(ctx); err != nil {
+						j.mu.Lock()
+						j.code = primaryExtractionCode(err)
+						j.mu.Unlock()
+						continue
+					}
+					j.mu.Lock()
+					j.code = ""
+					j.mu.Unlock()
+				}
 				work, err := j.store.ClaimExtraction(ctx, archive.ExtractionClaim{Account: account, Version: version, TTL: 2 * time.Minute})
-				if err != nil {
+				if err != nil || work.ID == "" {
 					continue
 				}
 				input, err := j.store.LoadExtractionInput(ctx, work.Lease)
@@ -73,7 +91,7 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 				}
 				err = j.extract(ctx, input)
 				j.mu.Lock()
-				j.code = media.ExtractionCode(err)
+				j.code = primaryExtractionCode(err)
 				j.mu.Unlock()
 				if errors.Is(err, media.ErrCleanup) {
 					return
@@ -82,11 +100,15 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 					code := "extraction_failed"
 					terminal := false
 					switch {
+					case errors.Is(err, transcription.ErrUnavailable), errors.Is(err, transcription.ErrUnauthorized), errors.Is(err, transcription.ErrModelChanged):
+						code = "model_unavailable"
+					case errors.Is(err, transcription.ErrInvalidRequest), errors.Is(err, transcription.ErrInvalidResponse):
+						code, terminal = "invalid_result", true
 					case errors.Is(err, media.ErrModelMissing):
 						code = "model_unavailable"
 					case media.ExtractionCode(err) == "waiting_for_disk_budget":
 						code = "waiting_for_disk_budget"
-					case errors.Is(err, media.ErrInvalidRequest), errors.Is(err, media.ErrCorrupt), errors.Is(err, media.ErrUnsupported):
+					case errors.Is(err, media.ErrInvalidRequest), errors.Is(err, media.ErrLimit), errors.Is(err, media.ErrCorrupt), errors.Is(err, media.ErrUnsupported):
 						code = "invalid_input"
 						terminal = true
 					case ctx.Err() != nil:
@@ -101,6 +123,21 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+func primaryExtractionCode(err error) string {
+	switch {
+	case errors.Is(err, transcription.ErrUnavailable):
+		return "transcription_unavailable"
+	case errors.Is(err, transcription.ErrUnauthorized):
+		return "transcription_unauthorized"
+	case errors.Is(err, transcription.ErrModelChanged):
+		return "transcription_model_changed"
+	case errors.Is(err, transcription.ErrInvalidRequest), errors.Is(err, transcription.ErrInvalidResponse):
+		return "transcription_invalid_response"
+	default:
+		return media.ExtractionCode(err)
 	}
 }
 func (j *primaryMediaJobs) extract(ctx context.Context, work archive.ExtractionWork) error {

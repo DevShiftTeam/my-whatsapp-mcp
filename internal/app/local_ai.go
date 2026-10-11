@@ -90,7 +90,7 @@ func (a *Application) SetLocalAI(ctx context.Context, update localui.LocalAIUpda
 		return localui.LocalAISnapshot{}, localui.ErrLocalAIUnavailable
 	}
 	a.queryCancel()
-	service, err := retrieval.NewService(retrieval.Config{Reader: a.store, Candidates: a.store, Index: a.store.ActiveIndex})
+	service, err := retrieval.NewService(retrieval.Config{Reader: a.resources.archiveReader(a.store), Candidates: a.store, Index: a.store.ActiveIndex})
 	if err == nil {
 		a.resources.retrieval.set(service)
 	}
@@ -192,7 +192,7 @@ func (a *Application) applyLocalAI(ctx context.Context, owner *localAIOwner) (ui
 		return record.Revision, false
 	}
 	r := a.resources
-	service, err := retrieval.NewService(retrieval.Config{Reader: a.store, Candidates: a.store, Index: a.store.ActiveIndex})
+	service, err := retrieval.NewService(retrieval.Config{Reader: a.resources.archiveReader(a.store), Candidates: a.store, Index: a.store.ActiveIndex})
 	if err != nil {
 		a.data.Unlock()
 		owner.set("unavailable", "local_ai_operation_failed")
@@ -319,6 +319,9 @@ func (a *Application) localAIMapping(kind, profile, language string) (*bundledAI
 	return bundle, mapping, alive && exists
 }
 func (a *Application) eligibleLocalAIChoice(choice localui.LocalAIChoice) bool {
+	if choice.SpeechLanguage != "" && a.localAI != nil && a.localAI.config.Transcription != nil {
+		return false
+	}
 	if choice.Mode != "preview" {
 		return false
 	} // compiled accepted allowlist is empty
@@ -362,6 +365,11 @@ func (a *Application) localAIOptions() []localui.LocalAIOption {
 			model = encoderModelProfile(item.profile)
 		}
 		option := localui.LocalAIOption{Kind: item.kind, ProfileID: selector, ModelProfileID: model, State: "unavailable", Code: "local_ai_bundle_unavailable"}
+		if item.kind == "speech" && a.localAI != nil && a.localAI.config.Transcription != nil {
+			option.Code = "external_transcription_configured"
+			options = append(options, option)
+			continue
+		}
 		if _, _, eligible := a.localAIMapping(item.kind, item.profile, item.language); eligible {
 			option.State = "preview"
 			option.Code = ""
