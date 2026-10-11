@@ -7,12 +7,17 @@ import (
 )
 
 const maxStatsBuckets = 90
+const maxStatsPage = 1000000
 
 // StatsRequest narrows the server-owned read scope. Until is exclusive.
 type StatsRequest struct {
 	From, Until time.Time
 	ChatID      ChatID
 	Kind        string
+	Breakdown   string
+	Page        int
+	PageSize    int
+	Sort        string
 }
 
 type StatsActivity struct {
@@ -38,6 +43,38 @@ type StatsMedia struct {
 	RetainedVoice    int64 `json:"retained_voice"`
 }
 
+type StatsInsights struct {
+	ActiveDays          int64  `json:"active_days"`
+	LongestStreakDays   int64  `json:"longest_streak_days"`
+	BusiestDate         string `json:"busiest_date"`
+	BusiestDateMessages int64  `json:"busiest_date_messages"`
+}
+
+type StatsRhythm struct {
+	Weekday  int   `json:"weekday"`
+	Hour     int   `json:"hour"`
+	Messages int64 `json:"messages"`
+}
+
+type StatsBreakdownRow struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Messages      int64  `json:"messages"`
+	Sent          int64  `json:"sent"`
+	Received      int64  `json:"received"`
+	Chats         int64  `json:"chats"`
+	LastMessageAt int64  `json:"last_message_at"`
+}
+
+type StatsBreakdown struct {
+	Dimension string              `json:"dimension"`
+	Page      int                 `json:"page"`
+	PageSize  int                 `json:"page_size"`
+	Total     int64               `json:"total"`
+	Sort      string              `json:"sort"`
+	Rows      []StatsBreakdownRow `json:"rows"`
+}
+
 // StatsSnapshot contains readable messages, never a claim of complete phone
 // history. Operational import and worker progress remain in StatusSnapshot.
 type StatsSnapshot struct {
@@ -57,6 +94,9 @@ type StatsSnapshot struct {
 	Kinds            []StatsKind     `json:"kinds"`
 	TopChats         []StatsChat     `json:"top_chats"`
 	Media            StatsMedia      `json:"media"`
+	Insights         StatsInsights   `json:"insights"`
+	Rhythm           []StatsRhythm   `json:"rhythm"`
+	Breakdown        StatsBreakdown  `json:"breakdown"`
 }
 
 func ValidStatsKind(kind string) bool {
@@ -71,7 +111,29 @@ func ValidStatsKind(kind string) bool {
 func ValidStatsRequest(request StatsRequest) bool {
 	return ValidStatsKind(request.Kind) && validReadTime(request.From) && validReadTime(request.Until) &&
 		(request.From.IsZero() || request.Until.IsZero() || request.From.Before(request.Until)) &&
-		(request.ChatID == "" || validReadID(string(request.ChatID)))
+		(request.ChatID == "" || validReadID(string(request.ChatID))) &&
+		(request.Breakdown == "" || request.Breakdown == "chats" || request.Breakdown == "people") &&
+		(request.Sort == "" || request.Sort == "messages" || request.Sort == "name" || request.Sort == "recent") &&
+		request.Page >= 0 && request.Page <= maxStatsPage &&
+		(request.PageSize == 0 || request.PageSize == 10 || request.PageSize == 25 || request.PageSize == 50)
+}
+
+// EmptyStatsSnapshot also supplies a usable owner dashboard before linking.
+// Callers validate the request before constructing the empty response.
+func EmptyStatsSnapshot(request StatsRequest, sampledAt time.Time) StatsSnapshot {
+	dimension, order, size := request.Breakdown, request.Sort, request.PageSize
+	if dimension == "" {
+		dimension = "chats"
+	}
+	if order == "" {
+		order = "messages"
+	}
+	if size == 0 {
+		size = 10
+	}
+	return StatsSnapshot{SampledAt: sampledAt.Unix(), ActivityInterval: "day", ActivityStep: 1,
+		Daily: []StatsActivity{}, Kinds: []StatsKind{}, TopChats: []StatsChat{}, Rhythm: []StatsRhythm{},
+		Breakdown: StatsBreakdown{Dimension: dimension, Page: 1, PageSize: size, Sort: order, Rows: []StatsBreakdownRow{}}}
 }
 
 const statsKindSQL = `CASE m.body_kind WHEN 'text' THEN 'text' WHEN 'image' THEN 'image' WHEN 'voice' THEN 'voice' ELSE 'other' END`
@@ -100,8 +162,8 @@ func (s *Store) StatsGuarded(ctx context.Context, scope ReadScope, request Stats
 		f.where += " AND " + statsKindSQL + "=?"
 		f.args = append(f.args, request.Kind)
 	}
-	page := StatsSnapshot{SampledAt: f.now.Unix(), ArchiveRevision: f.snapshot.ArchiveRevision,
-		Daily: []StatsActivity{}, Kinds: []StatsKind{}, TopChats: []StatsChat{}, ActivityInterval: "day", ActivityStep: 1}
+	page := EmptyStatsSnapshot(request, f.now)
+	page.ArchiveRevision = f.snapshot.ArchiveRevision
 	var first, last, expiry sql.NullInt64
 	err = f.tx.QueryRowContext(f.ctx, `SELECT COUNT(*),COUNT(DISTINCT m.chat_id),
 	 COALESCE(SUM(m.from_me),0),MIN(m.original_sent_at),MAX(m.original_sent_at),MIN(NULLIF(m.expires_at,0))
@@ -124,6 +186,15 @@ func (s *Store) StatsGuarded(ctx context.Context, scope ReadScope, request Stats
 			return StatsSnapshot{}, ResponseGuard{}, err
 		}
 		if err = f.statsMedia(&page); err != nil {
+			return StatsSnapshot{}, ResponseGuard{}, err
+		}
+		if err = f.statsInsights(&page); err != nil {
+			return StatsSnapshot{}, ResponseGuard{}, err
+		}
+		if err = f.statsRhythm(&page); err != nil {
+			return StatsSnapshot{}, ResponseGuard{}, err
+		}
+		if err = f.statsBreakdown(&page, request); err != nil {
 			return StatsSnapshot{}, ResponseGuard{}, err
 		}
 	}

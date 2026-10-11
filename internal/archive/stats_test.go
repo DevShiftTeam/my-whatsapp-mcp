@@ -46,6 +46,16 @@ func TestStatsFiltersReadableSourcesBeforeAggregating(t *testing.T) {
 	if len(page.TopChats) != 1 || page.TopChats[0].ChatID != chat || len(page.Kinds) != 4 || page.Media.VoiceMessages != 1 {
 		t.Fatalf("scoped aggregates: %#v", page)
 	}
+	if page.Breakdown.Total != 1 || len(page.Breakdown.Rows) != 1 || page.Breakdown.Rows[0].Messages != 4 || page.Breakdown.Rows[0].Sent != 1 || page.Insights.ActiveDays != 2 || page.Insights.LongestStreakDays != 1 {
+		t.Fatalf("invalid or denied source entered new aggregates: %#v", page)
+	}
+	var rhythmTotal int64
+	for _, slot := range page.Rhythm {
+		rhythmTotal += slot.Messages
+	}
+	if rhythmTotal != 4 {
+		t.Fatalf("invalid or denied source entered rhythm: %#v", page.Rhythm)
+	}
 	var timelineTotal int64
 	for _, day := range page.Daily {
 		timelineTotal += day.Messages

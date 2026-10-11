@@ -59,6 +59,14 @@
   let statsController = null;
   let statsReloadQueued = false;
   let statsRenderKey = "";
+  let statsDimension = "chats";
+  let statsPage = 1;
+  let statsPageSize = 10;
+  let statsSort = "messages";
+  let statsChartMode = "bars";
+  let statsChartSelection = null;
+  let statsRhythmSelection = null;
+  let statsPageFocus = null;
   let qrURL = "";
   const remoteAdmin = document.documentElement.dataset.remoteAdmin === "true";
   const capabilityKey = "wa_archive_owner_capability";
@@ -591,7 +599,7 @@
 
   function statsDate(value, options = {dateStyle:"medium", timeStyle:"short"}, allowEpoch = false) {
     const seconds = Number(value);
-    if (!Number.isFinite(seconds) || seconds < 0 || seconds === 0 && !allowEpoch) return "No messages yet";
+    if (!Number.isSafeInteger(seconds) || seconds < -62135596800 || seconds > 253402300799 || seconds === 0 && !allowEpoch) return "No messages yet";
     const date = new Date(seconds * 1000);
     return Number.isNaN(date.getTime()) ? "Not observed" : new Intl.DateTimeFormat(undefined, options).format(date);
   }
@@ -603,12 +611,24 @@
   function clearStatsData() {
     statsSnapshot = null;
     statsRenderKey = "";
-    for (const id of ["stats-message-count", "stats-chat-count", "stats-sent-count", "stats-received-count", "stats-transcribed", "stats-latest-message"]) $(id).textContent = "—";
+    for (const id of ["stats-message-count", "stats-chat-count", "stats-sent-count", "stats-received-count", "stats-transcribed", "stats-latest-message", "stats-active-days", "stats-streak", "stats-busiest-day", "stats-daily-average"]) $(id).textContent = "—";
     $("stats-range-description").textContent = "Only readable messages in your saved archive are counted.";
     $("stats-activity-total").textContent = "";
     $("stats-chats-total").textContent = "";
     $("stats-chart").replaceChildren();
-    $("stats-top-chats").replaceChildren();
+    $("stats-aggregate-rows").replaceChildren();
+    $("stats-aggregate-empty").hidden = true;
+    $("stats-page-description").textContent = "Waiting for archive stats.";
+    $("stats-page-prev").disabled = true;
+    $("stats-page-next").disabled = true;
+    $("stats-heatmap").replaceChildren();
+    $("stats-rhythm-rows").replaceChildren();
+    $("stats-rhythm-table").hidden = true;
+    $("stats-chart-detail").textContent = "Point to a period, or use the arrow keys to explore.";
+    $("stats-rhythm-detail").textContent = "Choose an hour to see its message count.";
+    $("stats-busiest-detail").textContent = "Most messages on one UTC date";
+    statsChartSelection = null;
+    statsRhythmSelection = null;
     $("stats-kinds").replaceChildren();
     $("stats-kind-bar").replaceChildren();
     $("stats-activity-rows").replaceChildren();
@@ -628,6 +648,15 @@
   function resetStats() {
     invalidateStats(true);
     $("stats-filters").reset();
+    statsDimension = "chats";
+    statsPage = 1;
+    statsPageSize = 10;
+    statsSort = "messages";
+    statsChartMode = "bars";
+    statsPageFocus = null;
+    $("stats-breakdown-sort").value = statsSort;
+    $("stats-breakdown-size").value = String(statsPageSize);
+    renderStatsControls();
     $("stats-chat").replaceChildren(new Option("All archived chats", ""));
     $("stats-custom-dates").hidden = true;
     $("stats-data").setAttribute("aria-busy", "false");
@@ -678,7 +707,7 @@
   }
 
   function statsFilter() {
-    const request = {};
+    const request = {breakdown:statsDimension, page:statsPage, page_size:statsPageSize, sort:statsSort};
     const range = $("stats-range").value;
     if (range === "custom") {
       if (!$("stats-from").value && !$("stats-until").value) throw new Error("Choose at least one custom date.");
@@ -704,10 +733,70 @@
   }
 
   function changeStatsFilters() {
+    statsPage = 1;
     $("stats-custom-dates").hidden = $("stats-range").value !== "custom";
     invalidateStats(true);
     $("stats-updated").textContent = "Updating view";
     refreshStats();
+  }
+
+  function renderStatsControls() {
+    for (const dimension of ["people", "chats"]) $("stats-breakdown-" + dimension).setAttribute("aria-pressed", String(statsDimension === dimension));
+    for (const mode of ["bars", "line"]) $("stats-chart-" + mode).setAttribute("aria-pressed", String(statsChartMode === mode));
+    $("stats-aggregate-name-heading").textContent = statsDimension === "people" ? "Person" : "Chat";
+    $("stats-aggregate-chats-heading").hidden = statsDimension !== "people";
+    $("stats-breakdown-description").textContent = statsDimension === "people" ? "People who sent messages in your saved history, including you. This is not your phone's contact list." : "Message counts across your archived conversations.";
+  }
+
+  function changeStatsBreakdown(options = {}) {
+    statsPageFocus = document.activeElement === $("stats-page-prev") ? "stats-page-prev" : document.activeElement === $("stats-page-next") ? "stats-page-next" : null;
+    if (options.dimension !== undefined && ["people", "chats"].includes(options.dimension)) statsDimension = options.dimension;
+    if (options.sort !== undefined && ["messages", "name", "recent"].includes(options.sort)) statsSort = options.sort;
+    if (options.pageSize !== undefined && [10, 25, 50].includes(Number(options.pageSize))) statsPageSize = Number(options.pageSize);
+    statsPage = Number.isSafeInteger(options.page) && options.page > 0 ? options.page : 1;
+    $("stats-breakdown-sort").value = statsSort;
+    $("stats-breakdown-size").value = String(statsPageSize);
+    renderStatsControls();
+    invalidateStats();
+    // The filters still match. Keep the chart in place while clearing the table
+    // so an old page cannot appear under its new page or dimension label.
+    $("stats-aggregate-rows").replaceChildren();
+    $("stats-aggregate-empty").hidden = true;
+    $("stats-page-description").textContent = "Loading message counts…";
+    $("stats-chats-total").textContent = "";
+    $("stats-page-prev").disabled = true;
+    $("stats-page-next").disabled = true;
+    statsRenderKey = "";
+    refreshStats();
+  }
+
+  function setStatsChartMode(mode) {
+    if (!["bars", "line"].includes(mode) || mode === statsChartMode) return;
+    statsChartMode = mode;
+    renderStatsControls();
+    if (statsSnapshot) renderStatsChart(statsSnapshot);
+  }
+
+  function restoreStatsPageFocus() {
+    if (!statsPageFocus) return;
+    const previous = $(statsPageFocus);
+    const active = document.activeElement;
+    if (!active || active === document.body || active === previous) {
+      const alternate = $(statsPageFocus === "stats-page-next" ? "stats-page-prev" : "stats-page-next");
+      (!previous.disabled ? previous : !alternate.disabled ? alternate : $("stats-breakdown-size")).focus({preventScroll:true});
+    }
+    statsPageFocus = null;
+  }
+
+  function validStatsSnapshot(snapshot) {
+    const count = value => Number.isSafeInteger(value) && value >= 0;
+    const timestamp = value => Number.isSafeInteger(value) && value >= -62135596800 && value <= 253402300799;
+    if (!snapshot || ![snapshot.messages, snapshot.chats, snapshot.sent, snapshot.received].every(count) || snapshot.sent + snapshot.received !== snapshot.messages || !Array.isArray(snapshot.daily) || snapshot.daily.length > 90 || !snapshot.daily.every(row => count(row.messages) && /^\d{4}-\d{2}-\d{2}$/.test(row.date)) || !Array.isArray(snapshot.top_chats) || !Array.isArray(snapshot.kinds)) return false;
+    if (snapshot.insights && (![snapshot.insights.active_days, snapshot.insights.longest_streak_days, snapshot.insights.busiest_date_messages].every(count) || snapshot.insights.active_days > snapshot.messages || snapshot.insights.longest_streak_days > snapshot.insights.active_days || snapshot.insights.busiest_date_messages > snapshot.messages || snapshot.insights.busiest_date && !/^\d{4}-\d{2}-\d{2}$/.test(snapshot.insights.busiest_date))) return false;
+    if (snapshot.rhythm && (!Array.isArray(snapshot.rhythm) || snapshot.rhythm.length > 168 || !snapshot.rhythm.every(row => Number.isInteger(row.weekday) && row.weekday >= 0 && row.weekday <= 6 && Number.isInteger(row.hour) && row.hour >= 0 && row.hour <= 23 && count(row.messages) && row.messages <= snapshot.messages))) return false;
+    if (Array.isArray(snapshot.rhythm) && new Set(snapshot.rhythm.map(row => row.weekday * 24 + row.hour)).size !== snapshot.rhythm.length) return false;
+    const breakdown = snapshot.breakdown;
+    return !breakdown || breakdown.dimension === statsDimension && breakdown.sort === statsSort && breakdown.page_size === statsPageSize && Number.isSafeInteger(breakdown.page) && breakdown.page > 0 && breakdown.page <= statsPage && count(breakdown.total) && Array.isArray(breakdown.rows) && breakdown.rows.length <= breakdown.page_size && breakdown.rows.every(row => typeof row.id === "string" && typeof row.name === "string" && [row.messages, row.sent, row.received, row.chats].every(count) && timestamp(row.last_message_at) && row.sent + row.received === row.messages);
   }
 
   async function refreshStats() {
@@ -738,7 +827,7 @@
     try {
       const snapshot = await api("/api/stats", "POST", filter, {signal:controller.signal});
       if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden || statsUnavailable()) return;
-      if (![snapshot.messages, snapshot.chats, snapshot.sent, snapshot.received].every(value => Number.isSafeInteger(value) && value >= 0) || !Array.isArray(snapshot.daily) || !Array.isArray(snapshot.top_chats) || !Array.isArray(snapshot.kinds)) throw new Error("Stats could not be read. Use Refresh stats to try again.");
+      if (!validStatsSnapshot(snapshot)) throw new Error("Stats could not be read. Use Refresh stats to try again.");
       renderStats(snapshot);
       $("stats-updated").textContent = "Updated " + statsDate(snapshot.sampled_at, {hour:"numeric", minute:"2-digit", second:"2-digit"});
       document.querySelector(".stats-update").dataset.state = "ready";
@@ -756,6 +845,7 @@
         if (epoch === authEpoch) {
           $("stats-data").setAttribute("aria-busy", "false");
           $("stats-refresh").disabled = false;
+          if (version === statsVersion) restoreStatsPageFocus();
         }
       }
       if (statsReloadQueued && !authExpired && activeView === "stats" && !document.hidden) {
@@ -797,8 +887,14 @@
     for (const [kind, progress] of [["keyword", status.Keyword], ["media", status.Media], ["semantic", status.Semantic]]) renderStatsProgress(kind, progress);
   }
 
+  function statsUTCDate(value, options = {month:"short", day:"numeric", year:"numeric"}) {
+    const date = new Date(String(value) + "T00:00:00Z");
+    return Number.isNaN(date.getTime()) ? "Unknown date" : new Intl.DateTimeFormat(undefined, {...options, timeZone:"UTC"}).format(date);
+  }
+
   function renderStatsChart(snapshot) {
     const target = $("stats-chart");
+    const focusedIndex = document.activeElement?.dataset?.periodIndex;
     target.replaceChildren();
     const rows = (snapshot.daily || []).slice(0, 90);
     const table = $("stats-activity-rows");
@@ -809,6 +905,7 @@
       empty.textContent = setup?.configured ? "No readable messages match these filters. Try a wider date range or another chat." : "Set up your archive to see messages and activity here.";
       target.append(empty);
       $("stats-activity-table").hidden = true;
+      $("stats-chart-detail").textContent = "No activity in this view.";
       return;
     }
     $("stats-activity-table").hidden = false;
@@ -820,14 +917,14 @@
       return node;
     }
     const width = Math.max(260, target.clientWidth);
-    const height = width < 480 ? 205 : 238;
-    const left = 43, right = 9, top = 14, bottom = 34;
+    const height = width < 480 ? 240 : 284;
+    const left = 43, right = 9, top = 15, bottom = 36;
     const plotWidth = width - left - right;
     const plotHeight = height - top - bottom;
     const maximum = Math.max(1, ...rows.map(row => statsCount(row.messages)));
     const magnitude = 10 ** Math.floor(Math.log10(maximum));
     const axisMaximum = Math.max(4, Math.ceil(maximum / magnitude) * magnitude);
-    const chart = svgNode("svg", {viewBox:"0 0 " + width + " " + height, role:"img", "aria-label":"Message activity: " + statsNumber(snapshot.messages) + " messages across " + rows.length + " UTC periods. An accessible table follows."});
+    const chart = svgNode("svg", {viewBox:"0 0 " + width + " " + height, role:"group", "aria-label":"Message activity: " + statsNumber(snapshot.messages) + " messages across " + rows.length + " UTC periods. Use left and right arrow keys to explore; an accessible table follows."});
     for (let tick = 0; tick <= 4; tick++) {
       const y = top + plotHeight * tick / 4;
       chart.append(svgNode("line", {x1:left, y1:y, x2:width - right, y2:y, class:"chart-grid"}));
@@ -835,25 +932,57 @@
       chart.append(svgNode("text", {x:left - 8, y:y + 4, "text-anchor":"end", class:"chart-label"}, new Intl.NumberFormat(undefined, {notation:axisMaximum >= 10000 ? "compact" : "standard", maximumFractionDigits:1}).format(value)));
     }
     const stride = plotWidth / rows.length;
-    const gap = Math.max(1, Math.min(5, stride * .24));
+    const points = rows.map((row,index) => ({x:left + (index + .5) * stride, y:top + plotHeight - statsCount(row.messages) / axisMaximum * plotHeight}));
+    if (statsChartMode === "line") {
+      const line = points.map((point,index) => (index ? "L" : "M") + point.x + " " + point.y).join(" ");
+      chart.append(svgNode("path", {d:line + " L" + points[points.length - 1].x + " " + (top + plotHeight) + " L" + points[0].x + " " + (top + plotHeight) + " Z", class:"chart-area", "aria-hidden":"true"}));
+      chart.append(svgNode("path", {d:line, class:"chart-line", "aria-hidden":"true"}));
+    }
+    const gap = Math.max(1, Math.min(7, stride * .28));
     const labelCount = width < 480 ? 3 : 5;
     const labelIndices = new Set([0, rows.length - 1]);
     for (let index = 1; index < labelCount - 1; index++) labelIndices.add(Math.round(index * (rows.length - 1) / (labelCount - 1)));
+    const periods = [];
+    const selected = Math.max(0, Math.min(rows.length - 1, statsChartSelection ?? 0));
+    function periodDescription(row) {
+      const interval = ["day", "week", "month", "year"].includes(snapshot.activity_interval) ? snapshot.activity_interval : "day";
+      const step = statsCount(snapshot.activity_step) || 1;
+      const grouped = interval !== "day" || step > 1;
+      return (grouped ? "Period starting " : "") + statsUTCDate(row.date) + " UTC" + (grouped ? " (" + step + " " + interval + (step === 1 ? "" : "s") + ")" : "") + ": " + statsNumber(row.messages) + " messages";
+    }
+    function inspect(index, select = true) {
+      if (select) {
+        statsChartSelection = index;
+        periods.forEach((period,offset) => period.setAttribute("tabindex", offset === index ? "0" : "-1"));
+      }
+      $("stats-chart-detail").textContent = periodDescription(rows[index]);
+    }
     rows.forEach((row, index) => {
       const count = statsCount(row.messages);
-      const barHeight = count / axisMaximum * plotHeight;
-      const barWidth = Math.max(1, Math.min(48, stride - gap));
-      const x = left + (index + .5) * stride - barWidth / 2;
-      const rect = svgNode("rect", {x, y:top + plotHeight - barHeight, width:barWidth, height:barHeight, rx:Math.min(2, stride / 4), class:"chart-bar"});
-      rect.append(svgNode("title", {}, String(row.date) + ": " + statsNumber(count) + " messages"));
-      chart.append(rect);
+      const point = points[index];
+      const period = svgNode("g", {class:"chart-period", role:"button", tabindex:index === selected ? "0" : "-1", "aria-label":periodDescription(row)});
+      period.dataset.periodIndex = String(index);
+      if (statsChartMode === "bars") {
+        const barHeight = count / axisMaximum * plotHeight;
+        const barWidth = Math.max(1, Math.min(58, stride - gap));
+        period.append(svgNode("rect", {x:point.x - barWidth / 2, y:top + plotHeight - barHeight, width:barWidth, height:barHeight, rx:Math.min(3, stride / 4), class:"chart-bar", "aria-hidden":"true"}));
+      } else period.append(svgNode("circle", {cx:point.x, cy:point.y, r:rows.length < 35 ? 3.5 : 2, class:"chart-point", "aria-hidden":"true"}));
+      period.append(svgNode("rect", {x:left + index * stride, y:top, width:stride, height:plotHeight, rx:3, class:"chart-hit", "aria-hidden":"true"}));
+      period.addEventListener("pointerenter", () => inspect(index, false));
+      period.addEventListener("focus", () => inspect(index));
+      period.addEventListener("click", () => inspect(index));
+      period.addEventListener("keydown", event => {
+        const next = event.key === "ArrowRight" ? Math.min(rows.length - 1, index + 1) : event.key === "ArrowLeft" ? Math.max(0, index - 1) : event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1 : null;
+        if (next !== null) { event.preventDefault(); inspect(next); periods[next].focus({preventScroll:true}); }
+        else if (["Enter", " "].includes(event.key)) { event.preventDefault(); inspect(index); }
+      });
+      periods.push(period);
+      chart.append(period);
       if (labelIndices.has(index)) {
-        const date = new Date(String(row.date) + "T00:00:00Z");
-        const options = snapshot.activity_interval === "year" ? {year:"numeric", timeZone:"UTC"} : snapshot.activity_interval === "month" ? {month:"short", year:"2-digit", timeZone:"UTC"} : {month:"short", day:"numeric", timeZone:"UTC"};
-        const label = Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, options).format(date);
+        const options = snapshot.activity_interval === "year" ? {year:"numeric"} : snapshot.activity_interval === "month" ? {month:"short", year:"2-digit"} : {month:"short", day:"numeric"};
         const anchor = rows.length === 1 ? "middle" : index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle";
-        const textX = rows.length === 1 ? left + stride / 2 : index === 0 ? left : index === rows.length - 1 ? width - right : left + (index + .5) * stride;
-        chart.append(svgNode("text", {x:textX, y:height - 9, "text-anchor":anchor, class:"chart-label"}, label));
+        const textX = rows.length === 1 ? point.x : index === 0 ? left : index === rows.length - 1 ? width - right : point.x;
+        chart.append(svgNode("text", {x:textX, y:height - 9, "text-anchor":anchor, class:"chart-label"}, statsUTCDate(row.date, options)));
       }
       const tableRow = document.createElement("tr");
       for (const text of [row.date, statsNumber(count)]) {
@@ -864,11 +993,151 @@
       table.append(tableRow);
     });
     target.append(chart);
+    if (statsChartSelection !== null) inspect(selected);
+    if (focusedIndex !== undefined && periods[Number(focusedIndex)]) periods[Number(focusedIndex)].focus({preventScroll:true});
+  }
+
+  function renderStatsRhythm(snapshot) {
+    const target = $("stats-heatmap");
+    const focused = document.activeElement;
+    const restoreFocus = focused?.dataset?.weekday !== undefined && focused?.dataset?.hour !== undefined;
+    const focusKey = restoreFocus ? Number(focused.dataset.weekday) * 24 + Number(focused.dataset.hour) : null;
+    target.replaceChildren();
+    $("stats-rhythm-rows").replaceChildren();
+    $("stats-rhythm-table").hidden = !Array.isArray(snapshot.rhythm);
+    if (!Array.isArray(snapshot.rhythm)) {
+      const empty = document.createElement("p");
+      empty.className = "stats-empty";
+      empty.textContent = "Messaging rhythm is not available in this archive view.";
+      target.append(empty);
+      $("stats-rhythm-detail").textContent = "Hourly message counts are unavailable.";
+      return;
+    }
+    const counts = new Map(snapshot.rhythm.map(row => [row.weekday * 24 + row.hour, statsCount(row.messages)]));
+    const maximum = Math.max(1, ...counts.values());
+    const weekdays = Array.from({length:7},(_,index) => new Intl.DateTimeFormat(undefined,{weekday:"long",timeZone:"UTC"}).format(new Date(Date.UTC(2026,9,11 + index))));
+    const blank = document.createElement("span");
+    blank.setAttribute("aria-hidden", "true");
+    target.append(blank);
+    for (let hour = 0; hour < 24; hour++) {
+      const label = document.createElement("span");
+      label.className = "stats-heatmap-hour";
+      label.textContent = hour % 3 === 0 ? String(hour).padStart(2,"0") : "";
+      label.setAttribute("aria-hidden", "true");
+      target.append(label);
+    }
+    const cells = [];
+    const selected = statsRhythmSelection ?? 0;
+    function inspect(index, select = true) {
+      if (select) {
+        statsRhythmSelection = index;
+        cells.forEach((cell,offset) => cell.setAttribute("tabindex", offset === index ? "0" : "-1"));
+      }
+      const day = Math.floor(index / 24), hour = index % 24;
+      $("stats-rhythm-detail").textContent = weekdays[day] + ", " + String(hour).padStart(2,"0") + ":00–" + String(hour).padStart(2,"0") + ":59 UTC: " + statsNumber(counts.get(index) || 0) + " messages";
+    }
+    for (let day = 0; day < 7; day++) {
+      const label = document.createElement("span");
+      label.className = "stats-heatmap-day";
+      label.textContent = new Intl.DateTimeFormat(undefined,{weekday:"short",timeZone:"UTC"}).format(new Date(Date.UTC(2026,9,11 + day)));
+      label.setAttribute("aria-hidden", "true");
+      target.append(label);
+      let total = 0;
+      for (let hour = 0; hour < 24; hour++) {
+        const index = day * 24 + hour, count = counts.get(index) || 0;
+        total += count;
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "stats-heatmap-cell";
+        cell.dataset.weekday = String(day);
+        cell.dataset.hour = String(hour);
+        cell.dataset.level = count ? String(Math.max(1, Math.ceil(count / maximum * 4))) : "0";
+        const description = weekdays[day] + ", " + String(hour).padStart(2,"0") + ":00–" + String(hour).padStart(2,"0") + ":59 UTC: " + statsNumber(count) + " messages";
+        cell.setAttribute("aria-label", description);
+        cell.setAttribute("title", description);
+        cell.setAttribute("tabindex", index === selected ? "0" : "-1");
+        cell.addEventListener("pointerenter", () => inspect(index, false));
+        cell.addEventListener("focus", () => inspect(index));
+        cell.addEventListener("click", () => inspect(index));
+        cell.addEventListener("keydown", event => {
+          const next = event.key === "ArrowRight" ? day * 24 + Math.min(23,hour + 1) : event.key === "ArrowLeft" ? day * 24 + Math.max(0,hour - 1) : event.key === "ArrowDown" ? Math.min(6,day + 1) * 24 + hour : event.key === "ArrowUp" ? Math.max(0,day - 1) * 24 + hour : event.key === "Home" ? day * 24 : event.key === "End" ? day * 24 + 23 : null;
+          if (next !== null) { event.preventDefault(); inspect(next); cells[next].focus({preventScroll:true}); cells[next].scrollIntoView?.({block:"nearest",inline:"nearest"}); }
+        });
+        cells.push(cell);
+        target.append(cell);
+      }
+      const row = document.createElement("tr");
+      const name = document.createElement("th"); name.scope = "row"; name.textContent = weekdays[day];
+      const count = document.createElement("td"); count.textContent = statsNumber(total);
+      row.append(name,count);
+      $("stats-rhythm-rows").append(row);
+    }
+    if (statsRhythmSelection !== null) inspect(selected);
+    if (restoreFocus && cells[focusKey]) cells[focusKey].focus({preventScroll:true});
+  }
+
+  function renderStatsInsights(snapshot) {
+    const insights = snapshot.insights;
+    if (!insights) {
+      for (const id of ["stats-active-days", "stats-streak", "stats-busiest-day", "stats-daily-average"]) $(id).textContent = "—";
+      $("stats-busiest-detail").textContent = "Daily highlights are unavailable.";
+      return;
+    }
+    const activeDays = statsCount(insights.active_days);
+    const streak = statsCount(insights.longest_streak_days);
+    $("stats-active-days").textContent = statsNumber(activeDays);
+    $("stats-streak").textContent = statsNumber(streak) + (streak === 1 ? " day" : " days");
+    $("stats-busiest-day").textContent = insights.busiest_date ? statsUTCDate(insights.busiest_date) : "No active days";
+    $("stats-busiest-detail").textContent = insights.busiest_date ? statsNumber(insights.busiest_date_messages) + " messages on this date" : "No saved messages in this view";
+    $("stats-daily-average").textContent = new Intl.NumberFormat(undefined,{maximumFractionDigits:1}).format(activeDays ? statsCount(snapshot.messages) / activeDays : 0);
+  }
+
+  function renderStatsBreakdown(snapshot) {
+    const table = $("stats-aggregate-rows");
+    table.replaceChildren();
+    const breakdown = snapshot.breakdown;
+    $("stats-aggregate-empty").hidden = true;
+    if (!breakdown) {
+      $("stats-chats-total").textContent = "";
+      $("stats-page-description").textContent = "Message breakdown is not available.";
+      $("stats-page-prev").disabled = true;
+      $("stats-page-next").disabled = true;
+      return;
+    }
+    statsPage = breakdown.page;
+    renderStatsControls();
+    const rows = breakdown.rows;
+    for (const source of rows) {
+      const row = document.createElement("tr");
+      row.setAttribute("role", "row");
+      const name = document.createElement("td");
+      name.setAttribute("role", "cell");
+      name.dataset.label = statsDimension === "people" ? "Person" : "Chat";
+      name.append(bdi(source.name || (statsDimension === "people" ? "Unnamed sender" : "Unnamed chat")));
+      row.append(name);
+      for (const [label,value] of [["Messages",source.messages],["Sent",source.sent],["Received",source.received],...(statsDimension === "people" ? [["Chats",source.chats]] : []),["Last active",statsDate(source.last_message_at,undefined,source.messages > 0)]]) {
+        const cell = document.createElement("td");
+        cell.setAttribute("role", "cell");
+        cell.dataset.label = label;
+        cell.textContent = typeof value === "number" ? statsNumber(value) : value;
+        row.append(cell);
+      }
+      table.append(row);
+    }
+    const total = statsCount(breakdown.total);
+    $("stats-chats-total").textContent = statsNumber(total) + (statsDimension === "people" ? " people" : " chats");
+    const start = rows.length ? (statsPage - 1) * statsPageSize + 1 : 0;
+    const end = rows.length ? start + rows.length - 1 : 0;
+    $("stats-page-description").textContent = "Showing " + statsNumber(start) + "–" + statsNumber(end) + " of " + statsNumber(total);
+    $("stats-page-prev").disabled = statsPage <= 1;
+    $("stats-page-next").disabled = statsPage * statsPageSize >= total;
+    $("stats-aggregate-empty").hidden = rows.length > 0;
+    $("stats-aggregate-empty").textContent = statsDimension === "people" ? "No people have readable messages matching these filters." : "No conversations match these filters.";
   }
 
   function renderStats(snapshot) {
     statsSnapshot = snapshot;
-    const key = JSON.stringify({...snapshot, sampled_at:0});
+    const key = JSON.stringify({...snapshot, sampled_at:0, archive_revision:0});
     if (key === statsRenderKey) return;
     statsRenderKey = key;
     $("stats-message-count").textContent = statsNumber(snapshot.messages);
@@ -886,33 +1155,9 @@
     $("stats-activity-total").textContent = statsNumber(snapshot.messages) + " messages";
     $("stats-chats-total").textContent = statsNumber(snapshot.chats) + " chats";
     renderStatsChart(snapshot);
-    const top = $("stats-top-chats");
-    top.replaceChildren();
-    const topChats = (snapshot.top_chats || []).slice(0, 8);
-    const maxChat = Math.max(1, ...topChats.map(chat => statsCount(chat.messages)));
-    for (const chat of topChats) {
-      const item = document.createElement("li");
-      const row = document.createElement("div");
-      row.className = "stats-chat-row";
-      row.append(bdi(chat.name || "Unnamed chat", "stats-chat-name"));
-      const count = document.createElement("strong");
-      count.textContent = statsNumber(chat.messages);
-      row.append(count);
-      const track = document.createElement("div");
-      track.className = "stats-chat-track";
-      track.setAttribute("aria-hidden", "true");
-      const fill = document.createElement("span");
-      fill.style.width = statsCount(chat.messages) / maxChat * 100 + "%";
-      track.append(fill);
-      item.append(row, track);
-      top.append(item);
-    }
-    if (!topChats.length) {
-      const empty = document.createElement("li");
-      empty.className = "stats-empty";
-      empty.textContent = "No chats match these filters.";
-      top.append(empty);
-    }
+    renderStatsInsights(snapshot);
+    renderStatsRhythm(snapshot);
+    renderStatsBreakdown(snapshot);
     const kindLabels = {text:"Text", image:"Images", voice:"Voice notes", other:"Other"};
     const kindCounts = new Map((snapshot.kinds || []).map(kind => [kind.kind, statsCount(kind.messages)]));
     const kinds = $("stats-kinds"), composition = $("stats-kind-bar");
@@ -2089,6 +2334,12 @@
   $("stats-filters").addEventListener("submit", event => event.preventDefault());
   $("stats-filters").addEventListener("change", changeStatsFilters);
   $("stats-refresh").addEventListener("click", refreshStats);
+  for (const dimension of ["people", "chats"]) $("stats-breakdown-" + dimension).addEventListener("click", () => changeStatsBreakdown({dimension}));
+  $("stats-breakdown-sort").addEventListener("change", () => changeStatsBreakdown({sort:$("stats-breakdown-sort").value}));
+  $("stats-breakdown-size").addEventListener("change", () => changeStatsBreakdown({pageSize:Number($("stats-breakdown-size").value)}));
+  $("stats-page-prev").addEventListener("click", () => { if (!$("stats-page-prev").disabled) changeStatsBreakdown({page:statsPage - 1}); });
+  $("stats-page-next").addEventListener("click", () => { if (!$("stats-page-next").disabled) changeStatsBreakdown({page:statsPage + 1}); });
+  for (const mode of ["bars", "line"]) $("stats-chart-" + mode).addEventListener("click", () => setStatsChartMode(mode));
   $("stats-models-open").addEventListener("click", () => $("models-open").click());
   $("stats-connection-action").addEventListener("click", async () => {
     if (authExpired) return;

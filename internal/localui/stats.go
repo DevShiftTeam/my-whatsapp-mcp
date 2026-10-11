@@ -15,10 +15,14 @@ type StatsApplication interface {
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	var request struct {
-		From   *int64         `json:"from"`
-		Until  *int64         `json:"until"`
-		ChatID archive.ChatID `json:"chat_id"`
-		Kind   string         `json:"kind"`
+		From      *int64         `json:"from"`
+		Until     *int64         `json:"until"`
+		ChatID    archive.ChatID `json:"chat_id"`
+		Kind      string         `json:"kind"`
+		Breakdown string         `json:"breakdown"`
+		Page      int            `json:"page"`
+		PageSize  int            `json:"page_size"`
+		Sort      string         `json:"sort"`
 	}
 	if !decode(w, r, &request) {
 		return
@@ -28,7 +32,19 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 	validTime := func(value *int64) bool { return value == nil || (*value > -62135596800 && *value <= 253402300799) }
 	if !validTime(request.From) || !validTime(request.Until) ||
 		(request.From != nil && request.Until != nil && *request.From >= *request.Until) ||
-		(request.ChatID != "" && !validOpaque(string(request.ChatID))) || !archive.ValidStatsKind(request.Kind) {
+		(request.ChatID != "" && !validOpaque(string(request.ChatID))) {
+		fail(w, http.StatusBadRequest, "invalid_query")
+		return
+	}
+	query := archive.StatsRequest{ChatID: request.ChatID, Kind: request.Kind, Breakdown: request.Breakdown,
+		Page: request.Page, PageSize: request.PageSize, Sort: request.Sort}
+	if request.From != nil {
+		query.From = time.Unix(*request.From, 0).UTC()
+	}
+	if request.Until != nil {
+		query.Until = time.Unix(*request.Until, 0).UTC()
+	}
+	if !archive.ValidStatsRequest(query) {
 		fail(w, http.StatusBadRequest, "invalid_query")
 		return
 	}
@@ -36,13 +52,6 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 	if !ok {
 		fail(w, http.StatusNotFound, "route_unavailable")
 		return
-	}
-	query := archive.StatsRequest{ChatID: request.ChatID, Kind: request.Kind}
-	if request.From != nil {
-		query.From = time.Unix(*request.From, 0).UTC()
-	}
-	if request.Until != nil {
-		query.Until = time.Unix(*request.Until, 0).UTC()
 	}
 	value, err := app.Stats(ctx, query)
 	result(w, value, err)

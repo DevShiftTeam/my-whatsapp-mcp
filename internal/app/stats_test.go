@@ -18,11 +18,15 @@ func TestOwnerStatsBeforeLinkingDoesNotExpireSession(t *testing.T) {
 	assertEmpty := func() {
 		t.Helper()
 		page, err := a.Stats(ctx, archive.StatsRequest{})
-		if err != nil || page.Messages != 0 || page.Chats != 0 || page.SampledAt == 0 || page.Daily == nil || page.TopChats == nil {
+		if err != nil || page.Messages != 0 || page.Chats != 0 || page.SampledAt == 0 || page.Daily == nil || page.TopChats == nil || page.Rhythm == nil || page.Breakdown.Rows == nil || page.Breakdown.Page != 1 || page.Breakdown.PageSize != 10 || page.Breakdown.Sort != "messages" || page.Breakdown.Dimension != "chats" {
 			t.Fatalf("first-run stats: %#v, %v", page, err)
 		}
 	}
 	assertEmpty()
+	custom, err := a.Stats(ctx, archive.StatsRequest{Breakdown: "people", Page: 1000000, PageSize: 50, Sort: "recent"})
+	if err != nil || custom.Breakdown.Dimension != "people" || custom.Breakdown.Page != 1 || custom.Breakdown.PageSize != 50 || custom.Breakdown.Sort != "recent" || custom.Breakdown.Rows == nil {
+		t.Fatalf("unlinked breakdown defaults: %#v, %v", custom.Breakdown, err)
+	}
 	if _, err = a.Stats(ctx, archive.StatsRequest{Kind: "video"}); !errors.Is(err, archive.ErrInvalidQuery) {
 		t.Fatalf("unlinked invalid query: %v", err)
 	}

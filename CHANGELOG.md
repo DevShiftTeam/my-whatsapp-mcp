@@ -4,6 +4,7 @@
 
 ### Added
 
+- A richer Stats view with UTC weekly rhythm and saved-history highlights, interactive activity charts, and sortable, paginated conversation and sender breakdowns under the same archive filters.
 - A refreshed GitHub overview with product illustrations, current feature limits, and linked guides; a prioritized roadmap for easier semantic setup, document text extraction, local message presets, and an exploratory official Business Platform template adapter.
 - Document retention up to 8 MiB per file, scoped `search_attachments` and `get_attachment` read tools, and two-minute original-download URLs that recheck credential and source authority. Search covers metadata and nearby permitted messages, without extracting PDF body text.
 - An owner permissions editor for existing AI connections, with read-only, selected-chat, and all-permitted-chat sending modes, separate permission revisions for stale-edit detection, and no change to existing tokens, read scopes, or expiry.

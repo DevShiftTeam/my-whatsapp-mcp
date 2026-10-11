@@ -23,8 +23,7 @@ func (a *Application) Stats(ctx context.Context, request archive.StatsRequest) (
 	scope, err := a.scope(ctx)
 	if errors.Is(err, archive.ErrUnauthorized) {
 		// An owner can view an empty dashboard before linking an account.
-		return archive.StatsSnapshot{SampledAt: time.Now().UTC().Unix(), ActivityInterval: "day", ActivityStep: 1,
-			Daily: []archive.StatsActivity{}, Kinds: []archive.StatsKind{}, TopChats: []archive.StatsChat{}}, nil
+		return archive.EmptyStatsSnapshot(request, time.Now().UTC()), nil
 	}
 	if err != nil {
 		return archive.StatsSnapshot{}, err
