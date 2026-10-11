@@ -1,0 +1,210 @@
+package archive
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+const ErrSendForbidden Error = "send_forbidden"
+const ErrSendConflict Error = "send_request_conflict"
+const ErrSendNotFound Error = "send_request_not_found"
+
+type SendRecord struct {
+	RequestID         string
+	ChatID            ChatID
+	ProtocolID, State string
+	AcceptedAt        time.Time
+}
+type sendCommand struct {
+	op                           string
+	grant                        CredentialGrant
+	chats                        []ChatID
+	chat                         ChatID
+	requestID, protocolID, state string
+	digest                       [32]byte
+	accepted                     time.Time
+}
+
+func (c sendCommand) priority() bool                    { return false }
+func (c sendCommand) account() string                   { return c.grant.Scope.Account }
+func (c sendCommand) sensitivity() extensionSensitivity { return extensionBackground }
+
+// Permission writes use the existing durable authentication uncertainty fence.
+// A timed-out accepted withdrawal must never leave the old authority usable.
+type sendPermissionCommand struct{ sendCommand }
+
+func (c sendPermissionCommand) priority() bool                    { return true }
+func (c sendPermissionCommand) sensitivity() extensionSensitivity { return extensionCredentialMutation }
+func (c sendPermissionCommand) credentialID() CredentialID        { return c.grant.CredentialID }
+
+func (s *Store) SetSendPermission(ctx context.Context, g CredentialGrant, chats []ChatID) error {
+	if len(chats) > 100 {
+		return ErrInvalidQuery
+	}
+	ids, err := canonicalChats(chats)
+	if err != nil {
+		return err
+	}
+	_, err = s.submitExtension(ctx, sendPermissionCommand{sendCommand{op: "permission", grant: g, chats: ids}}, int64(1024+128*len(ids)))
+	return err
+}
+func (s *Store) SendTarget(ctx context.Context, g CredentialGrant, chat ChatID) (string, error) {
+	if !validReadID(string(chat)) {
+		return "", ErrInvalidQuery
+	}
+	bounded, cancel := s.readContext(ctx)
+	defer cancel()
+	sample, sampledAt := s.now(), time.Now()
+	s.safetyMu.RLock()
+	defer s.safetyMu.RUnlock()
+	// Immediate source/auth fences remain held through the final target query.
+	// The clock callback is sampled before taking the fence.
+	if err := s.checkCredentialGrantQueryAt(bounded, s.readDB, g, sample.Add(time.Since(sampledAt))); err != nil {
+		return "", err
+	}
+	return s.sendTargetQuery(bounded, s.readDB, g, chat, true, sample, sampledAt)
+}
+func (s *Store) sendTargetQuery(ctx context.Context, q sqlQuerier, g CredentialGrant, chat ChatID, permission bool, sample time.Time, sampledAt time.Time) (string, error) {
+	query := `SELECT c.source_chat,(SELECT cr.expires_at FROM credentials cr WHERE cr.id=?) FROM chats c CROSS JOIN archive_policy p JOIN account_safety saf ON saf.account=c.account
+ WHERE c.id=? AND c.account=? AND saf.unsafe=0 AND p.id=1 AND p.generation=?
+ AND (p.chat_mode='all' OR EXISTS(SELECT 1 FROM policy_chats pc WHERE pc.chat_id=c.id))
+ AND EXISTS(SELECT 1 FROM credentials cr WHERE cr.id=? AND cr.account=c.account AND cr.principal=? AND cr.revision=? AND cr.revoked=0 AND (cr.expires_at=0 OR cr.expires_at>?) AND (cr.all_chats=1 OR EXISTS(SELECT 1 FROM credential_chats cc WHERE cc.credential_id=cr.id AND cc.chat_id=c.id)))`
+	args := []any{g.CredentialID, chat, g.Scope.Account, g.Scope.PolicyGeneration, g.CredentialID, g.Scope.Principal, g.CredentialRevision, unixms(sample.Add(time.Since(sampledAt)))}
+	if permission {
+		query += ` AND EXISTS(SELECT 1 FROM send_permissions sp WHERE sp.credential_id=? AND sp.credential_revision=? AND sp.chat_id=c.id)`
+		args = append(args, g.CredentialID, g.CredentialRevision)
+	}
+	var jid string
+	var expires int64
+	err := q.QueryRowContext(ctx, query, args...).Scan(&jid, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrSendForbidden
+	}
+	if err != nil {
+		return "", readError(ctx, err)
+	}
+	if expires != 0 && !sample.Add(time.Since(sampledAt)).Before(fromMillis(expires)) {
+		return "", ErrUnauthorized
+	}
+	return jid, nil
+}
+func (s *Store) ClaimSend(ctx context.Context, g CredentialGrant, chat ChatID, id string, digest [32]byte, protocol string) (SendRecord, bool, error) {
+	if id == "" || len(id) > 128 || protocol == "" || len(protocol) > 128 || !validReadID(string(chat)) {
+		return SendRecord{}, false, ErrInvalidQuery
+	}
+	v, err := s.submitExtension(ctx, sendCommand{op: "claim", grant: g, chat: chat, requestID: id, digest: digest, protocolID: protocol}, 1024)
+	if err != nil {
+		return SendRecord{}, false, err
+	}
+	r := v.(sendClaim)
+	return r.record, r.fresh, nil
+}
+
+type sendClaim struct {
+	record SendRecord
+	fresh  bool
+}
+
+func (s *Store) FinishSend(ctx context.Context, g CredentialGrant, id, state string, at time.Time) error {
+	if id == "" || len(id) > 128 || (state != "accepted" && state != "failed") || state == "accepted" && at.IsZero() {
+		return ErrInvalidQuery
+	}
+	_, err := s.submitExtension(ctx, sendCommand{op: "finish", grant: g, requestID: id, state: state, accepted: at}, 1024)
+	return err
+}
+func (s *Store) SendStatus(ctx context.Context, g CredentialGrant, id string) (SendRecord, error) {
+	if id == "" || len(id) > 128 {
+		return SendRecord{}, ErrInvalidQuery
+	}
+	if err := s.CheckCredentialGrant(ctx, g); err != nil {
+		return SendRecord{}, err
+	}
+	bounded, cancel := s.readContext(ctx)
+	defer cancel()
+	r, _, err := loadSend(bounded, s.readDB, g, id)
+	if err == nil {
+		_, err = s.SendTarget(bounded, g, r.ChatID)
+	}
+	return r, err
+}
+func loadSend(ctx context.Context, q sqlQuerier, g CredentialGrant, id string) (SendRecord, [32]byte, error) {
+	r := SendRecord{RequestID: id}
+	var digest []byte
+	var at int64
+	err := q.QueryRowContext(ctx, `SELECT chat_id,digest,protocol_id,state,accepted_at FROM send_requests WHERE credential_id=? AND account=? AND request_id=?`, g.CredentialID, g.Scope.Account, id).Scan(&r.ChatID, &digest, &r.ProtocolID, &r.State, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, [32]byte{}, ErrSendNotFound
+	}
+	if err != nil {
+		return r, [32]byte{}, readError(ctx, err)
+	}
+	var hash [32]byte
+	if len(digest) != 32 {
+		return r, hash, ErrArchiveUnavailable
+	}
+	copy(hash[:], digest)
+	r.AcceptedAt = fromMillis(at)
+	return r, hash, nil
+}
+func (c sendCommand) run(s *Store, ctx context.Context) (any, error) {
+	var result any
+	err := s.extensionTransaction(ctx, c.grant.Scope.Account, func(tx *sql.Tx) error {
+		if err := s.checkCredentialGrantQuery(ctx, tx, c.grant); err != nil {
+			return err
+		}
+		var err error
+		switch c.op {
+		case "permission":
+			for _, chat := range c.chats {
+				if _, err = s.sendTargetQuery(ctx, tx, c.grant, chat, false, s.now(), time.Now()); err != nil {
+					return err
+				}
+			}
+			if _, err = tx.ExecContext(ctx, "DELETE FROM send_permissions WHERE credential_id=?", c.grant.CredentialID); err != nil {
+				return err
+			}
+			for _, chat := range c.chats {
+				if _, err = tx.ExecContext(ctx, "INSERT INTO send_permissions VALUES(?,?,?)", c.grant.CredentialID, c.grant.CredentialRevision, chat); err != nil {
+					return err
+				}
+			}
+		case "claim":
+			if _, err = s.sendTargetQuery(ctx, tx, c.grant, c.chat, true, s.now(), time.Now()); err != nil {
+				return err
+			}
+			record, hash, err := loadSend(ctx, tx, c.grant, c.requestID)
+			if err == nil {
+				if hash != c.digest || record.ChatID != c.chat {
+					return ErrSendConflict
+				}
+				result = sendClaim{record: record}
+				return nil
+			}
+			if !errors.Is(err, ErrSendNotFound) {
+				return err
+			}
+			var count int
+			if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM send_requests").Scan(&count); err != nil {
+				return err
+			}
+			if count >= 100000 {
+				return ErrLimitExceeded
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO send_requests(credential_id,request_id,account,chat_id,digest,protocol_id,state) VALUES(?,?,?,?,?,?,'outcome_unknown')`, c.grant.CredentialID, c.requestID, c.grant.Scope.Account, c.chat, c.digest[:], c.protocolID)
+			if err != nil {
+				return err
+			}
+			result = sendClaim{SendRecord{RequestID: c.requestID, ChatID: c.chat, ProtocolID: c.protocolID, State: "outcome_unknown"}, true}
+		case "finish":
+			// The receipt is journaled even if send permission was withdrawn after transmission.
+			_, err = tx.ExecContext(ctx, `UPDATE send_requests SET state=?,accepted_at=? WHERE credential_id=? AND request_id=? AND account=? AND state='outcome_unknown'`, c.state, unixms(c.accepted), c.grant.CredentialID, c.requestID, c.grant.Scope.Account)
+			return err
+		default:
+			return ErrInvalidQuery
+		}
+		return nil
+	})
+	return result, err
+}

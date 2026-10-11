@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/outbound"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -65,17 +66,32 @@ func normalizeConfig(c Config) (Config, error) {
 	}
 	if c.MaxRequestBytes == 0 {
 		c.MaxRequestBytes = defaultRequestBytes
+		if c.Outbound != nil {
+			c.MaxRequestBytes = outbound.MaxRequestBytes
+		}
 	}
 	if c.MaxResponseBytes == 0 {
 		c.MaxResponseBytes = defaultResponseBytes
 	}
 	if c.MaxConcurrent == 0 {
 		c.MaxConcurrent = 4
+		if c.Outbound != nil {
+			c.MaxConcurrent = 2
+		}
 	}
 	if c.RequestTimeout == 0 {
 		c.RequestTimeout = 5 * time.Second
+		if c.Outbound != nil {
+			c.RequestTimeout = 60 * time.Second
+		}
 	}
-	if c.MaxRequestBytes < 256 || c.MaxRequestBytes > 256<<10 || c.MaxResponseBytes < 1024 || c.MaxResponseBytes > 1<<20 || c.MaxConcurrent < 1 || c.MaxConcurrent > 16 || c.RequestTimeout < time.Millisecond || c.RequestTimeout > 15*time.Second {
+	maxRequest := int64(256 << 10)
+	maxTimeout := 15 * time.Second
+	if c.Outbound != nil {
+		maxRequest = outbound.MaxRequestBytes
+		maxTimeout = 90 * time.Second
+	}
+	if c.MaxRequestBytes < 256 || c.MaxRequestBytes > maxRequest || c.MaxResponseBytes < 1024 || c.MaxResponseBytes > 1<<20 || c.MaxConcurrent < 1 || c.MaxConcurrent > 16 || c.RequestTimeout < time.Millisecond || c.RequestTimeout > maxTimeout {
 		return c, ErrConfiguration
 	}
 	if c.Mode != Access && (c.Access.Issuer != "" || c.Access.Audience != "" || c.Access.JWKSURL != "" || len(c.Access.Identities) != 0) {
@@ -109,7 +125,7 @@ func NewHandler(config Config, reader archive.Reader, credentials Credentials) (
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if r.URL.Path != "/mcp" || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
+		if (r.URL.Path != "/mcp" && !(c.Outbound != nil && sendAPIRoute(r.URL.Path))) || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
 			fixedHTTP(w, http.StatusNotFound, "mcp_not_found")
 			return
 		}
@@ -163,7 +179,11 @@ func NewHandler(config Config, reader archive.Reader, credentials Credentials) (
 		state := &requestState{principal: p, ctx: ctx}
 		r = r.WithContext(context.WithValue(ctx, requestKey{}, state))
 		buffer := &boundedResponse{header: make(http.Header), max: c.MaxResponseBytes}
-		sdk.ServeHTTP(buffer, r)
+		if sendAPIRoute(r.URL.Path) {
+			serveSendAPI(buffer, r, c, credentials)
+		} else {
+			sdk.ServeHTTP(buffer, r)
+		}
 		if buffer.overflow {
 			fixedHTTP(w, http.StatusInternalServerError, "mcp_response_too_large")
 			return

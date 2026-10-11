@@ -1,4 +1,4 @@
-// Package mcpserver exposes a bounded, read-only view of an existing archive.
+// Package mcpserver exposes bounded archive reads and optional scoped sending.
 // It never owns a WhatsApp connection or starts a model runtime.
 package mcpserver
 
@@ -49,6 +49,9 @@ type RemoteClientRegistry interface {
 }
 
 type Config struct {
+	// Optional app-owned sender. Nil preserves the read-only surface.
+	Outbound Outbound
+
 	Mode AuthMode
 	// Required for LocalAdapter; checked on every fresh credential resolution.
 	NativeClients NativeClientRegistry

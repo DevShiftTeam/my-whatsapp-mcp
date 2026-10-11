@@ -163,7 +163,7 @@ func (a *Application) startLocalMCP(ctx context.Context) error {
 		return err
 	}
 	if !m.localStarted {
-		cfg := mcpserver.Config{Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
+		cfg := mcpserver.Config{Outbound: a, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
 		handler, err := mcpserver.NewHandler(cfg, a.resources.retrieval, a.store)
 		if err != nil {
 			return errMCPListener
@@ -202,6 +202,7 @@ func (a *Application) startRemoteMCP(ctx context.Context) error {
 			return errMCPListener
 		}
 		cfg := remote.Server
+		cfg.Outbound = a
 		cfg.NativeClients = &a.nativeRegistry
 		cfg.RemoteClients = &a.remoteRegistry
 		cfg.LocalCredentialID = ""

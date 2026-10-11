@@ -251,6 +251,7 @@ var routeMethods = map[string]string{
 	"/api/connections": http.MethodGet, "/api/connections/create": http.MethodPost,
 	"/api/connections/guide": http.MethodPost, "/api/connections/revoke": http.MethodPost,
 	"/api/connections/reveal": http.MethodPost,
+	"/api/connections/send-permission": http.MethodPost,
 	"/api/original-budget":    http.MethodGet,
 	"/api/voice/retry":        http.MethodPost,
 }
@@ -464,6 +465,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	switch r.URL.Path {
+	case "/api/connections/send-permission":
+		s.sendPermission(w, r, ctx)
 	case "/api/connections/reveal":
 		s.revealRemote(w, r, ctx)
 	case "/api/original-budget":

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/outbound"
 	"golang.org/x/sys/unix"
 )
 
@@ -112,7 +113,7 @@ func nativeStdioTransport(ctx context.Context) (mcp.Transport, func() error, err
 	return &mcp.IOTransport{
 		Reader:        &nativeStdioReader{file: files[0], close: closeOwned},
 		Writer:        &nativeStdioWriter{ctx: ctx, file: files[1], close: closeOwned},
-		MaxLineLength: int(defaultRequestBytes) + 2048,
+		MaxLineLength: outbound.MaxRequestBytes + 2048,
 	}, cleanup, nil
 }
 

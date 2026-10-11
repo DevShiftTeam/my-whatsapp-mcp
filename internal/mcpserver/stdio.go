@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/outbound"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -23,7 +24,7 @@ var errNativeStdioCleanup = errors.New("mcp_stdio_cleanup_failed")
 // Only a response from the pinned daemon can produce this private marker.
 var errAdapterHTTPUnauthorized = errors.New("mcp_adapter_http_unauthorized")
 
-// RunStdio exposes the daemon's four read-only tools over the SDK's native stdio
+// RunStdio exposes the daemon's read tools and optional scoped send tools over native stdio
 // transport. It never starts a listener, pairs an account or owns model work.
 // The SDK protocol is the only output written to stdout. The caller grants
 // exclusive stdin/stdout use while active; their descriptors and flags are
@@ -178,7 +179,7 @@ func newAdapterHTTPTransport(config AdapterConfig) (*http.Transport, error) {
 			return conn, nil
 		},
 		MaxIdleConns: 4, MaxIdleConnsPerHost: 4, MaxConnsPerHost: 4,
-		IdleConnTimeout: 10 * time.Second, ResponseHeaderTimeout: 3 * time.Second,
+		IdleConnTimeout: 10 * time.Second, ResponseHeaderTimeout: 60 * time.Second,
 		MaxResponseHeaderBytes: 8 << 10,
 	}, nil
 }
@@ -194,7 +195,7 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 	defer httpTransport.CloseIdleConnections()
 	httpClient := &http.Client{
 		Transport:     &adapterHTTPTransport{endpoint: config.Endpoint, token: config.Token, transport: httpTransport},
-		Timeout:       adapterRequestTimeout,
+		Timeout:       90 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -210,20 +211,20 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 	discoveryCtx, discoveryCancel := context.WithTimeout(ctx, adapterRequestTimeout)
 	listed, err := session.ListTools(discoveryCtx, nil)
 	discoveryCancel()
-	if err != nil || len(listed.Tools) != 4 {
+	if err != nil || (len(listed.Tools) != 4 && len(listed.Tools) != 8) {
 		return ErrUnavailable
 	}
-	allowed := map[string]bool{"search_messages": true, "get_context": true, "list_chats": true, "get_index_status": true}
+	allowed := map[string]bool{"search_messages": true, "get_context": true, "list_chats": true, "get_index_status": true, "send_message": true, "send_media": true, "send_voice_note": true, "get_send_status": true}
 	server := mcp.NewServer(&mcp.Implementation{Name: "wa-indexer-stdio-adapter", Version: "1.0.0"}, &mcp.ServerOptions{Logger: quiet})
 	semaphore := make(chan struct{}, 4)
 	for _, tool := range listed.Tools {
-		if tool == nil || !allowed[tool.Name] || tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+		if tool == nil || !allowed[tool.Name] || !validAdapterTool(tool) {
 			return ErrUnavailable
 		}
 		delete(allowed, tool.Name)
 		name := tool.Name
 		server.AddTool(tool, func(callCtx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !validAdapterArguments(request.Params.Arguments) {
+			if !validAdapterArgumentsFor(name, request.Params.Arguments) {
 				return adapterToolError("mcp_invalid_arguments"), nil
 			}
 			select {
@@ -232,7 +233,11 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 			default:
 				return adapterToolError("mcp_busy"), nil
 			}
-			callCtx, cancel := context.WithTimeout(callCtx, adapterRequestTimeout)
+			timeout := adapterRequestTimeout
+			if name == "send_message" || name == "send_media" || name == "send_voice_note" {
+				timeout = 60 * time.Second
+			}
+			callCtx, cancel := context.WithTimeout(callCtx, timeout)
 			defer cancel()
 			reply, err := session.CallTool(callCtx, &mcp.CallToolParams{Name: name, Arguments: request.Params.Arguments})
 			if err != nil || reply == nil {
@@ -250,6 +255,14 @@ func runStdioTransport(ctx context.Context, config AdapterConfig, transport mcp.
 			}
 			return reply, nil
 		})
+	}
+	for _, name := range []string{"search_messages", "get_context", "list_chats", "get_index_status"} {
+		if allowed[name] {
+			return ErrUnavailable
+		}
+	}
+	if len(listed.Tools) == 8 && len(allowed) != 0 {
+		return ErrUnavailable
 	}
 	if err := server.Run(ctx, transport); err != nil {
 		return ErrUnavailable
@@ -270,4 +283,27 @@ func validAdapterArguments(raw json.RawMessage) bool {
 
 func adapterToolError(code string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: code}}}
+}
+
+func validAdapterTool(tool *mcp.Tool) bool {
+	if tool == nil || tool.Annotations == nil {
+		return false
+	}
+	write := tool.Name == "send_message" || tool.Name == "send_media" || tool.Name == "send_voice_note"
+	a := tool.Annotations
+	if !write {
+		return a.ReadOnlyHint
+	}
+	return !a.ReadOnlyHint && a.IdempotentHint && a.DestructiveHint != nil && *a.DestructiveHint && a.OpenWorldHint != nil && *a.OpenWorldHint
+}
+
+func validAdapterArgumentsFor(name string, raw json.RawMessage) bool {
+	if name != "send_message" && name != "send_media" && name != "send_voice_note" {
+		return validAdapterArguments(raw)
+	}
+	if int64(len(raw)) > outbound.MaxRequestBytes {
+		return false
+	}
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) >= 2 && trimmed[0] == '{' && trimmed[len(trimmed)-1] == '}' && json.Valid(trimmed)
 }

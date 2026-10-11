@@ -36,10 +36,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return ErrArchiveUnavailable
 	}
 
-	const latest = 11
+	const latest = 12
 	contents := make([][]byte, latest)
 	checksums := make([]string, latest)
-	names := []string{"001_archive.sql", "002_indexing.sql", "003_media.sql", "004_credentials.sql", "005_media_identity.sql", "006_index_reuse.sql", "007_fts_secure_delete.sql", "008_publication_extraction.sql", "009_original_downloads.sql", "010_unresolved_deletions.sql", "011_snapshot_recovery.sql"}
+	names := []string{"001_archive.sql", "002_indexing.sql", "003_media.sql", "004_credentials.sql", "005_media_identity.sql", "006_index_reuse.sql", "007_fts_secure_delete.sql", "008_publication_extraction.sql", "009_original_downloads.sql", "010_unresolved_deletions.sql", "011_snapshot_recovery.sql", "012_outbound.sql"}
 	for i, name := range names {
 		contents[i], err = migrationFiles.ReadFile("migrations/" + name)
 		if err != nil {

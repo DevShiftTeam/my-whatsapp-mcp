@@ -1,5 +1,5 @@
 // Package ingestion bridges the pinned connector to the production archive.
-// It exposes no sending, presence, or read-receipt operation.
+// Outbound sending is an explicit, separately authorized capability.
 package ingestion
 
 import (
