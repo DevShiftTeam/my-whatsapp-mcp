@@ -34,6 +34,10 @@
   let clientGuideID = "";
   let clientGuideBinding = null;
   let clientFocusHint = null;
+  let sendPermissionBinding = null;
+  let sendPermissionMode = "none";
+  let sendPermissionSelection = new Set();
+  let sendPermissionVersion = 0;
   let remoteSecretVersion = 0;
   let remoteSecretID = "";
   let remoteSecretFocusID = "";
@@ -95,6 +99,8 @@
     client_connection_unsupported: "This client and connection mode are unavailable. Choose a supported combination.",
     client_connection_not_found: "This connection is no longer available. Refresh the list.",
     client_connection_invalid: "Choose a client, explicit chat scope, valid dates, and a future expiry.",
+    send_permission_changed: "Send permissions changed in another window. Review the current permissions before saving again.",
+    send_forbidden: "These chats are outside this connection's current permissions. Refresh connections and review the available chats.",
     original_budget_unavailable: "Original media storage controls are unavailable. Refresh to check their current state.",
     original_budget_changed: "The storage limit changed in another owner window. Current state has been reloaded; review it before saving again.",
     voice_retry_unavailable: "Voice downloads could not be retried. Check the archive connection and import status, then try again.",
@@ -138,7 +144,10 @@
     if (!response.ok) {
       if (path !== "/api/bootstrap" && (response.status === 401 || response.status === 403 && value.code === "csrf_denied")) expireAuth();
       if (path === "/api/pairing/start" && ["source_unavailable", "connection_unavailable"].includes(value.code)) throw new Error("WhatsApp did not complete the connection. Try again from Connection details; a saved linked session reconnects without a new code.");
-      throw new Error(messages[value.code] || "This action did not finish. Try again or restart the app.");
+      const error = new Error(messages[value.code] || "This action did not finish. Try again or restart the app.");
+      error.code = value.code;
+      error.status = response.status;
+      throw error;
     }
     return value;
   }
@@ -199,6 +208,7 @@
     $("client-create").disabled = true;
     clearClientGuide();
     clearRemoteSecret();
+    clearSendPermissions();
     budgetVersion++;
     budgetSnapshot=null;
     budgetDirty=false;
@@ -1279,6 +1289,7 @@
     chats = list;
     renderChatChoices();
     renderConnectionChats();
+    renderSendPermissionChats();
     const select = $("search-chat"), chosen = select.value;
     select.replaceChildren(new Option("All included chats", ""));
     for (const chat of chats) {
@@ -1374,6 +1385,148 @@
     $("client-chat-note").textContent = target.children.length ? "Choose 1 to 256 archived chats. Unselected chats are excluded. This list shows the chats currently loaded by the archive." : "No archived chats are available to select. Save your archive settings and import chats first.";
   }
 
+  function connectionSendPermission(item) {
+    const permission = item?.send_permission;
+    if (!permission || !["none", "selected", "all"].includes(permission.mode) || !Number.isSafeInteger(permission.revision) || permission.revision < 0 || !Array.isArray(permission.chats)) return null;
+    if (permission.chats.some(id => typeof id !== "string" || !id) || new Set(permission.chats).size !== permission.chats.length) return null;
+    if (permission.mode === "selected" ? permission.chats.length < 1 || permission.chats.length > 100 : permission.chats.length !== 0) return null;
+    return permission;
+  }
+
+  function currentSendPermissionConnection() {
+    if (!sendPermissionBinding || authExpired || !$("clients-dialog").open || sendPermissionBinding.epoch !== authEpoch) return null;
+    const item = (clientSnapshot?.items || []).find(value => value.id === sendPermissionBinding.id && value.revision === sendPermissionBinding.revision);
+    const permission = connectionSendPermission(item);
+    if (!sendPermissionEditable(item) || !permission || permission.revision !== sendPermissionBinding.sendRevision || JSON.stringify(permission) !== sendPermissionBinding.permissionKey) return null;
+    return item;
+  }
+
+  function sendPermissionEditable(item) {
+    return !!item && item.state === "ready" && Number.isSafeInteger(item.revision) && item.revision > 0 && new Date(item.expires_at).getTime() > Date.now() && !!connectionSendPermission(item) && (item.scope?.all_chats === true || Array.isArray(item.scope?.chats)) && connectionRecovery(clientSnapshot, item.mode) === "ready" && clientSnapshot?.[item.mode + "_state"] === "ready";
+  }
+
+  function clearSendPermissions(restoreFocus = false) {
+    const id = sendPermissionBinding?.id;
+    sendPermissionVersion++;
+    sendPermissionBinding = null;
+    sendPermissionMode = "none";
+    sendPermissionSelection.clear();
+    $("client-send-editor").hidden = true;
+    $("client-send-name").textContent = "";
+    $("client-send-search").value = "";
+    $("client-send-chats").replaceChildren();
+    $("client-send-selection-note").textContent = "";
+    $("client-send-save").disabled = true;
+    feedback("client-send-feedback", "");
+    if (restoreFocus && id) restoreConnectionFocus(id, "permissions");
+  }
+
+  function openSendPermissions(item) {
+    if (clientBusy || !sendPermissionEditable(item) || authExpired || !$("clients-dialog").open) return;
+    const current = (clientSnapshot.items || []).find(value => value.id === item.id && value.revision === item.revision);
+    if (!current || JSON.stringify(connectionSendPermission(current)) !== JSON.stringify(connectionSendPermission(item))) return;
+    clearSendPermissions();
+    const permission = connectionSendPermission(current);
+    sendPermissionBinding = {id:current.id,revision:current.revision,sendRevision:permission.revision,permissionKey:JSON.stringify(permission),epoch:authEpoch};
+    sendPermissionMode = permission.mode;
+    sendPermissionSelection = new Set(permission.chats);
+    $("client-send-name").textContent = current.label || "AI connection";
+    for (const input of document.querySelectorAll("input[name=client-send-mode]")) input.checked = input.value === sendPermissionMode;
+    $("client-send-editor").hidden = false;
+    renderSendPermissionChats();
+    updateSendPermissionControls();
+    $("client-send-title").focus({preventScroll:false});
+  }
+
+  function eligibleSendPermissionChats(item) {
+    const scope = new Set(item.scope?.chats || []);
+    return chats.filter(chat => (setup?.Policy.ChatMode === "all" || chat.Selected) && (item.scope?.all_chats || scope.has(chat.ID)));
+  }
+
+  function sendPermissionNameKey(value) {
+    return String(value).toLocaleLowerCase().normalize("NFD").replace(/[\u0591-\u05BD\u05BF-\u05C7]/gu, "").replace(/[^\p{L}\p{N}]/gu, "");
+  }
+
+  function renderSendPermissionChats() {
+    const item = currentSendPermissionConnection();
+    if (!item) return;
+    const target = $("client-send-chats");
+    const query = sendPermissionNameKey($("client-send-search").value);
+    const visible = eligibleSendPermissionChats(item).filter(chat => !query || sendPermissionNameKey(chat.Name || "Unnamed chat").includes(query));
+    target.replaceChildren();
+    for (const chat of visible) {
+      const label = document.createElement("label"); label.className = "chat-choice";
+      const input = document.createElement("input"); input.type = "checkbox"; input.value = chat.ID; input.checked = sendPermissionSelection.has(chat.ID);
+      input.addEventListener("change", () => {
+        if (clientBusy || !currentSendPermissionConnection()) { input.checked = sendPermissionSelection.has(chat.ID); return; }
+        if (input.checked && !sendPermissionSelection.has(chat.ID) && sendPermissionSelection.size >= 100) {
+          input.checked = false;
+          feedback("client-send-feedback", "Choose up to 100 chats, or use All permitted chats.", true);
+        } else {
+          if (input.checked) sendPermissionSelection.add(chat.ID); else sendPermissionSelection.delete(chat.ID);
+          feedback("client-send-feedback", "");
+        }
+        updateSendPermissionControls();
+      });
+      label.append(input, bdi(chat.Name || "Unnamed chat")); target.append(label);
+    }
+    if (!visible.length) modelParagraph(target, query ? "No loaded chats match this name." : "No loaded chats are available in this connection's scope.", "field-help");
+    updateSendPermissionControls();
+  }
+
+  function updateSendPermissionControls() {
+    const item = currentSendPermissionConnection();
+    const editable = !!item && !clientBusy;
+    $("client-send-chat-panel").hidden = sendPermissionMode !== "selected";
+    $("client-send-warning").hidden = sendPermissionMode === "none";
+    $("client-send-search").disabled = !editable;
+    $("client-send-cancel").disabled = clientBusy;
+    $("client-send-clear").disabled = !editable || !sendPermissionSelection.size;
+    for (const input of document.querySelectorAll("input[name=client-send-mode]")) input.disabled = !editable;
+    for (const input of $("client-send-chats").querySelectorAll("input")) input.disabled = !editable || !input.checked && sendPermissionSelection.size >= 100;
+    $("client-send-save").disabled = !editable || sendPermissionMode === "selected" && (sendPermissionSelection.size < 1 || sendPermissionSelection.size > 100);
+    const visible = new Set(Array.from($("client-send-chats").querySelectorAll("input"), input => input.value));
+    const hidden = Array.from(sendPermissionSelection).filter(id => !visible.has(id)).length;
+    $("client-send-selection-note").textContent = sendPermissionSelection.size + " of 100 chats selected." + (hidden ? " " + hidden + " selected chat" + (hidden === 1 ? " is" : "s are") + " not shown in this list. Clear the selection to remove them." : "");
+  }
+
+  async function saveSendPermissions(event) {
+    event.preventDefault();
+    updateSendPermissionControls();
+    const item = currentSendPermissionConnection();
+    if (clientBusy || !item || $("client-send-save").disabled) return;
+    const epoch = authEpoch, permissionVersion = sendPermissionVersion;
+    const input = {id:item.id,revision:item.revision,mode:sendPermissionMode,chats:sendPermissionMode === "selected" ? Array.from(sendPermissionSelection) : [],expected_send_revision:sendPermissionBinding.sendRevision};
+    clientBusy = true;
+    const version = ++clientVersion;
+    updateConnectionFields();
+    feedback("client-send-feedback", "Saving send permissions…");
+    let failure = "";
+    try {
+      await api("/api/connections/send-permission", "POST", input);
+      assertOwner(epoch);
+      if (version !== clientVersion || permissionVersion !== sendPermissionVersion || !$("clients-dialog").open) return;
+      clearSendPermissions(true);
+      clientFocusHint = {id:item.id,action:"permissions"};
+      feedback("clients-feedback", "Send permissions saved. Your existing token is unchanged.");
+    } catch (error) {
+      if (epoch === authEpoch && !authExpired && version === clientVersion && permissionVersion === sendPermissionVersion && $("clients-dialog").open) {
+        if (error.status === 409) {
+          clearSendPermissions(true);
+          failure = "Send permissions changed. Reopen Permissions and review the current state before saving again.";
+        } else {
+          feedback("client-send-feedback", error.message, true);
+        }
+      }
+    } finally {
+      if (epoch === authEpoch) { clientBusy = false; updateConnectionFields(); }
+    }
+    if (epoch !== authEpoch || authExpired || version !== clientVersion || !$("clients-dialog").open) return;
+    clientRenderKey = "";
+    await refreshConnections();
+    if (failure && epoch === authEpoch && !authExpired && $("clients-dialog").open) feedback("clients-feedback", failure, true);
+  }
+
   function updateConnectionFields() {
     const all = document.querySelector("input[name=client-scope]:checked").value === "all";
     $("client-all-warning").hidden=!all; $("client-chat-panel").hidden=all;
@@ -1390,25 +1543,41 @@
     $("client-choice-help").textContent=help;
     $("client-create").disabled=clientBusy || !clientSnapshot || connectionRecovery(clientSnapshot,mode)!=="ready" || clientSnapshot[mode+"_state"]!=="ready";
     updateClientGuideControls();
+    updateSendPermissionControls();
   }
 
   function renderConnections(snapshot) {
+    const focused=document.activeElement;
+    let invalidatedPermissionFocusID="";
     clientSnapshot=snapshot;
+    if (sendPermissionBinding && !currentSendPermissionConnection()) {
+      if ($("client-send-editor").contains(focused)) invalidatedPermissionFocusID=sendPermissionBinding.id;
+      clearSendPermissions();
+      feedback("clients-feedback", "This connection's permissions changed or access ended. Reopen Permissions to review its current state.", true);
+    }
     const stateNames={ready:"Available", not_configured:"Not configured", unavailable:"Unavailable"};
     $("clients-availability").textContent="Local: "+(stateNames[snapshot.local_state]||"Unavailable")+" · Remote: "+(stateNames[snapshot.remote_state]||"Unavailable");
     if (!status?.ReconciliationRequired && status?.Connection !== "reconciliation_required" && (status?.Codes || []).includes("app_state_sync_error")) $("clients-availability").textContent+=". WhatsApp state sync is incomplete. AI clients can read stored messages within their permissions, with coverage warnings; the archive may differ from your phone.";
     for(const mode of ["local","remote"])if(connectionRecovery(snapshot,mode)!=="ready")$("clients-availability").textContent+=". "+(mode==="local"?"Local":"Remote")+" recovery needs attention; access for that mode remains blocked.";
     updateConnectionFields();
-    const key=JSON.stringify(snapshot); if(key===clientRenderKey)return;
+    const key=JSON.stringify(snapshot);
+    if(key===clientRenderKey) {
+      if(invalidatedPermissionFocusID)restoreConnectionFocus(invalidatedPermissionFocusID,"permissions");
+      return;
+    }
     clientRenderKey=key;
-    const focused=document.activeElement;
-    const hint=focused===document.body||focused===$("clients-dialog")?clientFocusHint:null;
+    const hint=invalidatedPermissionFocusID?{id:invalidatedPermissionFocusID,action:"permissions"}:focused===document.body||focused===$("clients-dialog")?clientFocusHint:null;
     const focusID=focused?.dataset?.connectionId||hint?.id, focusAction=focused?.dataset?.action||hint?.action;
     clientFocusHint=null;
     const list=$("client-list"); list.replaceChildren();
     for (const item of snapshot.items||[]) {
       const card=document.createElement("article"); card.className="model-card"; card.dataset.connectionId=item.id;
-      const title=document.createElement("h3"); title.append(bdi(item.label)); title.tabIndex=-1; title.dataset.connectionId=item.id; title.dataset.action="heading"; card.append(title);
+      const heading=document.createElement("div"); heading.className="client-card-heading";
+      const title=document.createElement("h3"); title.append(bdi(item.label)); title.tabIndex=-1; title.dataset.connectionId=item.id; title.dataset.action="heading";
+      const permission=connectionSendPermission(item);
+      const badge=document.createElement("span"); badge.className="client-permission-badge"; badge.dataset.mode=permission?.mode||"none";
+      badge.textContent=permission?.mode==="all"?"Send to all permitted chats":permission?.mode==="selected"?"Send to "+permission.chats.length+" chat"+(permission.chats.length===1?"":"s"):"Read-only";
+      heading.append(title,badge); card.append(heading);
       const states={ready:"Grant ready; client call not yet verified", revoked:"Access revoked", expired:"Access expired", recovery_pending:"Recovery needed; access blocked"};
       modelParagraph(card,(clientNames[item.client]||"AI client")+" · "+(item.mode==="local"?"Local":item.mode==="remote"?"Remote":"Mode unavailable"));
       modelParagraph(card,states[item.state]||states.recovery_pending,"model-state");
@@ -1422,6 +1591,7 @@
       }
       if (item.state==="ready" && clientNames[item.client] && item.mode && connectionRecovery(snapshot,item.mode)==="ready" && snapshot[item.mode+"_state"]==="ready") {
         action("guide","Show setup instructions");
+        if(sendPermissionEditable(item))action("permissions","Permissions");
         if(item.mode==="remote" && item.revision>0)action("reveal","Reveal remote token");
       }
       if (item.state!=="revoked" && item.revision>0) action("revoke","Revoke access");
@@ -1442,7 +1612,7 @@
       renderConnections(snapshot);
     } catch(error) {
       if(version===clientVersion&&!authExpired&&$("clients-dialog").open) {
-        clientSnapshot=null; clientRenderKey=""; $("client-list").replaceChildren(); clearClientGuide(); clearRemoteSecret(); updateConnectionFields();
+        clientSnapshot=null; clientRenderKey=""; $("client-list").replaceChildren(); clearClientGuide(); clearRemoteSecret(); clearSendPermissions(); updateConnectionFields();
         feedback("clients-feedback",error.message,true);
       }
     }
@@ -1475,6 +1645,7 @@
   }
 
   async function connectionAction(button,item,kind) {
+    if(kind==="permissions") { openSendPermissions(item); return; }
     if(kind==="reveal") { await revealRemoteCredential(button,item); return; }
     if(clientBusy||authExpired)return;
     const epoch=authEpoch;
@@ -1482,7 +1653,7 @@
     clientFocusHint={id:item.id,action:kind};
     const version=clientVersion;
     feedback("clients-feedback",kind==="revoke"?"Revoking client access…":"Preparing inert setup instructions…");
-    if(kind==="revoke") { clearClientGuide(); clearRemoteSecret(); }
+    if(kind==="revoke") { clearClientGuide(); clearRemoteSecret(); clearSendPermissions(); }
     try {
       if(kind==="revoke")await api("/api/connections/revoke","POST",{id:item.id,revision:item.revision});
       else {
@@ -1501,7 +1672,7 @@
   async function createConnection(event) {
     event.preventDefault(); if(clientBusy||authExpired||$("client-create").disabled)return;
     const epoch=authEpoch;
-    clientBusy=true; clientVersion++; updateConnectionFields(); clearClientGuide(); clearRemoteSecret();
+    clientBusy=true; clientVersion++; updateConnectionFields(); clearClientGuide(); clearRemoteSecret(); clearSendPermissions();
     const version=clientVersion;
     feedback("clients-feedback","Creating the private read-only connection…");
     try {
@@ -1955,9 +2126,14 @@
   $("original-budget-size").addEventListener("input",()=>{editBudget();$("original-budget-preset").value="custom";});
   $("original-budget-unit").addEventListener("change",()=>{editBudget();$("original-budget-preset").value="custom";updateBudgetUnits();});
   $("original-budget-preset").addEventListener("change",()=>{editBudget();if($("original-budget-preset").value!=="custom"){$("original-budget-unit").value="mib";$("original-budget-size").value=$("original-budget-preset").value;updateBudgetUnits();}});
-  $("clients-open").addEventListener("click",()=>{if(!authExpired){clearClientGuide();feedback("clients-feedback","");$("clients-dialog").showModal();refreshConnections();renderConnectionChats();}});
+  $("clients-open").addEventListener("click",()=>{if(!authExpired){clearClientGuide();clearSendPermissions();feedback("clients-feedback","");$("clients-dialog").showModal();refreshConnections();renderConnectionChats();}});
   $("clients-close").addEventListener("click",()=>$("clients-dialog").close());
-  $("clients-dialog").addEventListener("close",()=>{clientVersion++;clientFocusHint=null;clearClientGuide();clearRemoteSecret();});
+  $("clients-dialog").addEventListener("close",()=>{clientVersion++;clientFocusHint=null;clearClientGuide();clearRemoteSecret();clearSendPermissions();});
+  $("client-send-form").addEventListener("submit",saveSendPermissions);
+  $("client-send-cancel").addEventListener("click",()=>{if(!clientBusy)clearSendPermissions(true);});
+  $("client-send-search").addEventListener("input",renderSendPermissionChats);
+  $("client-send-clear").addEventListener("click",()=>{if(clientBusy||!currentSendPermissionConnection())return;sendPermissionSelection.clear();renderSendPermissionChats();});
+  for(const input of document.querySelectorAll("input[name=client-send-mode]")) input.addEventListener("change",()=>{if(clientBusy||!currentSendPermissionConnection())return;sendPermissionMode=input.value;feedback("client-send-feedback","");updateSendPermissionControls();});
   $("clients-refresh").addEventListener("click",refreshConnections);
   $("client-form").addEventListener("change",updateConnectionFields);
   $("client-form").addEventListener("submit",createConnection);

@@ -15,6 +15,39 @@ dialog{border:1px solid #d2dee3;border-radius:14px;width:min(610px,calc(100% - 2
 .auth-screen:has(.admin-login-form:not([hidden])){width:calc(100% - 36px);max-width:440px;margin:clamp(48px,14vh,140px) auto;padding:32px;background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 38px #173b460a}.admin-login-form{display:flex;flex-direction:column;margin-top:26px}.admin-login-form>label{font-size:13px;font-weight:600;margin-bottom:8px}.admin-login-form>input{width:100%;min-height:44px}.admin-login-form .field-help{font-size:12px}.admin-login-form>.primary{width:100%;margin-top:18px;min-height:44px}.admin-login-form .admin-login-footnote{font-size:11px;text-align:center;color:var(--muted);margin-top:20px}.admin-login-form .feedback.error{color:var(--danger)}#admin-logout{font-size:12px;white-space:nowrap}@media(max-width:430px){.auth-screen:has(.admin-login-form:not([hidden])){padding:25px}.top-actions{gap:9px}.top-actions:has(#admin-logout:not([hidden])) .local-label{display:none}}
 .client-guide-remote{margin:17px 0;padding:16px;background:var(--emerald-wash);border:1px solid #c3dacf;border-radius:8px}.client-guide-remote .stacked-label{margin-top:0}.client-guide-remote input{max-width:none;width:100%;font-size:13px}.client-guide-remote .model-actions{margin-top:12px}
 
+.client-card-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 15px; }
+.client-permission-badge { display: inline-block; padding: 4px 9px; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; color: var(--muted); background: #f7f9fa; }
+.client-permission-badge[data-mode="selected"], .client-permission-badge[data-mode="all"] { color: var(--emerald); border-color: #c3dacf; background: var(--emerald-wash); }
+.client-send-editor { margin-top: 22px; padding: 22px 20px; border: 1px solid #c3dacf; border-inline-start: 3px solid var(--emerald); border-radius: 8px; background: #f8fbf9; }
+.client-send-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 9px 16px; margin-bottom: 22px; }
+.client-send-heading h3 { font-size: 17px; }
+.client-send-heading .field-help { margin-top: 4px; overflow-wrap: anywhere; }
+.client-send-modes { display: flex; flex-direction: column; gap: 9px; margin-bottom: 17px; }
+.client-send-modes legend { margin-bottom: 12px; }
+.client-send-modes label { display: flex; gap: 11px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: white; cursor: pointer; }
+.client-send-modes label:has(input:checked) { border-color: var(--emerald); background: var(--emerald-wash); }
+.client-send-modes input { margin-top: 3px; }
+.client-send-modes span { min-width: 0; }
+.client-send-modes strong { display: block; font-size: 13px; font-weight: 600; }
+.client-send-modes small { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.6; }
+.client-send-editor .stacked-label input { max-width: none; width: 100%; }
+.client-send-chats { max-height: 250px; border-block: 1px solid var(--line); margin-top: 13px; padding-inline: 3px; overscroll-behavior: contain; }
+.client-send-chats .chat-choice { padding: 12px 4px; min-height: 44px; font-size: 13px; }
+.client-send-chats .field-help { padding: 9px 4px 16px; }
+.client-send-selection { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 12px; }
+.client-send-selection .field-help { max-width: 52ch; }
+.client-send-selection .text-button { min-height: 44px; font-size: 12px; }
+.client-send-editor .notice { margin: 16px 0 0; font-size: 12px; }
+.client-send-editor .feedback { margin-top: 12px; }
+.client-send-editor .dialog-actions button { min-height: 44px; }
+@media (max-width: 430px) {
+  .client-send-editor { padding: 18px 14px; }
+  .client-send-editor input[type="search"] { font-size: 16px; }
+  .client-send-heading > .client-permission-badge { font-size: 10px; }
+  .client-send-editor .dialog-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .client-send-chats { max-height: 210px; }
+}
+
 /* The two workspace views share controls and keep their filters independent. */
 .view-navigation { display: flex; flex-direction: column; gap: 5px; margin: -8px -9px 0; }
 .view-navigation button { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 11px 12px; text-align: start; font-weight: 600; color: var(--muted); }

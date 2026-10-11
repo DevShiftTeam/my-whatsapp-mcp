@@ -1,6 +1,6 @@
 # Working in this repository
 
-My WhatsApp MCP is a local WhatsApp archive with scoped MCP access, read-only by default. Optional sending requires separate owner-approved permissions for specific chats. The executable remains `wa-indexer`; keep existing data paths and credentials compatible unless a change explicitly includes migration.
+My WhatsApp MCP is a local WhatsApp archive with scoped MCP access, read-only by default. Optional sending requires a separate owner-approved mode: selected chats or all chats within the client's read scope and archive policy. Permission edits preserve the existing token, read scope, and expiry. The executable remains `wa-indexer`; keep existing data paths and credentials compatible unless a change explicitly includes migration.
 
 Before editing, read the relevant source and these guides:
 

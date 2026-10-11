@@ -27,7 +27,7 @@ func (a *Application) appendRemoteConnections(ctx context.Context, result *local
 		return localui.ErrConnectionUnavailable
 	}
 	for _, record := range a.authState.RemoteClients {
-		item := localui.Connection{ID: record.IntentID, Client: record.Client, Label: record.Label, Mode: "remote", State: "recovery_pending"}
+		item := localui.Connection{ID: record.IntentID, Client: record.Client, Label: record.Label, Mode: "remote", State: "recovery_pending", SendPermission: archive.SendPermission{Mode: "none", Chats: []archive.ChatID{}}}
 		for _, row := range metadata {
 			if row.ID != record.CredentialID || row.Account != record.Account || row.Principal != record.Principal {
 				continue
@@ -48,6 +48,10 @@ func (a *Application) appendRemoteConnections(ctx context.Context, result *local
 					return localui.ErrConnectionUnavailable
 				}
 				item.Scope = connectionDates(grant.Scope)
+				item.SendPermission, err = a.store.GetSendPermission(ctx, grant)
+				if err != nil {
+					return localui.ErrConnectionUnavailable
+				}
 				item.State = "ready"
 			}
 			break

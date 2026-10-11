@@ -1,6 +1,6 @@
 # Connect an AI client
 
-MCP exposes six read tools: `search_contacts`, `search_groups`, `list_chats`, `search_messages`, `get_context`, and `get_index_status`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for specific chats; see [outbound messaging](clients/outbound-messaging.md).
+MCP exposes six read tools: `search_contacts`, `search_groups`, `list_chats`, `search_messages`, `get_context`, and `get_index_status`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for selected chats or all permitted chats; see [outbound messaging](clients/outbound-messaging.md).
 
 ## Local Codex or Claude Code
 
@@ -13,7 +13,7 @@ MCP exposes six read tools: `search_contacts`, `search_groups`, `list_chats`, `s
 
 The app generates a private credential file and a stdio adapter configuration. You do not need to choose a port or copy a local token. Keep the executable at the path referenced by the generated configuration; regenerate the client setup if you move it.
 
-The app also advertises outbound tools, but their presence does not grant send permission. Existing and newly created connections cannot send until the owner explicitly grants it. There is currently no send-permission button or CLI; the [outbound guide](clients/outbound-messaging.md#give-one-connection-permission-to-send) describes the authenticated owner API.
+The app also advertises outbound tools, but their presence does not grant send permission. Open **AI connections → Permissions** on an existing connection to choose read-only, selected-chat sending, or sending to all permitted chats. Send-permission edits keep its token, expiry, and read scope unchanged. All mode includes future chats within that scope and the archive policy. See the [outbound guide](clients/outbound-messaging.md#give-one-connection-permission-to-send) for the editor and authenticated owner API.
 
 Hosted Composio and Claude connectors cannot use this local adapter because they run outside your computer. They require remote access.
 
@@ -31,7 +31,7 @@ Search names before searching a conversation's messages:
 
 Name matching ignores case, spaces, punctuation, and Hebrew marks: the fictional name `Noa Levi` also matches `NoaLevi`. It does not transliterate between Hebrew and Latin spellings. Results include only archived chats with messages readable under this connection's permissions and the archive policy. They are not a full phonebook or a list of all WhatsApp groups.
 
-Use a returned opaque `chat_id` in `search_messages`' `chat_ids` filter, then use a returned `message_id` with `get_context`. Group search supports the same reading flow. Sending to a group requires a separate permission for that specific group; these tools do not manage members or group settings.
+Use a returned opaque `chat_id` in `search_messages`' `chat_ids` filter, then use a returned `message_id` with `get_context`. Group search supports the same reading flow. Sending to a group requires an owner-approved send mode that covers it; finding or reading the group grants no sending rights. These tools do not manage members or group settings.
 
 After upgrading the app, use **Sync** or refresh tool discovery in Composio if the new search tools are missing. Keep the existing connection and token. For a local client, restart its MCP session to refresh the tool list.
 
@@ -98,7 +98,7 @@ After preparing the file, stop the app and use a configuration like this, replac
 
 Route the HTTPS hostname to `http://127.0.0.1:6969`. This admin listener serves the password-protected interface and forwards `/mcp` and the four outbound JSON routes to the configured MCP handler. Never expose its HTTP origin directly on the network.
 
-The admin password controls browser access and client management, including send permissions. MCP bearer tokens work independently of that password and use their configured read scope plus any explicit send allowlist; they cannot administer the app or grant themselves sending rights. An admin browser cookie cannot authenticate an MCP client.
+The admin password controls browser access and client management, including send permissions. MCP bearer tokens work independently of that password and use their configured read scope plus the owner-approved send mode; they cannot administer the app or grant themselves sending rights. An admin browser cookie cannot authenticate an MCP client.
 
 ## Authentication troubleshooting
 

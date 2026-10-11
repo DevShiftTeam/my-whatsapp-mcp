@@ -90,6 +90,12 @@ Use the same `--data-dir` argument if you originally chose a custom directory. A
 
 The app opens on **Stats**; use **Archive** to search conversations. See the [Stats guide](stats.md) for filters, visible-only refresh, UTC activity, and the difference between saved-data counts and global processing status.
 
+## Manage AI connection permissions
+
+Follow the [MCP guide](mcp.md) to create a client connection. New connections start read-only. To change sending access, open **AI connections**, choose **Permissions** on an existing connection, then choose **Read-only**, **Selected chats**, or **All permitted chats** and click **Save permissions**.
+
+Selected mode permits up to 100 chats. All mode includes current and future chats within that connection's read scope and your archive choices. Changing send permissions keeps the same token, read scope, and expiry; no client reconfiguration is needed. Saving permissions sends no messages. See [outbound messaging](clients/outbound-messaging.md) for scope, retries, and delivery limits.
+
 ## Where your data lives
 
 | OS | Default data directory |

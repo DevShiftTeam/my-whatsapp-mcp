@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"time"
 )
 
@@ -17,6 +18,15 @@ type SendRecord struct {
 	ProtocolID, State string
 	AcceptedAt        time.Time
 }
+
+// SendPermission is separate from read authority. All includes only targets
+// still allowed by the credential and current archive policy.
+type SendPermission struct {
+	Mode     string   `json:"mode"`
+	Chats    []ChatID `json:"chats"`
+	Revision uint64   `json:"revision"`
+}
+
 type sendCommand struct {
 	op                           string
 	grant                        CredentialGrant
@@ -25,6 +35,8 @@ type sendCommand struct {
 	requestID, protocolID, state string
 	digest                       [32]byte
 	accepted                     time.Time
+	permissionMode               string
+	expectedPermissionRevision   *uint64
 }
 
 func (c sendCommand) priority() bool                    { return false }
@@ -47,8 +59,101 @@ func (s *Store) SetSendPermission(ctx context.Context, g CredentialGrant, chats 
 	if err != nil {
 		return err
 	}
-	_, err = s.submitExtension(ctx, sendPermissionCommand{sendCommand{op: "permission", grant: g, chats: ids}}, int64(1024+128*len(ids)))
+	mode := "selected"
+	if len(ids) == 0 {
+		mode = "none"
+	}
+	_, err = s.submitExtension(ctx, sendPermissionCommand{sendCommand{op: "permission", grant: g, chats: ids, permissionMode: mode}}, int64(1024+128*len(ids)))
 	return err
+}
+
+// SetSendPermissionMode compares the permission's own revision atomically with
+// the write. It does not change the credential or its read-policy revision.
+func (s *Store) SetSendPermissionMode(ctx context.Context, g CredentialGrant, permission SendPermission, expected uint64) error {
+	if expected >= math.MaxInt64 || permission.Revision != 0 || len(permission.Chats) > 100 {
+		return ErrInvalidQuery
+	}
+	if permission.Mode != "none" && permission.Mode != "selected" && permission.Mode != "all" {
+		return ErrInvalidQuery
+	}
+	if permission.Mode == "selected" && len(permission.Chats) == 0 || permission.Mode != "selected" && len(permission.Chats) != 0 {
+		return ErrInvalidQuery
+	}
+	ids, err := canonicalChats(permission.Chats)
+	if err != nil || len(ids) != len(permission.Chats) {
+		return ErrInvalidQuery
+	}
+	_, err = s.submitExtension(ctx, sendPermissionCommand{sendCommand{op: "permission", grant: g, chats: ids, permissionMode: permission.Mode, expectedPermissionRevision: &expected}}, int64(1024+128*len(ids)))
+	return err
+}
+
+func (s *Store) GetSendPermission(ctx context.Context, g CredentialGrant) (SendPermission, error) {
+	bounded, cancel := s.readContext(ctx)
+	defer cancel()
+	connection, err := s.readDB.Conn(bounded)
+	if err != nil {
+		return SendPermission{}, readError(bounded, err)
+	}
+	defer connection.Close()
+	sample, sampledAt := s.now(), time.Now()
+	fenced, stop := context.WithTimeout(bounded, responseDeadline)
+	defer stop()
+	s.safetyMu.RLock()
+	defer s.safetyMu.RUnlock()
+	if err = s.checkCredentialGrantQueryAt(fenced, connection, g, sample.Add(time.Since(sampledAt))); err != nil {
+		return SendPermission{}, err
+	}
+	permission, err := getSendPermissionQuery(fenced, connection, g)
+	if err == nil {
+		err = s.checkCredentialGrantQueryAt(fenced, connection, g, sample.Add(time.Since(sampledAt)))
+	}
+	return permission, err
+}
+
+func getSendPermissionQuery(ctx context.Context, q sqlQuerier, g CredentialGrant) (SendPermission, error) {
+	permission := SendPermission{Mode: "none", Chats: []ChatID{}}
+	var credentialRevision, revision int64
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN typeof(credential_revision)='integer' THEN credential_revision ELSE 0 END,mode,CASE WHEN typeof(revision)='integer' THEN revision ELSE 0 END FROM send_permission_modes WHERE credential_id=?`, g.CredentialID).Scan(&credentialRevision, &permission.Mode, &revision)
+	legacy := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !legacy {
+		return SendPermission{}, readError(ctx, err)
+	}
+	if !legacy {
+		if revision < 1 || credentialRevision < 1 || permission.Mode != "none" && permission.Mode != "selected" && permission.Mode != "all" {
+			return SendPermission{}, ErrArchiveUnavailable
+		}
+		permission.Revision = uint64(revision)
+		if uint64(credentialRevision) != g.CredentialRevision {
+			permission.Mode = "none"
+			return permission, nil
+		}
+		if permission.Mode != "selected" {
+			return permission, nil
+		}
+	}
+	rows, err := q.QueryContext(ctx, `SELECT chat_id FROM send_permissions WHERE credential_id=? AND credential_revision=? ORDER BY chat_id LIMIT 101`, g.CredentialID, g.CredentialRevision)
+	if err != nil {
+		return SendPermission{}, readError(ctx, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var chat ChatID
+		if err = rows.Scan(&chat); err != nil || !validReadID(string(chat)) || len(permission.Chats) >= 100 {
+			return SendPermission{}, ErrArchiveUnavailable
+		}
+		permission.Chats = append(permission.Chats, chat)
+	}
+	if err = rows.Err(); err != nil {
+		return SendPermission{}, readError(ctx, err)
+	}
+	if len(permission.Chats) > 0 {
+		permission.Mode = "selected"
+	} else if legacy {
+		permission.Mode = "none"
+	} else {
+		return SendPermission{}, ErrArchiveUnavailable
+	}
+	return permission, nil
 }
 func (s *Store) SendTarget(ctx context.Context, g CredentialGrant, chat ChatID) (string, error) {
 	if !validReadID(string(chat)) {
@@ -84,8 +189,10 @@ func (s *Store) sendTargetQuery(ctx context.Context, q sqlQuerier, g CredentialG
  AND EXISTS(SELECT 1 FROM credentials cr WHERE cr.id=? AND cr.account=c.account AND cr.principal=? AND cr.revision=? AND cr.revoked=0 AND (cr.expires_at=0 OR cr.expires_at>?) AND (cr.all_chats=1 OR EXISTS(SELECT 1 FROM credential_chats cc WHERE cc.credential_id=cr.id AND cc.chat_id=c.id)))`
 	args := []any{g.CredentialID, chat, g.Scope.Account, g.Scope.PolicyGeneration, g.CredentialID, g.Scope.Principal, g.CredentialRevision, unixms(sample.Add(time.Since(sampledAt)))}
 	if permission {
-		query += ` AND EXISTS(SELECT 1 FROM send_permissions sp WHERE sp.credential_id=? AND sp.credential_revision=? AND sp.chat_id=c.id)`
-		args = append(args, g.CredentialID, g.CredentialRevision)
+		query += ` AND (EXISTS(SELECT 1 FROM send_permission_modes sm WHERE sm.credential_id=? AND typeof(sm.credential_revision)='integer' AND sm.credential_revision=? AND sm.mode='all' AND typeof(sm.revision)='integer' AND sm.revision>0) OR
+ ((NOT EXISTS(SELECT 1 FROM send_permission_modes sm WHERE sm.credential_id=?) OR EXISTS(SELECT 1 FROM send_permission_modes sm WHERE sm.credential_id=? AND typeof(sm.credential_revision)='integer' AND sm.credential_revision=? AND sm.mode='selected' AND typeof(sm.revision)='integer' AND sm.revision>0))
+ AND EXISTS(SELECT 1 FROM send_permissions sp WHERE sp.credential_id=? AND sp.credential_revision=? AND sp.chat_id=c.id)))`
+		args = append(args, g.CredentialID, g.CredentialRevision, g.CredentialID, g.CredentialID, g.CredentialRevision, g.CredentialID, g.CredentialRevision)
 	}
 	var jid string
 	var expires int64
@@ -168,10 +275,25 @@ func (c sendCommand) run(s *Store, ctx context.Context) (any, error) {
 		var err error
 		switch c.op {
 		case "permission":
+			permission, permissionErr := getSendPermissionQuery(ctx, tx, c.grant)
+			if permissionErr != nil {
+				return permissionErr
+			}
+			if c.expectedPermissionRevision != nil && permission.Revision != *c.expectedPermissionRevision {
+				return ErrSendConflict
+			}
+			if permission.Revision >= math.MaxInt64 {
+				return ErrLimitExceeded
+			}
 			for _, chat := range c.chats {
 				if _, err = s.sendTargetQuery(ctx, tx, c.grant, chat, false, s.now(), time.Now()); err != nil {
 					return err
 				}
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO send_permission_modes(credential_id,credential_revision,mode,revision) VALUES(?,?,?,?)
+ ON CONFLICT(credential_id) DO UPDATE SET credential_revision=excluded.credential_revision,mode=excluded.mode,revision=excluded.revision`, c.grant.CredentialID, c.grant.CredentialRevision, c.permissionMode, permission.Revision+1)
+			if err != nil {
+				return err
 			}
 			if _, err = tx.ExecContext(ctx, "DELETE FROM send_permissions WHERE credential_id=?", c.grant.CredentialID); err != nil {
 				return err

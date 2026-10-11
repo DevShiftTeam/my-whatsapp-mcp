@@ -72,7 +72,7 @@ func validateConnectionRequest(request localui.ConnectionRequest, now time.Time)
 	return nil
 }
 func connectionDates(scope archive.ReadScope) localui.ConnectionScopeSummary {
-	result := localui.ConnectionScopeSummary{AllChats: scope.AllChats, ChatCount: len(scope.Chats)}
+	result := localui.ConnectionScopeSummary{AllChats: scope.AllChats, ChatCount: len(scope.Chats), Chats: append([]archive.ChatID{}, scope.Chats...)}
 	if !scope.From.IsZero() {
 		value := scope.From
 		result.StartDate = &value
@@ -113,7 +113,7 @@ func (a *Application) connectionSnapshot(ctx context.Context) (localui.Connectio
 		return result, localui.ErrConnectionUnavailable
 	}
 	for _, record := range a.authState.NativeClients {
-		item := localui.Connection{ID: record.IntentID, Client: record.Client, Label: record.Label, Mode: "local", State: "recovery_pending"}
+		item := localui.Connection{ID: record.IntentID, Client: record.Client, Label: record.Label, Mode: "local", State: "recovery_pending", SendPermission: archive.SendPermission{Mode: "none", Chats: []archive.ChatID{}}}
 		if item.Client == "" {
 			item.Client = "unknown"
 		}
@@ -140,6 +140,10 @@ func (a *Application) connectionSnapshot(ctx context.Context) (localui.Connectio
 					return result, localui.ErrConnectionUnavailable
 				}
 				item.Scope = connectionDates(grant.Scope)
+				item.SendPermission, err = a.store.GetSendPermission(ctx, grant)
+				if err != nil {
+					return result, localui.ErrConnectionUnavailable
+				}
 				item.State = "ready"
 			}
 			break

@@ -404,7 +404,7 @@ func TestOriginalCacheRecoveryRejectsDeletionAliasAndExtractionPins(t *testing.T
 }
 
 func TestReadOriginalCacheWitnessesKeepsCompatibleStoppedBackupUnchanged(t *testing.T) {
-	for _, version := range []int{10, 11, 12} {
+	for _, version := range []int{10, 11, 12, 13} {
 		t.Run(fmt.Sprintf("version %d", version), func(t *testing.T) {
 			s, _, dir := originalDownloadTestArchive(t)
 			p := testPolicy(t, s)
@@ -449,6 +449,9 @@ func TestReadOriginalCacheWitnessesKeepsCompatibleStoppedBackupUnchanged(t *test
 func originalCacheTestEarlierSchema(t *testing.T, s *Store, version int) {
 	t.Helper()
 	var statements []string
+	if version < 13 {
+		statements = append(statements, `DROP TABLE send_permission_modes`)
+	}
 	if version < 12 {
 		statements = append(statements, `DROP TABLE send_requests`, `DROP TABLE send_permissions`)
 	}

@@ -145,6 +145,9 @@ func TestRemoteMCPOutboundOwnerWithdrawalCommitsBeforeBlockedUploadReturns(t *te
 	for _, revoke := range []bool{false, true} {
 		t.Run(map[bool]string{false: "send_permission", true: "connection"}[revoke], func(t *testing.T) {
 			a, connection, grant, token, chat := outboundBridgeFixture(t)
+			if err := a.SetSendPermissionMode(context.Background(), connection.ID, connection.Revision, archive.SendPermission{Mode: "all"}, 1); err != nil {
+				t.Fatal("synthetic all-target send permission unavailable")
+			}
 			provider := &bridgeUploadProvider{started: make(chan struct{}), released: make(chan struct{})}
 			a.runtime = &bridgeOutboundConnector{syntheticConnector: &syntheticConnector{account: demoAccount, snapshot: ingestion.Status{Connection: "connected"}}, client: provider}
 			handler := publishOutboundBridgeHandler(t, a, a)
@@ -177,7 +180,7 @@ func TestRemoteMCPOutboundOwnerWithdrawalCommitsBeforeBlockedUploadReturns(t *te
 				if revoke {
 					withdrawn <- a.RevokeConnection(ctx, localui.ConnectionRevokeRequest{ID: connection.ID, Revision: connection.Revision})
 				} else {
-					withdrawn <- a.SetSendPermission(ctx, connection.ID, connection.Revision, nil)
+					withdrawn <- a.SetSendPermissionMode(ctx, connection.ID, connection.Revision, archive.SendPermission{Mode: "none"}, 2)
 				}
 			}()
 			t.Cleanup(func() {

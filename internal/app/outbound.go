@@ -50,7 +50,7 @@ func (a *Application) SendStatus(ctx context.Context, g archive.CredentialGrant,
 }
 
 // CheckSendResponse makes receipt publication subject to the original grant and
-// its current finite chat permission. It performs no provider or journal work.
+// its current send permission. It performs no provider or journal work.
 func (a *Application) CheckSendResponse(ctx context.Context, g archive.CredentialGrant, receipt outbound.Receipt) error {
 	if !a.data.TryRLock() {
 		return outbound.ErrUnavailable
@@ -65,6 +65,18 @@ func (a *Application) CheckSendResponse(ctx context.Context, g archive.Credentia
 
 // SetSendPermission is owner-only; MCP cannot grant itself outbound authority.
 func (a *Application) SetSendPermission(ctx context.Context, id string, revision uint64, chats []archive.ChatID) error {
+	return a.setSendPermission(ctx, id, revision, func(g archive.CredentialGrant) error {
+		return a.store.SetSendPermission(ctx, g, chats)
+	})
+}
+
+func (a *Application) SetSendPermissionMode(ctx context.Context, id string, revision uint64, permission archive.SendPermission, expected uint64) error {
+	return a.setSendPermission(ctx, id, revision, func(g archive.CredentialGrant) error {
+		return a.store.SetSendPermissionMode(ctx, g, permission, expected)
+	})
+}
+
+func (a *Application) setSendPermission(ctx context.Context, id string, revision uint64, write func(archive.CredentialGrant) error) error {
 	a.ops.Lock()
 	defer a.ops.Unlock()
 	a.data.RLock()
@@ -93,5 +105,5 @@ func (a *Application) SetSendPermission(ctx context.Context, id string, revision
 	if g.CredentialRevision != revision {
 		return archive.ErrSendConflict
 	}
-	return a.store.SetSendPermission(ctx, g, chats)
+	return write(g)
 }

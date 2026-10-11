@@ -4,14 +4,14 @@
 
 **Your WhatsApp, searchable by your AI.**
 
-Find a detail in your conversations or let Codex, Claude Code, or Composio read the chats you choose. My WhatsApp MCP links by QR code, keeps an archive on your computer, and gives each AI client scoped access. Connections start read-only; you can separately approve specific chats for sending. Hebrew and English keyword search work without a model download or paid API.
+Find a detail in your conversations or let Codex, Claude Code, or Composio read the chats you choose. My WhatsApp MCP links by QR code, keeps an archive on your computer, and gives each AI client scoped access. Connections start read-only; you can enable sending to selected chats or all chats that client can access. Hebrew and English keyword search work without a model download or paid API.
 
 - **Keep it local.** One Go executable, an embedded browser interface, and SQLite storage. No Docker, Node.js, or Python needed for the basic app.
 - **Choose the scope.** Select chats and dates for your archive, then set separate permissions and expiry for each AI client.
 - **Find the context.** Find an archived contact or group by name, search its saved messages, and open the surrounding conversation. See [MCP search](docs/mcp.md#find-a-contact-or-group).
 - **Check your archive.** Filter saved-message and media stats by date, chat, or type, and see processing status. See [Stats](docs/stats.md).
 - **Connect your tools.** Use a local MCP adapter or expose a scoped bearer endpoint through your own HTTPS tunnel.
-- **Allow sending.** Give one connection permission to send text, attachments, or existing voice recordings to specific chats. See [outbound messaging](docs/clients/outbound-messaging.md).
+- **Allow sending.** Edit a connection's permissions in the app to send text, attachments, or existing voice recordings to selected chats or all permitted chats, keeping its existing token. See [outbound messaging](docs/clients/outbound-messaging.md).
 
 ## Start locally
 

@@ -38,19 +38,21 @@ type ConnectionSnapshot struct {
 }
 
 type Connection struct {
-	ID        string                 `json:"id"`
-	Client    string                 `json:"client"`
-	Label     string                 `json:"label"`
-	Mode      string                 `json:"mode"`
-	Revision  uint64                 `json:"revision"`
-	State     string                 `json:"state"`
-	ExpiresAt *time.Time             `json:"expires_at,omitempty"`
-	Scope     ConnectionScopeSummary `json:"scope"`
+	ID             string                 `json:"id"`
+	Client         string                 `json:"client"`
+	Label          string                 `json:"label"`
+	Mode           string                 `json:"mode"`
+	Revision       uint64                 `json:"revision"`
+	State          string                 `json:"state"`
+	ExpiresAt      *time.Time             `json:"expires_at,omitempty"`
+	Scope          ConnectionScopeSummary `json:"scope"`
+	SendPermission archive.SendPermission `json:"send_permission"`
 }
 
 type ConnectionScopeSummary struct {
-	AllChats  bool `json:"all_chats"`
-	ChatCount int  `json:"chat_count"`
+	AllChats  bool             `json:"all_chats"`
+	ChatCount int              `json:"chat_count"`
+	Chats     []archive.ChatID `json:"chats"`
 	// StartDate is inclusive; EndDate is an exclusive instant.
 	StartDate *time.Time `json:"start_date,omitempty"`
 	EndDate   *time.Time `json:"end_date,omitempty"`

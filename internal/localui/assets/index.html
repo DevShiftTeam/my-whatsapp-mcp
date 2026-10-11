@@ -164,12 +164,31 @@
   </dialog>
 
   <dialog id="clients-dialog" aria-labelledby="clients-title">
-    <div class="dialog-heading"><div><h2 id="clients-title">AI connections</h2><p>Give an AI client read access to a scope you choose.</p></div><button id="clients-close" class="icon-button" type="button" aria-label="Close AI connections">×</button></div>
+    <div class="dialog-heading"><div><h2 id="clients-title">AI connections</h2><p>Choose what each AI client can read and send.</p></div><button id="clients-close" class="icon-button" type="button" aria-label="Close AI connections">×</button></div>
     <p class="notice">Search results may be sent to the AI service you use. Choose the smallest scope you need. Setup instructions remain unverified until the exact client makes a successful call.</p>
     <p id="clients-availability" class="field-help">Checking available connections…</p>
     <p id="clients-feedback" class="feedback" role="status" aria-live="polite"></p>
     <div id="client-list" class="model-list"></div>
     <button id="clients-refresh" class="text-button" type="button">Refresh connections</button>
+    <section id="client-send-editor" class="client-send-editor" aria-labelledby="client-send-title" hidden>
+      <div class="client-send-heading"><div><h3 id="client-send-title" tabindex="-1">Send permissions</h3><p id="client-send-name" class="field-help" dir="auto"></p></div><span class="client-permission-badge">Uses your existing token</span></div>
+      <form id="client-send-form">
+        <fieldset class="client-send-modes"><legend>This client may send to</legend>
+          <label><input id="client-send-mode-none" type="radio" name="client-send-mode" value="none" checked><span><strong>Read-only</strong><small>Search and read; sending is disabled.</small></span></label>
+          <label><input id="client-send-mode-selected" type="radio" name="client-send-mode" value="selected"><span><strong>Selected chats</strong><small>Allow messages and media in up to 100 chats.</small></span></label>
+          <label><input id="client-send-mode-all" type="radio" name="client-send-mode" value="all"><span><strong>All permitted chats</strong><small>Current and future chats within this connection's scope and your archive settings.</small></span></label>
+        </fieldset>
+        <div id="client-send-chat-panel" hidden>
+          <label class="stacked-label" for="client-send-search">Find a chat<input id="client-send-search" type="search" maxlength="256" autocomplete="off" dir="auto" placeholder="A contact or group name"></label>
+          <div id="client-send-chats" class="chat-choices client-send-chats"></div>
+          <div class="client-send-selection"><p id="client-send-selection-note" class="field-help" role="status" aria-live="polite"></p><button id="client-send-clear" class="text-button" type="button">Clear selection</button></div>
+          <p class="field-help">This list shows loaded chats allowed by the connection and your archive settings.</p>
+        </div>
+        <p id="client-send-warning" class="notice">Sending text, images, attachments, and voice notes uses your linked WhatsApp account. Permitted calls send directly, without another approval screen.</p>
+        <p id="client-send-feedback" class="feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions"><button id="client-send-save" class="primary" type="submit">Save permissions</button><button id="client-send-cancel" class="secondary" type="button">Cancel</button></div>
+      </form>
+    </section>
     <details id="client-create-panel" class="client-create-panel"><summary>Create a read-only connection</summary>
       <form id="client-form">
         <div class="client-fields"><label for="client-choice">AI client<select id="client-choice"><option value="codex_cli">Codex CLI</option><option value="codex_desktop">Codex desktop</option><option value="claude_code">Claude Code</option><option value="claude_connectors">Claude connectors</option><option value="composio">Composio</option></select></label><label for="client-mode">Connection mode<select id="client-mode"><option value="local">Local, on this computer</option><option value="remote">Remote, configured by this app</option></select></label></div>

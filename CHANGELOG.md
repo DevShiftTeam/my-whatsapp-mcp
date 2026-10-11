@@ -4,8 +4,9 @@
 
 ### Added
 
+- An owner permissions editor for existing AI connections, with read-only, selected-chat, and all-permitted-chat sending modes, separate permission revisions for stale-edit detection, and no change to existing tokens, read scopes, or expiry.
 - Contact and group name search through scoped MCP read tools, plus query and chat-type filters for `list_chats`, with case, spacing, punctuation, and Hebrew-mark normalization.
-- Optional MCP and JSON sending for text, media, and existing Ogg/Opus voice recordings, with separate owner-approved chat allowlists, read-only defaults, durable request IDs, and explicit unknown-outcome handling.
+- Optional MCP and JSON sending for text, media, and existing Ogg/Opus voice recordings, with separate owner-approved send modes, read-only defaults, durable request IDs, and explicit unknown-outcome handling.
 - An owner Stats dashboard with date, chat, and message-type filters, adaptive UTC activity, saved-media counts, separate archive processing status, and visible-only five-second refresh.
 - Offline original-cache recovery against a stopped private backup, restoring only verified existing recordings' associations under current source authority, without copying recordings or changing the backup.
 - Explicit offline committed-snapshot recovery for eligible source-safety pauses, preserving saved archive data and client grants while recording partial coverage and unverified phone state.

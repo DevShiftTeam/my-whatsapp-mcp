@@ -33,3 +33,4 @@ script-test:
 ui-test:
 	node --check internal/localui/assets/app.js
 	node scripts/ui/test_stats.mjs
+	node scripts/ui/test_send_permissions.mjs

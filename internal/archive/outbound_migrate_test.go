@@ -23,7 +23,7 @@ func TestOutboundUpgradePreservesExistingArchiveAndReadGrant(t *testing.T) {
 	}
 	// Represent the canonical v11 database before the new append-only migration.
 	// All existing migration checksums and source/credential rows stay intact.
-	for _, statement := range []string{"DROP TABLE send_requests", "DROP TABLE send_permissions", "DELETE FROM schema_migrations WHERE version=12"} {
+	for _, statement := range []string{"DROP TABLE send_permission_modes", "DROP TABLE send_requests", "DROP TABLE send_permissions", "DELETE FROM schema_migrations WHERE version>=12"} {
 		if _, err := s.writeDB.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
@@ -45,5 +45,44 @@ func TestOutboundUpgradePreservesExistingArchiveAndReadGrant(t *testing.T) {
 	}
 	if _, err := s.SendTarget(ctx, after, chat); !errors.Is(err, ErrSendForbidden) {
 		t.Fatal("existing read grant acquired send permission")
+	}
+}
+
+func TestSendPermissionModeUpgradePreservesLegacyFiniteGrantWithoutWidening(t *testing.T) {
+	s, _, now, chat, other := credentialFixture(t)
+	ctx := context.Background()
+	credential := createCredential(t, s, "legacy finite sender", CredentialPolicy{Account: "account", AllChats: true})
+	grant, err := s.ResolveCredentialID(ctx, credential.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetSendPermission(ctx, grant, []ChatID{chat}); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{"DROP TABLE send_permission_modes", "DELETE FROM schema_migrations WHERE version=13"} {
+		if _, err = s.writeDB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s = reopenCredentialStore(t, s, now)
+	current, err := s.ResolveCredentialID(ctx, credential.ID)
+	if err != nil || !reflect.DeepEqual(grant, current) {
+		t.Fatal("mode migration changed read credential")
+	}
+	permission, err := s.GetSendPermission(ctx, current)
+	if err != nil || permission.Mode != "selected" || permission.Revision != 0 || !reflect.DeepEqual(permission.Chats, []ChatID{chat}) {
+		t.Fatalf("legacy permission lost: %#v %v", permission, err)
+	}
+	if _, err = s.SendTarget(ctx, current, chat); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SendTarget(ctx, current, other); !errors.Is(err, ErrSendForbidden) {
+		t.Fatal("mode migration broadened legacy authority")
+	}
+	if err = s.SetSendPermissionMode(ctx, current, SendPermission{Mode: "none"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SendTarget(ctx, current, chat); !errors.Is(err, ErrSendForbidden) {
+		t.Fatal("legacy permission was not removable")
 	}
 }
