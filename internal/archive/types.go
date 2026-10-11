@@ -209,8 +209,10 @@ type ContextPage struct {
 	Snapshot ReadSnapshot
 }
 type ChatListRequest struct {
-	Limit  int
-	Cursor string
+	Query    string
+	ChatType string // empty/all, direct, or group; narrows the permitted archive
+	Limit    int
+	Cursor   string
 }
 type ChatView struct {
 	ID             ChatID

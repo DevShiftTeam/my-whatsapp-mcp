@@ -38,8 +38,11 @@ type optionalNetwork struct {
 	cancel          context.CancelFunc
 	done            chan struct{}
 	commands        chan optionalCommand
-	accepting       bool // Runtime.optionalMu
-	backfillPending bool // Runtime.optionalMu
+	accepting       bool   // Runtime.optionalMu
+	backfillPending bool   // Runtime.optionalMu
+	namesPending    bool   // Runtime.optionalMu; coalesced optional label refresh
+	namesAgain      bool   // Runtime.optionalMu; a cache change arrived during a scan
+	namesAfter      string // Runtime.optionalMu; bounded existing-row keyset cursor
 	activeMu        sync.Mutex
 	activeCancel    context.CancelFunc
 	tail            *optionalTail // sole loop owner; stop accesses only after done
@@ -267,7 +270,10 @@ func (r *Runtime) optionalWork(n *optionalNetwork) {
 			}
 			continue // one bounded send; source admission is checked next turn
 		}
-		r.optionalOriginalStep(n)
+		r.optionalNamesStep(n)
+		if n.ctx.Err() == nil && r.optionalReady() {
+			r.optionalOriginalStep(n)
+		}
 	}
 }
 func staleOptional(err error) bool {

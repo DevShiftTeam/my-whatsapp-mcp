@@ -8,7 +8,7 @@ Find a detail in your conversations or let Codex, Claude Code, or Composio read 
 
 - **Keep it local.** One Go executable, an embedded browser interface, and SQLite storage. No Docker, Node.js, or Python needed for the basic app.
 - **Choose the scope.** Select chats and dates for your archive, then set separate permissions and expiry for each AI client.
-- **Find the context.** Search saved messages and open the surrounding conversation.
+- **Find the context.** Find an archived contact or group by name, search its saved messages, and open the surrounding conversation. See [MCP search](docs/mcp.md#find-a-contact-or-group).
 - **Check your archive.** Filter saved-message and media stats by date, chat, or type, and see processing status. See [Stats](docs/stats.md).
 - **Connect your tools.** Use a local MCP adapter or expose a scoped bearer endpoint through your own HTTPS tunnel.
 - **Allow sending.** Give one connection permission to send text, attachments, or existing voice recordings to specific chats. See [outbound messaging](docs/clients/outbound-messaging.md).

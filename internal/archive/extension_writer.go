@@ -68,13 +68,14 @@ type extensionCommitSource struct {
 	media bool
 }
 type extensionCommitGuard struct {
-	sources      map[MessageID]extensionCommitSource
-	activations  map[IndexGenerationID]bool
-	roots        map[DocumentID]extensionRootResponsePin
-	rootSources  int
-	generations  map[IndexGenerationID]IndexVersion
-	deadline     time.Time
-	revokesRoots bool
+	sources         map[MessageID]extensionCommitSource
+	activations     map[IndexGenerationID]bool
+	roots           map[DocumentID]extensionRootResponsePin
+	rootSources     int
+	generations     map[IndexGenerationID]IndexVersion
+	deadline        time.Time
+	revokesRoots    bool
+	metadataChanged bool
 }
 type extensionGuardState struct {
 	mu           sync.Mutex
@@ -104,6 +105,13 @@ func (s *Store) extensionRegisterRootRevocation(tx *sql.Tx) {
 	defer s.extensionGuards.mu.Unlock()
 	if guard := s.extensionGuards.transactions[tx]; guard != nil {
 		guard.revokesRoots = true
+	}
+}
+func (s *Store) extensionRegisterMetadataChange(tx *sql.Tx) {
+	s.extensionGuards.mu.Lock()
+	defer s.extensionGuards.mu.Unlock()
+	if guard := s.extensionGuards.transactions[tx]; guard != nil {
+		guard.metadataChanged = true
 	}
 }
 func (s *Store) extensionRegisterRoot(q sqlQuerier, record extensionRootRecord) error {
@@ -231,6 +239,7 @@ func (s *Store) extensionTransaction(ctx context.Context, account string, fn fun
 	}
 	deadline := s.extensionGuards.transactions[tx].deadline
 	revokesRoots := s.extensionGuards.transactions[tx].revokesRoots
+	metadataChanged := s.extensionGuards.transactions[tx].metadataChanged
 	roots := make([]extensionRootResponsePin, 0, len(s.extensionGuards.transactions[tx].roots))
 	for _, pin := range s.extensionGuards.transactions[tx].roots {
 		roots = append(roots, pin)
@@ -326,7 +335,8 @@ func (s *Store) extensionTransaction(ctx context.Context, account string, fn fun
 		return err
 	}
 	err = tx.Commit()
-	if err == nil && (beforeIndex != afterIndex || beforePolicy != afterPolicy || revokesRoots) {
+	// An ambiguous metadata commit must also fence responses with old labels.
+	if metadataChanged || (err == nil && (beforeIndex != afterIndex || beforePolicy != afterPolicy || revokesRoots)) {
 		s.safetyEpoch++
 	}
 	_ = before

@@ -189,6 +189,36 @@ func TestVerifiedOAuthRouteStillNeedsActualClientEvidence(t *testing.T) {
 	}
 }
 
+func TestSupportedGuidesIncludeScopedContactAndGroupSearch(t *testing.T) {
+	for _, client := range []Client{CodexCLI, CodexDesktop, ClaudeCode, ClaudeConnectors, Composio} {
+		modes := []Mode{Remote}
+		if client != ClaudeConnectors && client != Composio {
+			modes = append(modes, Local)
+		}
+		for _, mode := range modes {
+			cfg := remoteFixture()
+			cfg.HeaderAuthAvailable = true
+			if mode == Local {
+				cfg = localFixture()
+			}
+			guide, err := Render(client, mode, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, phrase := range []string{"six read tools", "search_contacts", "search_groups", "next_cursor", "same query"} {
+				if !strings.Contains(guide.TestAction, phrase) {
+					t.Fatalf("%s/%s setup guide omitted name-search verification", client, mode)
+				}
+			}
+			for _, tool := range []string{"search_contacts", "search_groups"} {
+				if !strings.Contains(guide.RevokeAction, tool) {
+					t.Fatalf("%s/%s setup guide omitted name search from revoked-access checks", client, mode)
+				}
+			}
+		}
+	}
+}
+
 func TestModesAndEndpointsFailClosed(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

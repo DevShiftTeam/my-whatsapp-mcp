@@ -1,6 +1,6 @@
 # Connect an AI client
 
-MCP exposes four read tools: `search_messages`, `get_context`, `list_chats`, and `get_index_status`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for specific chats; see [outbound messaging](clients/outbound-messaging.md).
+MCP exposes six read tools: `search_contacts`, `search_groups`, `list_chats`, `search_messages`, `get_context`, and `get_index_status`. Connections start read-only, with their own chat scope, optional date bounds, and expiry. Sending text, media, or existing voice recordings requires a separate owner-approved permission for specific chats; see [outbound messaging](clients/outbound-messaging.md).
 
 ## Local Codex or Claude Code
 
@@ -16,6 +16,24 @@ The app generates a private credential file and a stdio adapter configuration. Y
 The app also advertises outbound tools, but their presence does not grant send permission. Existing and newly created connections cannot send until the owner explicitly grants it. There is currently no send-permission button or CLI; the [outbound guide](clients/outbound-messaging.md#give-one-connection-permission-to-send) describes the authenticated owner API.
 
 Hosted Composio and Claude connectors cannot use this local adapter because they run outside your computer. They require remote access.
+
+## Find a contact or group
+
+Search names before searching a conversation's messages:
+
+| Tool | Example arguments |
+| --- | --- |
+| `search_contacts` | `{"query":"NoaLevi","limit":10}` |
+| `search_groups` | `{"query":"Weekend plans","limit":10}` |
+| `list_chats` | `{"query":"Noa Levi","chat_type":"direct","limit":10}` |
+
+`search_contacts` searches direct conversations; `search_groups` searches groups. Both require a name query. `list_chats` accepts an optional query and `chat_type` of `all`, `direct`, or `group`. The default page size is 20, with a maximum of 50. When a result has `next_cursor`, pass it as `cursor` with the same query, chat type where supported, and limit to read the next page.
+
+Name matching ignores case, spaces, punctuation, and Hebrew marks: the fictional name `Noa Levi` also matches `NoaLevi`. It does not transliterate between Hebrew and Latin spellings. Results include only archived chats with messages readable under this connection's permissions and the archive policy. They are not a full phonebook or a list of all WhatsApp groups.
+
+Use a returned opaque `chat_id` in `search_messages`' `chat_ids` filter, then use a returned `message_id` with `get_context`. Group search supports the same reading flow. Sending to a group requires a separate permission for that specific group; these tools do not manage members or group settings.
+
+After upgrading the app, use **Sync** or refresh tool discovery in Composio if the new search tools are missing. Keep the existing connection and token. For a local client, restart its MCP session to refresh the tool list.
 
 ## Remote bearer access
 

@@ -17,7 +17,13 @@ var migrationFiles embed.FS
 const queryOnlyDriverName = "wa_indexer_archive_reader"
 
 func init() {
-	sql.Register(queryOnlyDriverName, &sqlite3.SQLiteDriver{ConnectHook: func(c *sqlite3.SQLiteConn) error { _, err := c.Exec("PRAGMA query_only=ON", nil); return err }})
+	sql.Register(queryOnlyDriverName, &sqlite3.SQLiteDriver{ConnectHook: func(c *sqlite3.SQLiteConn) error {
+		if err := c.RegisterFunc("wa_indexer_name_key", chatNameKey, true); err != nil {
+			return err
+		}
+		_, err := c.Exec("PRAGMA query_only=ON", nil)
+		return err
+	}})
 }
 func migrate(ctx context.Context, db *sql.DB) error {
 	// Check actual compiled capability; no keyword-only silent fallback.

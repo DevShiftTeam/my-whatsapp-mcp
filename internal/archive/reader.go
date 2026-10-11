@@ -790,8 +790,29 @@ func readLimit(limit int) (int, error) {
 	return limit, nil
 }
 func (f *readFrame) chatViews(limit, offset int) ([]ChatView, error) {
-	bind := append(append([]any(nil), f.args...), limit, offset)
-	rows, err := f.tx.QueryContext(f.ctx, `SELECT c.id,substr(c.name,1,256),min(m.original_sent_at),max(m.original_sent_at),count(*),EXISTS(SELECT 1 FROM sync_gaps g WHERE g.account=c.account AND g.chat=c.source_chat AND g.code='unresolved_deletion') FROM `+authorizedTables+" WHERE "+f.where+" GROUP BY c.id ORDER BY c.id LIMIT ? OFFSET ?", bind...)
+	return f.filteredChatViews(limit, offset, "", "all")
+}
+
+func (f *readFrame) filteredChatViews(limit, offset int, queryKey, chatType string) ([]ChatView, error) {
+	where := f.where
+	bind := append([]any(nil), f.args...)
+	switch chatType {
+	case "direct":
+		where += " AND instr(c.source_chat,'@')>1 AND substr(c.source_chat,instr(c.source_chat,'@')+1) IN (?,?)"
+		bind = append(bind, "s.whatsapp.net", "lid")
+	case "group":
+		where += " AND instr(c.source_chat,'@')>1 AND substr(c.source_chat,instr(c.source_chat,'@')+1)=?"
+		bind = append(bind, "g.us")
+	}
+	having := ""
+	if queryKey != "" {
+		// Evaluate normalization once for each permitted chat, not once for
+		// every message, and filter matches before pagination.
+		having = " HAVING instr(wa_indexer_name_key(c.name),?)>0"
+		bind = append(bind, queryKey)
+	}
+	bind = append(bind, limit, offset)
+	rows, err := f.tx.QueryContext(f.ctx, `SELECT c.id,substr(c.name,1,256),min(m.original_sent_at),max(m.original_sent_at),count(*),EXISTS(SELECT 1 FROM sync_gaps g WHERE g.account=c.account AND g.chat=c.source_chat AND g.code='unresolved_deletion') FROM `+authorizedTables+" WHERE "+where+" GROUP BY c.id"+having+" ORDER BY c.id LIMIT ? OFFSET ?", bind...)
 	if err != nil {
 		return nil, readError(f.ctx, err)
 	}
@@ -840,6 +861,10 @@ func (s *Store) chatPage(ctx context.Context, scope ReadScope, request ChatListR
 	if err != nil {
 		return ChatPage{}, err
 	}
+	queryKey, chatType, err := chatListFilter(request)
+	if err != nil {
+		return ChatPage{}, err
+	}
 	f, err := s.beginRead(ctx, scope, nil, time.Time{}, time.Time{})
 	if err != nil {
 		return ChatPage{}, err
@@ -850,9 +875,11 @@ func (s *Store) chatPage(ctx context.Context, scope ReadScope, request ChatListR
 		return ChatPage{}, err
 	}
 	identity := cursorIdentity("chats", f.scope, struct {
+		QueryKey       string
+		ChatType       string
 		Limit          int
 		RollingHorizon time.Time
-	}{limit, horizon}, f.snapshot, f.fixedFrom, f.until, expiry)
+	}{queryKey, chatType, limit, horizon}, f.snapshot, f.fixedFrom, f.until, expiry)
 	offset := 0
 	if request.Cursor != "" {
 		offset, err = decodeCursor(s.cursorKey, request.Cursor, identity)
@@ -860,7 +887,7 @@ func (s *Store) chatPage(ctx context.Context, scope ReadScope, request ChatListR
 			return ChatPage{}, err
 		}
 	}
-	chats, err := f.chatViews(limit+1, offset)
+	chats, err := f.filteredChatViews(limit+1, offset, queryKey, chatType)
 	if err != nil {
 		return ChatPage{}, err
 	}

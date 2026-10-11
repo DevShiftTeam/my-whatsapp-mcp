@@ -1018,6 +1018,11 @@ func (r *Runtime) deliverRun(event any, run uint64) {
 	}
 	recoveryEpoch := r.noteRecoverySignal(event, run)
 	switch e := event.(type) {
+	case *events.Contact, *events.PushName, *events.BusinessName:
+		// Cache changes supply optional labels, never authoritative source work.
+		// Coalesce without retaining an event or consuming source queue capacity.
+		r.wakeSourceNames()
+		return
 	case *events.Connected:
 		r.connectionDiagnostic("event", "connected", nil, 0, false)
 	case *events.Disconnected:
@@ -1304,6 +1309,7 @@ func (r *Runtime) consume(item queuedEvent) {
 		if err == nil {
 			r.snapshotSocketState()
 			r.connectionDiagnostic("connected", "connected", nil, 0, false)
+			r.wakeSourceNames()
 			stage = "backfill_request"
 			err = r.requestBackfill(r.runCtx)
 			r.WakeOriginalDownloads()

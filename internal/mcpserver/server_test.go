@@ -617,7 +617,7 @@ func sdkSession(t *testing.T, s *httptest.Server, raw string) (*mcp.ClientSessio
 	return session, ctx
 }
 
-func TestNativeSDKListsOnlyFourReadOnlyTools(t *testing.T) {
+func TestNativeSDKListsOnlySixReadOnlyTools(t *testing.T) {
 	f := &fakeReader{}
 	s, _ := httpFixture(t, f, credentialsFixture(), nil)
 	session, ctx := sdkSession(t, s, fakeToken())
@@ -625,11 +625,11 @@ func TestNativeSDKListsOnlyFourReadOnlyTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tools) != 4 {
+	if len(list.Tools) != 6 {
 		t.Fatalf("unexpected tools: %d", len(list.Tools))
 	}
 	for _, tool := range list.Tools {
-		if !contains([]string{"search_messages", "get_context", "list_chats", "get_index_status"}, tool.Name) || tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+		if !contains([]string{"search_messages", "get_context", "list_chats", "search_contacts", "search_groups", "get_index_status"}, tool.Name) || tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
 			t.Fatal("unexpected mutable capability")
 		}
 	}
