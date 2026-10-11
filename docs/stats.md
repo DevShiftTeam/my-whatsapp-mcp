@@ -2,6 +2,10 @@
 
 The app opens on **Stats**. Use **Archive** to search conversations. Stats refreshes every five seconds while that view and browser tab are visible.
 
+## Appearance
+
+Use the **Appearance** selector in the header to follow your **System** theme or choose **Light** or **Dark**. System is the default and updates when your device's setting changes. Your choice is saved in this browser for this app address, including the login screen, without changing other devices or archive settings. Charts, tables, filters, and dialogs use the same theme on desktop and mobile. See [local setup](setup.md#choose-light-or-dark) for details.
+
 ## Choose what to count
 
 Choose **Date range**, **Chat**, and **Message type** to filter saved-message counts, charts, highlights, and breakdowns together. Date ranges include the last 7, 30, or 90 days, **All saved history**, and **Custom dates**. Custom dates include both selected local calendar days. Message types are **All message types**, **Text**, **Images**, **Voice notes**, and **Other**.

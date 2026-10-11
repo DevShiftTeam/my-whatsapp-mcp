@@ -4,7 +4,7 @@ MCP exposes eight read tools: `search_contacts`, `search_groups`, `list_chats`, 
 
 ## Local Codex or Claude Code
 
-1. Keep My WhatsApp MCP running and confirm that a message is searchable in its browser interface.
+1. Keep My WhatsApp running and confirm that a message is searchable in its browser interface.
 2. Open **AI connections → Create a read-only connection**.
 3. Choose your client and **Local, on this computer**.
 4. Name the connection, select the permitted chats and dates, set an expiry, and create it.
@@ -41,7 +41,7 @@ Use `search_attachments` to filter filenames, file types, dates and nearby conve
 
 ## Remote bearer access
 
-Remote access is an advanced setup. You need an HTTPS hostname, a tunnel or reverse proxy to this computer, and a client that can send an `Authorization` header. My WhatsApp MCP does not configure the tunnel or run an OAuth authorization server.
+Remote access is an advanced setup. You need an HTTPS hostname, a tunnel or reverse proxy to this computer, and a client that can send an `Authorization` header. My WhatsApp does not configure the tunnel or run an OAuth authorization server.
 
 The proxy must preserve the configured public `Host` header and pass `Authorization` unchanged. Replacing `Host` with `localhost` causes the app to reject the request; `X-Forwarded-Host` does not replace this check.
 
@@ -64,10 +64,10 @@ Create a connection in **AI connections**, choosing **Remote**. Select a narrow 
 Clients must send:
 
 ```text
-Authorization: Bearer <My WhatsApp MCP client token>
+Authorization: Bearer <My WhatsApp client token>
 ```
 
-Use the receiving client's secret store or the generated guide's dedicated environment variable. Keep tokens out of URLs, source control, and public logs. A Composio project API key is separate from the My WhatsApp MCP token. Composio's API-key mapping must produce `Authorization: Bearer {{generic_api_key}}`; an API Key dropdown alone does not guarantee that header.
+Use the receiving client's secret store or the generated guide's dedicated environment variable. Keep tokens out of URLs, source control, and public logs. A Composio project API key is separate from the My WhatsApp client token. Composio's API-key mapping must produce `Authorization: Bearer {{generic_api_key}}`; an API Key dropdown alone does not guarantee that header.
 
 Claude hosted connectors need an account that supports custom request headers. Only pass `--mcp-header-auth-available` if you have confirmed that capability. The ordinary bearer endpoint is not an OAuth endpoint.
 

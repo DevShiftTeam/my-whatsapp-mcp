@@ -117,13 +117,13 @@ func Render(client Client, mode Mode, cfg SetupConfig) (Guide, error) {
 		guide.Status, guide.SupportLabel, guide.Explanation = Unsupported, "Unsupported combination", explanation
 		return guide, ErrUnsupported
 	}
-	guide.Explanation = "This transport is documented. This My WhatsApp MCP connection still needs a successful call from the exact client version."
+	guide.Explanation = "This transport is documented. This My WhatsApp connection still needs a successful call from the exact client version."
 	if mode == Local {
 		return localGuide(guide, cfg), nil
 	}
 	guide.Endpoint = cfg.RemoteURL
 	guide.Warnings = []string{
-		"Keep this computer, My WhatsApp MCP and the HTTPS tunnel running while the remote client connects.",
+		"Keep this computer, My WhatsApp and the HTTPS tunnel running while the remote client connects.",
 		"Remote results pass through the tunnel provider and the receiving AI service.",
 		"Expose only the dedicated MCP listener. Pairing, administration and archive files stay on the separate local interface.",
 	}
@@ -192,7 +192,7 @@ func localGuide(g Guide, cfg SetupConfig) Guide {
 		g.ConfigurationFormat = "toml"
 		g.Configuration = "[mcp_servers.wa_indexer]\ncommand = " + tomlString(cfg.ExecutablePath) + "\nargs = [\"mcp\", \"stdio\", \"--config\", " + tomlString(cfg.LocalConfigPath) + "]\n"
 	}
-	g.CredentialPlacement = "Copy the generated client configuration. My WhatsApp MCP creates the private 0600 credential file in its 0700 directory and connects the adapter through a private Unix socket. You do not need to choose a port, copy the file contents or set a token environment variable. The client receives only the generated file path; secret values stay out of settings, arguments and previews."
+	g.CredentialPlacement = "Copy the generated client configuration. My WhatsApp creates the private 0600 credential file in its 0700 directory and connects the adapter through a private Unix socket. You do not need to choose a port, copy the file contents or set a token environment variable. The client receives only the generated file path; secret values stay out of settings, arguments and previews."
 	g.TestAction = testTools(g.Client)
 	g.RevokeAction = revokeCredential(cfg.LocalCredentialID) + " Then remove this isolated client's wa_indexer registration; deleting its config file alone does not revoke access."
 	if g.Client == CodexDesktop {
@@ -226,7 +226,7 @@ func bearerGuide(g Guide, cfg SetupConfig) Guide {
 	case Composio:
 		g.ConfigurationFormat = "json"
 		g.Configuration = jsonConfig(map[string]any{"mode": "API_KEY", "headers": map[string]string{"Authorization": "Bearer {{generic_api_key}}"}})
-		g.CredentialPlacement = "Register the API_KEY auth scheme with this explicit Authorization template. Enter the raw My WhatsApp MCP token as the connected account's generic_api_key. The Composio project x-api-key is separate and must not be sent to My WhatsApp MCP."
+		g.CredentialPlacement = "Register the API_KEY auth scheme with this explicit Authorization template. Enter the raw My WhatsApp token as the connected account's generic_api_key. The Composio project x-api-key is separate and must not be sent to My WhatsApp."
 		g.TestAction = "After authorized registration at the endpoint above, create an active API-key connection and wait for authenticated tool sync. Verify the six core read tools: search_messages, get_context, list_chats, search_contacts, search_groups and get_index_status. With attachment support configured, verify search_attachments and get_attachment too, for eight read tools. Execute them against synthetic permitted sources. Search a permitted contact and group by name, following next_cursor with the same query. For configured attachments, search a synthetic permitted file by filename/type with before/after context, then pass its attachment_id to get_attachment and confirm the client can download its original. Confirm the actual outgoing header uses Authorization: Bearer, then verify excluded scope and a revoked token are denied."
 		g.Warnings = append(g.Warnings, "An API Key dropdown or active connection alone does not prove the outgoing header or successful remote authentication. The experimental registration API and beta dashboard flow may differ.")
 	}
@@ -250,9 +250,9 @@ func oauthGuide(g Guide, cfg SetupConfig) Guide {
 	}
 	g.CredentialPlacement = "Use the verified authorization server's consent flow. Do not enter a static bearer token or reuse the bearer-only hostname. Client registration and callback URLs must match this exact client surface."
 	g.TestAction = "Complete the actual OAuth consent/callback and refresh flow with the intended client, then " + testTools(g.Client)
-	g.RevokeAction = "Revoke this connection's access and refresh credentials at the authorization server and remove its My WhatsApp MCP policy grant. Repeat all configured read tools, including search_attachments and get_attachment when attachment support is configured, and refresh with the old connection; both must be denied. Then disconnect the client."
+	g.RevokeAction = "Revoke this connection's access and refresh credentials at the authorization server and remove its My WhatsApp policy grant. Repeat all configured read tools, including search_attachments and get_attachment when attachment support is configured, and refresh with the old connection; both must be denied. Then disconnect the client."
 	if cfg.CredentialID != "" {
-		g.RevokeAction += " The mapped My WhatsApp MCP credential is " + cfg.CredentialID + "."
+		g.RevokeAction += " The mapped My WhatsApp credential is " + cfg.CredentialID + "."
 	}
 	g.Warnings = append(g.Warnings, "An email identity alone does not establish per-client isolation. Distinct OAuth clients require a verifiable client identity or separate configured endpoints/applications.")
 	return g
@@ -264,7 +264,7 @@ func testTools(client Client) string {
 }
 
 func revokeCredential(id string) string {
-	return "In My WhatsApp MCP's Connect an AI App, revoke credential " + id + ". Repeat search_messages, get_context, list_chats, search_contacts, search_groups and get_index_status using the old connection; also repeat search_attachments and get_attachment when attachment support is configured. Every call must be denied."
+	return "In My WhatsApp's Connect an AI App, revoke credential " + id + ". Repeat search_messages, get_context, list_chats, search_contacts, search_groups and get_index_status using the old connection; also repeat search_attachments and get_attachment when attachment support is configured. Every call must be denied."
 }
 
 func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }

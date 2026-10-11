@@ -285,7 +285,7 @@ func TestRunDemoKeepsOwnerURLPrivateAndClosesResources(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("application shutdown exceeded its bound")
 	}
-	if stdout.String() != "My WhatsApp MCP is running. Open the private owner link on this computer.\n" || stderr.Len() != 0 {
+	if stdout.String() != "My WhatsApp is running. Open the private owner link on this computer.\n" || stderr.Len() != 0 {
 		t.Fatal("application output did not preserve its private-link contract")
 	}
 	if _, err := os.Stat(openerLog); !errors.Is(err, os.ErrNotExist) {

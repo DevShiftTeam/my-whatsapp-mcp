@@ -1,12 +1,14 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="My WhatsApp MCP logo" width="112">
+  <img src="docs/assets/logo.png" alt="My WhatsApp logo" width="112">
 </p>
 
-# My WhatsApp MCP
+# My WhatsApp
 
-**Search your WhatsApp archive, transcribe voice notes locally, and let AI tools read chats and send messages with your permission.**
+**Your WhatsApp history, searchable on your own computer.**
 
-Link WhatsApp by QR code. Keep the archive on your computer. Search saved conversations in Hebrew and English, find attachments with their surrounding messages, and connect Codex, Claude Code, or Composio through MCP. Each client gets its own chat scope, dates, and expiry. MCP supports **read + send**: text, media, and existing voice recordings to contacts and groups. New connections start read-only; you can grant sending to selected chats or all permitted chats from the owner interface.
+Link WhatsApp by QR code. Search saved conversations in Hebrew and English, transcribe voice notes locally, and find files with their surrounding messages. Keep the archive on your computer and explore it in a responsive dashboard with light and dark themes.
+
+Connect your AI tools through **MCP with read + send**. Codex, Claude Code, and Composio can search your permitted chats and send text, media, and existing voice recordings to contacts and groups. Each client gets its own chat scope, dates, and expiry. New connections start read-only; you can grant sending to selected chats or all permitted chats from the owner interface.
 
 [**Set up locally**](docs/setup.md) · [Voice transcription](docs/transcription.md) · [Attachments](docs/attachments.md) · [MCP clients](docs/mcp.md) · [Roadmap](docs/roadmap.md) · [Alternatives](docs/alternatives.md)
 
@@ -24,6 +26,7 @@ Link WhatsApp by QR code. Keep the archive on your computer. Search saved conver
 | Connect AI tools | Local MCP adapter or your own HTTPS tunnel. Per-client scope and expiry; read-only by default. |
 | Send with permission | Text, attachments, and existing voice recordings to direct chats and groups. You grant sending separately to selected chats or all chats within the client's scope. |
 | Follow import progress | A responsive Stats page with chat, date, and type filters, saved-message counts, and media processing status. |
+| Choose your appearance | Follow your system theme by default, or choose light or dark. Works on desktop and mobile. |
 
 Semantic and hybrid search, image OCR, and image descriptions are **experimental**. They require a separately prepared native bundle; there is no supported one-command installer or selected semantic release profile yet. See [native models](docs/native-models.md).
 
@@ -32,7 +35,7 @@ Semantic and hybrid search, image OCR, and image descriptions are **experimental
 You need **Go 1.27.1, a C compiler, and a browser** on macOS 14 or newer, or Linux. The basic app needs no Docker, Node.js, Python, model download, or paid API. Windows is unsupported.
 
 ```sh
-git clone https://github.com/Bodokh/my-whatsapp-mcp.git
+git clone https://github.com/DevShiftTeam/my-whatsapp-mcp.git
 cd my-whatsapp-mcp
 ./scripts/app/build.sh
 ./bin/wa-indexer serve
@@ -83,7 +86,7 @@ The [comparison guide](docs/alternatives.md) compares QR-linked WhatsApp MCP pro
 
 <img src="docs/assets/comparison.png" alt="Comparison of WhatsApp MCP projects by local archive, read and send support, voice transcripts, semantic search and permissions" width="100%">
 
-My WhatsApp MCP combines a local archive, optional offline voice transcription, scoped MCP reads and sends, and attachment search with conversation context. See the [text comparison and sources](docs/alternatives.md) for the details behind the graphic, including experimental features and differences in setup.
+My WhatsApp combines a local archive, optional offline voice transcription, scoped MCP reads and sends, and attachment search with conversation context. See the [text comparison and sources](docs/alternatives.md) for the details behind the graphic, including experimental features and differences in setup.
 
 ## What's next
 

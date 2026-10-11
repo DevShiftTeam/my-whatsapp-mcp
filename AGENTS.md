@@ -1,6 +1,6 @@
 # Working in this repository
 
-My WhatsApp MCP is a local WhatsApp archive with scoped MCP access, read-only by default. Optional sending requires a separate owner-approved mode: selected chats or all chats within the client's read scope and archive policy. Permission edits preserve the existing token, read scope, and expiry. The executable remains `wa-indexer`; keep existing data paths and credentials compatible unless a change explicitly includes migration.
+My WhatsApp is a local WhatsApp archive with optional scoped MCP access, read-only by default. Optional sending requires a separate owner-approved mode: selected chats or all chats within the client's read scope and archive policy. Permission edits preserve the existing token, read scope, and expiry. Keep the existing logo. The repository is `DevShiftTeam/my-whatsapp-mcp`; the Go module remains `github.com/Bodokh/my-whatsapp-mcp` for compatibility. The executable remains `wa-indexer`; keep existing data paths and credentials compatible unless a change explicitly includes migration.
 
 Before editing, read the relevant source and these guides:
 
@@ -9,6 +9,7 @@ Before editing, read the relevant source and these guides:
 - [Attachments](docs/attachments.md) for document retention, scoped file search, and private original downloads.
 - [Outbound messaging](docs/clients/outbound-messaging.md) for send permissions, media limits, durable request IDs, and uncertain outcomes.
 - [Development](docs/development.md) for package ownership and checks.
+- [Stats](docs/stats.md) for dashboard filters, charts, and appearance.
 - [Security](SECURITY.md) for private data and reporting.
 - [Native models](docs/native-models.md) when changing media or inference.
 - [Transcription](docs/transcription.md) for the optional voice service, configuration, and generated transcripts.

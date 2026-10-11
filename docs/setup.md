@@ -30,7 +30,7 @@ On other Linux distributions, install their C compiler and Make packages. A grap
 Clone the source repository and enter its directory:
 
 ```sh
-git clone https://github.com/Bodokh/my-whatsapp-mcp.git
+git clone https://github.com/DevShiftTeam/my-whatsapp-mcp.git
 cd my-whatsapp-mcp
 ```
 
@@ -89,6 +89,10 @@ Use the same `--data-dir` argument if you originally chose a custom directory. A
 ## Check Stats
 
 The app opens on **Stats**; use **Archive** to search conversations. See the [Stats guide](stats.md) for filters, visible-only refresh, UTC activity, and the difference between saved-data counts and global processing status.
+
+## Choose light or dark
+
+Use **Appearance** on the login screen or in the app header to choose **System**, **Light**, or **Dark**. **System** is the default and follows changes to your device's light or dark setting. An explicit choice stays in this browser for this app address; it does not change the archive, credentials, or other devices. Choose **System** again to follow your device. If browser storage is unavailable, the choice lasts only for the current page.
 
 ## Manage AI connection permissions
 

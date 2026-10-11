@@ -1,6 +1,6 @@
 # Find and retrieve attachments
 
-My WhatsApp MCP archives document attachments alongside images and voice notes. Originals use the configured disk budget. Each document is limited to 8 MiB; files are stored and downloaded as data, without opening, executing, extracting archives, or rendering them on the server.
+My WhatsApp archives document attachments alongside images and voice notes. Originals use the configured disk budget. Each document is limited to 8 MiB; files are stored and downloaded as data, without opening, executing, extracting archives, or rendering them on the server.
 
 An AI client can find a file by its name, type, caption, date, and surrounding conversation, then retrieve the original. The app does not extract PDF body text or search inside documents. Whether the AI can read a downloaded PDF depends on that client's file support.
 

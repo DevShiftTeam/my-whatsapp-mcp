@@ -116,19 +116,19 @@ func voiceConfigErrorMessage(err error) (string, bool) {
 	}
 	switch failure.reason {
 	case "transcription_env_unsafe":
-		return "My WhatsApp MCP could not run (transcription_env_unsafe). Use an owned 0600 env file in an owned 0700 directory, without links or extended ACLs.", true
+		return "My WhatsApp could not run (transcription_env_unsafe). Use an owned 0600 env file in an owned 0700 directory, without links or extended ACLs.", true
 	case "transcription_env_conflict":
-		return "My WhatsApp MCP could not run (transcription_env_conflict). Remove conflicting voice settings from the process environment or private env file.", true
+		return "My WhatsApp could not run (transcription_env_conflict). Remove conflicting voice settings from the process environment or private env file.", true
 	case "transcription_url_missing":
-		return "My WhatsApp MCP could not run (transcription_url_missing). Set WA_INDEXER_TRANSCRIPTION_URL in the private voice configuration.", true
+		return "My WhatsApp could not run (transcription_url_missing). Set WA_INDEXER_TRANSCRIPTION_URL in the private voice configuration.", true
 	case "transcription_token_missing":
-		return "My WhatsApp MCP could not run (transcription_token_missing). Set WA_INDEXER_TRANSCRIPTION_TOKEN in the private voice configuration.", true
+		return "My WhatsApp could not run (transcription_token_missing). Set WA_INDEXER_TRANSCRIPTION_TOKEN in the private voice configuration.", true
 	case "transcription_timeout_invalid":
-		return "My WhatsApp MCP could not run (transcription_timeout_invalid). Set WA_INDEXER_TRANSCRIPTION_TIMEOUT_SECONDS to an integer from 10 through 1800.", true
+		return "My WhatsApp could not run (transcription_timeout_invalid). Set WA_INDEXER_TRANSCRIPTION_TIMEOUT_SECONDS to an integer from 10 through 1800.", true
 	case "transcription_env_syntax_invalid":
-		return "My WhatsApp MCP could not run (transcription_env_syntax_invalid). Use the installer-generated env file with one unquoted KEY=value per line and no duplicate or unknown keys.", true
+		return "My WhatsApp could not run (transcription_env_syntax_invalid). Use the installer-generated env file with one unquoted KEY=value per line and no duplicate or unknown keys.", true
 	case "transcription_connection_invalid":
-		return "My WhatsApp MCP could not run (transcription_connection_invalid). Check the literal loopback HTTP URL, service token, and language setting.", true
+		return "My WhatsApp could not run (transcription_connection_invalid). Check the literal loopback HTTP URL, service token, and language setting.", true
 	default:
 		return "", false
 	}

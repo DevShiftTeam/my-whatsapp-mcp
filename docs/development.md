@@ -4,6 +4,8 @@ Last updated: 2026-10-11.
 
 The app uses Go, SQLite, and embedded HTML/CSS/JavaScript. The normal source build has no frontend build step and no native model dependency. Start with [local setup](setup.md).
 
+The product is My WhatsApp and the repository is `DevShiftTeam/my-whatsapp-mcp`. The existing Go module path, `github.com/Bodokh/my-whatsapp-mcp`, and the `wa-indexer` executable remain compatibility identifiers. A brand change must not migrate archive directories or rotate client credentials.
+
 ## Package ownership
 
 | Directory | Responsibility |
@@ -77,6 +79,12 @@ Phone-copy transport can use a saved SDK LID only when the archive's canonical m
 
 Keyword search uses FTS5 with scope-local scoring and shared Hebrew normalization. Original logical-order text is preserved. Semantic retrieval uses authorized vector-distance scans; it does not use an ANN or HNSW index.
 
+## Browser appearance
+
+`internal/localui/assets/theme.js` is a separate, self-hosted bootstrap loaded before the stylesheet. It applies the browser-local **System**, **Light**, or **Dark** choice before the page paints, then synchronizes the login and workspace **Appearance** selectors. Missing, invalid, or unavailable storage defaults to System. Device theme changes update System; explicit Light or Dark choices stay fixed. Storage failures must not prevent login or archive startup.
+
+Keep colors in semantic CSS tokens so charts, status states, search highlights, dialogs, and mobile navigation share the resolved theme. Preserve a white background around the pairing QR image. Theme selection makes no API calls and changes no archive or authentication configuration; it must work under the existing self-hosted-script content security policy.
+
 ## Checks
 
 From the source root:
@@ -107,9 +115,10 @@ For browser JavaScript changes, Node.js can check syntax:
 
 ```sh
 node --check internal/localui/assets/app.js
+node --check internal/localui/assets/theme.js
 ```
 
-With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request-race, logout, and rendering checks against the actual browser source. These use a small DOM fixture, without npm dependencies or a running app. They do not verify browser layout; check desktop and mobile separately.
+With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request-race, logout, rendering, and theme preference checks against the actual browser source. These use small DOM fixtures, without npm dependencies or a running app. They do not verify browser layout; check desktop and mobile separately in both light and dark, including login, dialogs, charts, and narrow screens. Check System under both device settings and verify that explicit overrides survive a reload.
 
 Manually check keyboard access, dialogs, narrow screens, and Hebrew/English text when changing the browser interface. There is no npm install step.
 

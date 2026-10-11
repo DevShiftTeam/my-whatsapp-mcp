@@ -54,3 +54,24 @@ Use case: infographic-diagram. Asset type: a factual comparison infographic for 
 Use case: infographic-diagram edit. Edit target: the supplied factual comparison table. Preserve the exact product column names, palette, editorial style, equal treatment and all existing facts and the footer. Explicitly show that all three projects can read and send messages. Add a new table row after Local archive with exact row label "Read + send" and cells "Yes" | "Yes" | "Yes". Keep voice and semantic rows unchanged. Refine only our Permissions cell to two lines, exact text "Scoped read + send" and "Chats, dates + expiry". Keep the other permissions cells unchanged: "Not documented" and "Read/full tokens + allowlist". The read/send row means messaging capabilities; the permission row means control granularity, not absence of sending. Reflow vertical table spacing or extend the canvas height modestly if necessary so all rows and footer remain unclipped and comfortably readable. No new claims, logos, performance scores or text. Footer remains exactly "Source READMEs linked in docs/alternatives.md. Not documented does not mean unavailable.".
 ```
 
+## Product rename: My WhatsApp
+
+On 2026-10-11, the built-in OpenAI image generation tool edited the two product headings from "My WhatsApp MCP" to "My WhatsApp". The selected outputs were copied unchanged to the same PNG paths. The prompts and asset hashes above document the earlier versions; the table below identifies the current replacements. The read and send capabilities, feature limitations, comparison facts, and canvas dimensions remain the same. Both logo files and `search-and-voice.png` were left unchanged.
+
+| Current asset | Dimensions | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| [overview.png](overview.png) | 1774 × 887 | 1,577,816 | `effdcb8cebd1d91b3f6f9e53cb9a84eb892beb3bc9fd29b2bd74fd2a389b78c1` |
+| [comparison.png](comparison.png) | 1774 × 887 | 1,664,711 | `1cd2fce08df960ab611551d1ec88e317ff0cf975518ce35ec8cce89aadc5d768` |
+
+### Overview rename prompt
+
+```text
+Use case: text-localization. Asset type: GitHub README infographic. Edit target: supplied overview.png. Primary request: change only the large top product heading from "My WhatsApp MCP" to the exact text "My WhatsApp". Keep the new heading centered in the same top area, using the same forest color and bold editorial typography, at the same height as before with generous breathing room. Invariants: keep every other existing pixel region as close as possible to the source, all composition, palette, generic chat icon, labels, arrows and footer unchanged. Keep the two-headed QR link + sync arrow and two-headed Scoped read + send arrow. Keep "Read context. Send with permission." in the AI tools card. Keep exact footer "Voice transcription is opt-in. Semantic search is experimental." Preserve original 1774 by 887 landscape canvas and no cropping. Do not introduce new labels, add decorative elements, invent claims, alter capabilities or replace icons. No watermark.
+```
+
+### Comparison rename prompt
+
+```text
+Use case: text-localization. Asset type: GitHub README comparison infographic. Edit target: supplied comparison.png. Primary request: replace only our product column heading "My WhatsApp MCP" with the exact text "My WhatsApp", preserving its white bold editorial font, forest header cell and centered alignment. Invariants: keep all other headings, table cells, rows, icons, composition, palette, typography and footer unchanged. Preserve the "Read + send" row with Yes in all three product columns. Preserve our Permissions cell exact two lines "Scoped read + send" and "Chats, dates + expiry". Preserve dated subtitle "Documented capabilities · October 2026" and factual limitations. Preserve original 1774 by 887 landscape canvas and no cropping. Do not rewrite competitor names, introduce claims, add extra text or watermark.
+```
+
