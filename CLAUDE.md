@@ -8,4 +8,6 @@ Read [attachments](docs/attachments.md) when changing document retention, scoped
 
 MCP connections are read-only by default. Read [outbound messaging](docs/clients/outbound-messaging.md) when changing owner-approved send permissions, provider calls, or durable retry behavior.
 
+Read the [roadmap](docs/roadmap.md) for proposed work and [business messaging](docs/business-messaging.md) for the distinction between local presets and official Business Platform templates. Keep experimental, planned, and available capabilities explicit.
+
 Keep the relevant Markdown guides and [Changelog → Unreleased](CHANGELOG.md#unreleased) current when changing behavior, setup, or APIs. Use synthetic test data, preserve concurrent work, run the relevant checks, and state unverified limitations plainly.
