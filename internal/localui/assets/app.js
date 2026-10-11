@@ -2,6 +2,14 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
+  const refreshSelects = (...ids) => {
+    if (!window.MyWhatsAppSelects) return;
+    for (const id of ids) window.MyWhatsAppSelects.refresh($(id));
+  };
+  const refreshAllSelects = () => {
+    if (!window.MyWhatsAppSelects) return;
+    for (const select of document.querySelectorAll("select")) window.MyWhatsAppSelects.refresh(select);
+  };
   let csrf = "";
   let setup = null;
   let status = null;
@@ -169,6 +177,7 @@
   }
 
   function expireAuth() {
+    window.MyWhatsAppSelects?.closeAll();
     authExpired = true;
     authEpoch++;
     stopPolling();
@@ -235,6 +244,7 @@
     for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
     $("workspace").hidden = true;
     $("auth-screen").hidden = false;
+    refreshAllSelects();
     $("auth-message").textContent = messages.unauthorized;
     if (remoteAdmin) {
       showRemoteLogin(messages.unauthorized);
@@ -259,11 +269,13 @@
   }
 
   function showRemoteLogin(message = "Sign in to your private WhatsApp archive.") {
+    window.MyWhatsAppSelects?.closeAll();
     $("workspace").hidden = true;
     $("auth-screen").hidden = false;
     $("auth-message").textContent = message;
     $("admin-login-form").hidden = false;
     $("admin-password").value = "";
+    refreshAllSelects();
   }
 
   function updateAuthControls() {
@@ -536,6 +548,7 @@
       const previous = status;
       const changed = previous && (previous.Snapshot?.PolicyGeneration !== next.Snapshot?.PolicyGeneration || previous.Snapshot?.ArchiveRevision !== next.Snapshot?.ArchiveRevision);
       if (changed || next.ReconciliationRequired || next.Connection === "reconciliation_required") {
+        window.MyWhatsAppSelects?.closeAll();
         clearResults();
         invalidateStats(true);
         feedback("search-feedback", next.ReconciliationRequired ? "" : "The archive changed. Run your search again to see current messages.");
@@ -658,6 +671,7 @@
     $("stats-breakdown-size").value = String(statsPageSize);
     renderStatsControls();
     $("stats-chat").replaceChildren(new Option("All archived chats", ""));
+    refreshSelects("stats-range", "stats-chat", "stats-kind");
     $("stats-custom-dates").hidden = true;
     $("stats-data").setAttribute("aria-busy", "false");
     $("stats-updated").textContent = "Checking archive";
@@ -677,9 +691,11 @@
 
   function selectWorkspaceView(view, focus = false) {
     if (authExpired || !["stats", "archive"].includes(view)) return;
+    window.MyWhatsAppSelects?.closeAll();
     activeView = view;
     $("stats-view").hidden = view !== "stats";
     $("archive-view").hidden = view !== "archive";
+    refreshAllSelects();
     for (const name of ["stats", "archive"]) {
       if (name === view) $("nav-" + name).setAttribute("aria-current", "page");
       else $("nav-" + name).removeAttribute("aria-current");
@@ -703,6 +719,7 @@
       if (setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
     }
     select.value = chosen;
+    refreshSelects("stats-chat");
     if (chosen && !select.value) invalidateStats(true);
   }
 
@@ -741,6 +758,7 @@
   }
 
   function renderStatsControls() {
+    refreshSelects("stats-breakdown-sort", "stats-breakdown-size");
     for (const dimension of ["people", "chats"]) $("stats-breakdown-" + dimension).setAttribute("aria-pressed", String(statsDimension === dimension));
     for (const mode of ["bars", "line"]) $("stats-chart-" + mode).setAttribute("aria-pressed", String(statsChartMode === mode));
     $("stats-aggregate-name-heading").textContent = statsDimension === "people" ? "Person" : "Chat";
@@ -1311,6 +1329,7 @@
     const selected=choice.encoder_profile||choice.ocr_profile||choice.caption||choice.speech_language;
     const eligible=off||selected&&(!choice.encoder_profile||localAIEligible("encoder",choice.encoder_profile,choice.mode))&&(!choice.ocr_profile||localAIEligible("ocr",choice.ocr_profile,choice.mode))&&(!choice.caption||localAIEligible("caption",undefined,choice.mode))&&(!choice.speech_language||localAIEligible("speech",choice.speech_language,choice.mode));
     $("local-ai-save").disabled=disabled||!eligible;
+    refreshSelects("local-ai-mode", "local-ai-encoder", "local-ai-ocr", "local-ai-speech");
   }
 
   function clearLocalAI() {
@@ -1403,6 +1422,7 @@
     const gib=$("original-budget-unit").value==="gib";
     $("original-budget-size").min=gib?"1":"64";
     $("original-budget-size").max=gib?"1024":"1048576";
+    refreshSelects("original-budget-preset", "original-budget-unit");
   }
 
   function updateVoiceRetryControls() {
@@ -1437,6 +1457,7 @@
   function updateBudgetControls() {
     const disabled=budgetBusy||!budgetSnapshot;
     for(const id of ["original-budget-preset","original-budget-unit","original-budget-size","original-budget-save"])$(id).disabled=disabled;
+    refreshSelects("original-budget-preset", "original-budget-unit");
   }
 
   function editBudget() {
@@ -1541,6 +1562,7 @@
       if (setup?.Policy.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
     }
     select.value = chosen;
+    refreshSelects("search-chat");
     $("chat-discovery-note").textContent = cursor ? "Showing the first discovered chats. More chats are available; narrow your archive selection before importing them." : chats.length ? "Select chats to save their messages. Coverage below describes received history only." : "No chats discovered yet. Link WhatsApp, then refresh. With no selection, no message bodies are saved.";
     renderStatsChatOptions();
     renderImportState();
@@ -1789,6 +1811,7 @@
     $("client-create").disabled=clientBusy || !clientSnapshot || connectionRecovery(clientSnapshot,mode)!=="ready" || clientSnapshot[mode+"_state"]!=="ready";
     updateClientGuideControls();
     updateSendPermissionControls();
+    refreshSelects("client-choice", "client-mode");
   }
 
   function renderConnections(snapshot) {
@@ -2374,7 +2397,7 @@
   for(const id of ["local-ai-encoder","local-ai-ocr","local-ai-caption","local-ai-speech"])$(id).addEventListener("change",editLocalAI);
   $("original-budget-form").addEventListener("submit",saveBudget);
   $("voice-retry-button").addEventListener("click",retryVoiceDownloads);
-  $("original-budget-size").addEventListener("input",()=>{editBudget();$("original-budget-preset").value="custom";});
+  $("original-budget-size").addEventListener("input",()=>{editBudget();$("original-budget-preset").value="custom";refreshSelects("original-budget-preset");});
   $("original-budget-unit").addEventListener("change",()=>{editBudget();$("original-budget-preset").value="custom";updateBudgetUnits();});
   $("original-budget-preset").addEventListener("change",()=>{editBudget();if($("original-budget-preset").value!=="custom"){$("original-budget-unit").value="mib";$("original-budget-size").value=$("original-budget-preset").value;updateBudgetUnits();}});
   $("clients-open").addEventListener("click",()=>{if(!authExpired){clearClientGuide();clearSendPermissions();feedback("clients-feedback","");$("clients-dialog").showModal();refreshConnections();renderConnectionChats();}});
@@ -2461,6 +2484,7 @@
       $("admin-logout").hidden = !remoteAdmin;
       $("auth-screen").hidden = true;
       $("workspace").hidden = false;
+      refreshAllSelects();
       selectWorkspaceView("stats");
       await refreshStatus();
       if (epoch !== authEpoch || authExpired) return;
@@ -2476,6 +2500,8 @@
       if (epoch !== authEpoch || authExpired) return;
       $("workspace").hidden = true;
       $("auth-screen").hidden = false;
+      window.MyWhatsAppSelects?.closeAll();
+      refreshAllSelects();
       $("auth-message").textContent = error.message;
     }
   }

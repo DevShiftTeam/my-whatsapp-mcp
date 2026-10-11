@@ -9,7 +9,7 @@ There are two different features to consider:
 | Feature | How it works | Project status |
 | --- | --- | --- |
 | Local message preset | Save reusable text, fill variables, preview it, and authorize an ordinary send through the linked account. | Proposed in the [roadmap](roadmap.md#3-reusable-local-message-presets). |
-| Official business template | Send a Meta-approved template with its locale and component parameters through the Business Platform API. | Separate exploratory adapter in the [roadmap](roadmap.md#4-explore-an-official-whatsapp-business-platform-adapter). |
+| Official business template | Send a Meta-approved template with its locale and component parameters through the Business Platform API. | Reference only; no adapter in this app. |
 
 A local preset does not become an approved business template. Linking a WhatsApp Business app with a QR code does not create Cloud API credentials or qualify a business for API template messaging.
 
@@ -33,6 +33,6 @@ The adapter would also need owner authorization, bounded client scopes, durable 
 
 Meta has announced that businesses can use the WhatsApp Business app and Business Platform together. See the [official coexistence announcement](https://about.fb.com/news/2025/09/bringing-new-tools-to-help-businesses-boost-engagement-customer-support-and-discoverability/).
 
-Eligibility and onboarding details need investigation for a supported integration. Do not assume every account, country, or number qualifies, or that linking this app establishes coexistence. Cloud API credentials remain separate from the QR-linked session. This roadmap does not promise Cloud API group support or access to a user's complete personal message history.
+Eligibility and onboarding details need investigation for a supported integration. Do not assume every account, country, or number qualifies, or that linking this app establishes coexistence. Cloud API credentials remain separate from the QR-linked session. These references do not establish Cloud API group support or access to a user's complete personal message history.
 
-Until that adapter is implemented and qualified, use the existing [QR setup](setup.md) and [outbound permissions](clients/outbound-messaging.md) for this project's supported workflow.
+For this project's supported workflow, use the existing [QR setup](setup.md) and [outbound permissions](clients/outbound-messaging.md).

@@ -246,7 +246,7 @@ func TestBootstrapIsOneTimeAndSecretNeverAppearsInPublicShell(t *testing.T) {
 	app := &fakeApplication{}
 	s := newTestServer(t, app)
 	token := bootstrapToken(t, s)
-	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/theme.js", "/assets/logo.png"} {
+	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/theme.js", "/assets/selects.js", "/assets/logo.png"} {
 		rr := request(s, http.MethodGet, path, "", nil, nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("public asset %s status=%d", path, rr.Code)
@@ -260,9 +260,9 @@ func TestBootstrapIsOneTimeAndSecretNeverAppearsInPublicShell(t *testing.T) {
 		if path == "/assets/logo.png" {
 			assertPublicPNG(t, rr)
 		}
-		if path == "/assets/theme.js" {
+		if path == "/assets/theme.js" || path == "/assets/selects.js" {
 			if rr.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || rr.Header().Get("X-Content-Type-Options") != "nosniff" || rr.Header().Get("Cache-Control") != "no-store" {
-				t.Fatal("theme asset lacks safe JavaScript headers")
+				t.Fatal("appearance asset lacks safe JavaScript headers")
 			}
 		}
 	}

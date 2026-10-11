@@ -4,7 +4,7 @@ The app opens on **Stats**. Use **Archive** to search conversations. Stats refre
 
 ## Appearance
 
-Use the **Appearance** selector in the header to follow your **System** theme or choose **Light** or **Dark**. System is the default and updates when your device's setting changes. Your choice is saved in this browser for this app address, including the login screen, without changing other devices or archive settings. Charts, tables, filters, and dialogs use the same theme on desktop and mobile. See [local setup](setup.md#choose-light-or-dark) for details.
+Open **Appearance** in the header and choose **System**, **Light**, or **Dark** from the styled options. The compact mobile header uses an Appearance icon. System is the default and updates when your device's setting changes. Your choice is saved in this browser for this app address, including the login screen, without changing other devices or archive settings. Charts, tables, filters, and dialogs use the same theme on desktop and mobile. See [local setup](setup.md#choose-light-or-dark) for details.
 
 ## Choose what to count
 

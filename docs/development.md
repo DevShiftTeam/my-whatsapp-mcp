@@ -1,6 +1,6 @@
 # Development and code structure
 
-Last updated: 2026-10-11.
+Last updated: 2026-10-12.
 
 The app uses Go, SQLite, and embedded HTML/CSS/JavaScript. The normal source build has no frontend build step and no native model dependency. Start with [local setup](setup.md).
 
@@ -81,7 +81,13 @@ Keyword search uses FTS5 with scope-local scoring and shared Hebrew normalizatio
 
 ## Browser appearance
 
-`internal/localui/assets/theme.js` is a separate, self-hosted bootstrap loaded before the stylesheet. It applies the browser-local **System**, **Light**, or **Dark** choice before the page paints, then synchronizes the login and workspace **Appearance** selectors. Missing, invalid, or unavailable storage defaults to System. Device theme changes update System; explicit Light or Dark choices stay fixed. Storage failures must not prevent login or archive startup.
+`internal/localui/assets/theme.js` is a separate, self-hosted bootstrap loaded before the stylesheet. It applies the browser-local **System**, **Light**, or **Dark** choice before the page paints, then synchronizes the login and workspace **Appearance** controls. Missing, invalid, or unavailable storage defaults to System. Device theme changes update System; explicit Light or Dark choices stay fixed. Storage failures must not prevent login or archive startup.
+
+`internal/localui/assets/selects.js` enhances single-choice selects with a dependency-free styled trigger and option panel. The original select remains the authority for its value, form submission, validation, and events; choosing a different option dispatches bubbling `input` and `change` events on that select. Keep the original control and its ID when changing the presentation.
+
+After assigning a select's `.value` directly, call `window.MyWhatsAppSelects.refresh(select)` to synchronize its visible value; property writes do not trigger a DOM mutation or change event. Call `window.MyWhatsAppSelects.closeAll()` on authentication transitions before clearing or hiding owner data, so open panels discard copied option text. Preserve dynamic options, disabled states, form reset, keyboard navigation, selected-state announcements, focus return, and dismissal.
+
+Appearance uses these controls and the same light and dark color tokens as the rest of the interface. The mobile header keeps an accessible Appearance icon instead of the full label.
 
 Keep colors in semantic CSS tokens so charts, status states, search highlights, dialogs, and mobile navigation share the resolved theme. Preserve a white background around the pairing QR image. Theme selection makes no API calls and changes no archive or authentication configuration; it must work under the existing self-hosted-script content security policy.
 
@@ -116,9 +122,10 @@ For browser JavaScript changes, Node.js can check syntax:
 ```sh
 node --check internal/localui/assets/app.js
 node --check internal/localui/assets/theme.js
+node --check internal/localui/assets/selects.js
 ```
 
-With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request-race, logout, rendering, and theme preference checks against the actual browser source. These use small DOM fixtures, without npm dependencies or a running app. They do not verify browser layout; check desktop and mobile separately in both light and dark, including login, dialogs, charts, and narrow screens. Check System under both device settings and verify that explicit overrides survive a reload.
+With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request-race, logout, rendering, theme preference, and styled select checks against the actual browser source. When changing the select component, include keyboard selection, dynamic option updates, value and event synchronization, form reset, and copied-label cleanup cases. These use small DOM fixtures, without npm dependencies or a running app. They do not verify browser layout; check desktop and mobile separately in both light and dark, including login, dialogs, charts, and narrow screens. Check System under both device settings and verify that explicit overrides survive a reload.
 
 Manually check keyboard access, dialogs, narrow screens, and Hebrew/English text when changing the browser interface. There is no npm install step.
 

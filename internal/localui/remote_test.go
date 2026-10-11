@@ -127,7 +127,7 @@ func TestRemoteConfigurationFailsClosed(t *testing.T) {
 func TestRemotePublicShellHasNoCapabilitiesAndAnonymousAPIsNeverCallApplication(t *testing.T) {
 	app := &fakeApplication{}
 	s := remoteServer(t, app)
-	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/theme.js", "/assets/logo.png"} {
+	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/theme.js", "/assets/selects.js", "/assets/logo.png"} {
 		rr := remoteRequest(s, "GET", path, "", nil, nil)
 		if rr.Code != http.StatusOK || len(rr.Result().Cookies()) != 0 {
 			t.Fatalf("asset rejected or granted cookie: %s", path)
@@ -144,9 +144,9 @@ func TestRemotePublicShellHasNoCapabilitiesAndAnonymousAPIsNeverCallApplication(
 				t.Fatal("remote logo response lacks HSTS")
 			}
 		}
-		if path == "/assets/theme.js" {
+		if path == "/assets/theme.js" || path == "/assets/selects.js" {
 			if rr.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || rr.Header().Get("X-Content-Type-Options") != "nosniff" || rr.Header().Get("Cache-Control") != "no-store" || rr.Header().Get("Strict-Transport-Security") != "max-age=31536000" {
-				t.Fatal("remote theme asset lacks safe JavaScript headers")
+				t.Fatal("remote appearance asset lacks safe JavaScript headers")
 			}
 		}
 	}

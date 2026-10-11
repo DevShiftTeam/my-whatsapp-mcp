@@ -31,8 +31,10 @@ script-test:
 	$(PYTHON) -m unittest discover -s services/transcription/tests -p 'test_*.py'
 
 ui-test:
+	node --check internal/localui/assets/selects.js
 	node --check internal/localui/assets/theme.js
 	node --check internal/localui/assets/app.js
 	node scripts/ui/test_theme.mjs
+	node scripts/ui/test_selects.mjs
 	node scripts/ui/test_stats.mjs
 	node scripts/ui/test_send_permissions.mjs

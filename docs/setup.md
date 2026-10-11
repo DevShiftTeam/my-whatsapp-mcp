@@ -92,7 +92,7 @@ The app opens on **Stats**; use **Archive** to search conversations. See the [St
 
 ## Choose light or dark
 
-Use **Appearance** on the login screen or in the app header to choose **System**, **Light**, or **Dark**. **System** is the default and follows changes to your device's light or dark setting. An explicit choice stays in this browser for this app address; it does not change the archive, credentials, or other devices. Choose **System** again to follow your device. If browser storage is unavailable, the choice lasts only for the current page.
+Open **Appearance** on the login screen or in the app header, then choose **System**, **Light**, or **Dark** from the styled options. On mobile, use the Appearance icon in the compact header. **System** is the default and follows changes to your device's light or dark setting. An explicit choice stays in this browser for this app address; it does not change the archive, credentials, or other devices. Choose **System** again to follow your device. If browser storage is unavailable, the choice lasts only for the current page.
 
 ## Manage AI connection permissions
 

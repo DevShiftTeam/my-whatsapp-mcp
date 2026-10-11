@@ -90,7 +90,7 @@ My WhatsApp combines a local archive, optional offline voice transcription, scop
 
 ## What's next
 
-The [roadmap](docs/roadmap.md) prioritizes a tested semantic and hybrid search setup, followed by local document text extraction and OCR for better file search. It also proposes reusable local message presets. [Business template messaging](docs/business-messaging.md) is a proposed separate integration with the official WhatsApp Business Platform; it is not part of today's QR-linked connector.
+The [roadmap](docs/roadmap.md) prioritizes a tested semantic and hybrid search setup, followed by local document text extraction and OCR for better file search. It also proposes reusable local message presets.
 
 ## Guides and development
 

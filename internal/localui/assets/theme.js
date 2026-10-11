@@ -26,7 +26,10 @@
   function apply() {
     root.dataset.themePreference = preference;
     root.dataset.theme = preference === 'system' ? (media?.matches ? 'dark' : 'light') : preference;
-    for (const control of controls) control.value = preference;
+    for (const control of controls) {
+      control.value = preference;
+      window.MyWhatsAppSelects?.refresh(control);
+    }
   }
 
   function choose(value) {

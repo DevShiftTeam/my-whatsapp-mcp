@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-10-11.
+Last updated: 2026-10-12.
 
 These are proposed priorities, not release dates or shipped features. The goal is a small local archive that is easy to install, useful across languages, and safe to give an AI client access to.
 
@@ -46,18 +46,6 @@ Add owner-managed presets for ordinary messages sent through the existing QR-lin
 Presets should use existing client/chat sending permissions and durable request IDs. Validate missing variables and length limits before sending, and preserve uncertain-outcome handling so a retry does not silently become a duplicate message. Presets are proposed; there is no preset editor or per-message approval queue today.
 
 These are app conveniences, not Meta-approved WhatsApp Business Platform templates. See [business messaging](business-messaging.md) for the distinction.
-
-## 4. Explore an official WhatsApp Business Platform adapter
-
-Investigate a separate Meta Cloud API connector for eligible businesses that need approved message templates. Keep its credentials and account identity separate from the QR-linked archive.
-
-- Support approved template names, locales, parameters, categories, approval status, and supported media or button components.
-- Check recipient opt-in and opt-out, the current messaging rules, owner authorization, and client scopes before a send.
-- Use durable request IDs and authenticated delivery webhooks; show server acceptance separately from delivery.
-- Document Meta account, number, permission, and billing prerequisites before exposing setup controls.
-- Investigate same-number coexistence only where Meta's current onboarding and eligibility allow it.
-
-This is an exploratory integration. It does not promise Cloud API group messaging, complete personal-chat history, reuse of QR credentials, or support for every WhatsApp Business app account. The [business guide](business-messaging.md) links the primary references and explains the prerequisites.
 
 ## Contributing
 

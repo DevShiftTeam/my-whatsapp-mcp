@@ -26,7 +26,7 @@ import (
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
-//go:embed assets/index.html assets/app.css assets/app.js assets/theme.js assets/logo.png
+//go:embed assets/index.html assets/app.css assets/app.js assets/theme.js assets/selects.js assets/logo.png
 var assets embed.FS
 
 const maxBodyBytes = 32768
@@ -181,7 +181,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	if r.Method == http.MethodGet && (r.URL.Path == "/" || r.URL.Path == "/assets/app.css" || r.URL.Path == "/assets/app.js" || r.URL.Path == "/assets/theme.js" || r.URL.Path == "/assets/logo.png") {
+	if r.Method == http.MethodGet && (r.URL.Path == "/" || r.URL.Path == "/assets/app.css" || r.URL.Path == "/assets/app.js" || r.URL.Path == "/assets/theme.js" || r.URL.Path == "/assets/selects.js" || r.URL.Path == "/assets/logo.png") {
 		s.static(w, r)
 		return
 	}
@@ -270,6 +270,10 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/assets/theme.js" {
 		name = "assets/theme.js"
+		contentType = "text/javascript; charset=utf-8"
+	}
+	if r.URL.Path == "/assets/selects.js" {
+		name = "assets/selects.js"
 		contentType = "text/javascript; charset=utf-8"
 	}
 	if r.URL.Path == "/assets/logo.png" {

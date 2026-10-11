@@ -6,7 +6,7 @@
 
 - System-default light and dark appearance with a browser-local override on the login screen and across the responsive archive interface.
 - A richer Stats view with UTC weekly rhythm and saved-history highlights, interactive activity charts, and sortable, paginated conversation and sender breakdowns under the same archive filters.
-- A refreshed GitHub overview with product illustrations, current feature limits, and linked guides; a prioritized roadmap for easier semantic setup, document text extraction, local message presets, and an exploratory official Business Platform template adapter.
+- A refreshed GitHub overview with product illustrations, current feature limits, and linked guides; a prioritized roadmap for easier semantic setup, document text extraction, and local message presets.
 - Document retention up to 8 MiB per file, scoped `search_attachments` and `get_attachment` read tools, and two-minute original-download URLs that recheck credential and source authority. Search covers metadata and nearby permitted messages, without extracting PDF body text.
 - An owner permissions editor for existing AI connections, with read-only, selected-chat, and all-permitted-chat sending modes, separate permission revisions for stale-edit detection, and no change to existing tokens, read scopes, or expiry.
 - Contact and group name search through scoped MCP read tools, plus query and chat-type filters for `list_chats`, with case, spacing, punctuation, and Hebrew-mark normalization.
@@ -27,6 +27,8 @@
 
 ### Changed
 
+- Styled dropdown options with keyboard access and a compact Appearance control in the mobile header.
+- Removed the proposed official Business Platform adapter from the roadmap; local message presets remain proposed.
 - Product name is now My WhatsApp, retaining the existing logo. MCP read and permitted send access remains an optional feature. Repository links use `DevShiftTeam/my-whatsapp-mcp`; executable, Go module, data paths, and client credentials keep their compatibility identifiers.
 
 ### Fixed

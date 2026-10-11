@@ -14,7 +14,7 @@ Before editing, read the relevant source and these guides:
 - [Native models](docs/native-models.md) when changing media or inference.
 - [Transcription](docs/transcription.md) for the optional voice service, configuration, and generated transcripts.
 - [Roadmap](docs/roadmap.md) for proposed priorities and the distinction between available and planned capabilities.
-- [Business messaging](docs/business-messaging.md) when discussing local message presets or a future official Business Platform adapter.
+- [Business messaging](docs/business-messaging.md) when distinguishing local message presets from official Business Platform templates.
 
 Keep documentation beside the code changes. Update the authoritative guide and add a concise entry under [Changelog → Unreleased](CHANGELOG.md#unreleased) for behavior, setup, or API changes. Describe the resulting behavior and limitations in plain language; do not invent validation or release claims.
 
