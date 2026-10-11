@@ -9,6 +9,7 @@ Find a detail in your conversations or let Codex, Claude Code, or Composio read 
 - **Keep it local.** One Go executable, an embedded browser interface, and SQLite storage. No Docker, Node.js, or Python needed for the basic app.
 - **Choose the scope.** Select chats and dates for your archive, then set separate permissions and expiry for each AI client.
 - **Find the context.** Search saved messages and open the surrounding conversation.
+- **Check your archive.** Filter saved-message and media stats by date, chat, or type, and see processing status. See [Stats](docs/stats.md).
 - **Connect your tools.** Use a local MCP adapter or expose a scoped bearer endpoint through your own HTTPS tunnel.
 
 ## Start locally
@@ -28,7 +29,7 @@ To try synthetic Hebrew and English conversations first, run `./bin/wa-indexer d
 
 ## Optional models
 
-For voice messages, add an optional local [batch transcription service](docs/transcription.md). It uses faster-whisper on CPU with a multilingual model and automatic language detection, plus an optional Hebrew-specific ivrit-ai profile. Language and model are configurable. It stores generated transcripts separately from message text and makes them available to keyword search and MCP. It needs Python and about 1.6 GB of model files; the ordinary app runs without it.
+For voice messages, add an optional local [batch transcription service](docs/transcription.md). It uses faster-whisper on CPU with a multilingual model and automatic language detection, plus an optional Hebrew-specific ivrit-ai profile. Language and model are configurable. It stores generated transcripts separately from message text and makes them available to keyword search and MCP. It needs Python; the default model files occupy about 1.6 GB. The ordinary app runs without it.
 
 Semantic search, image OCR and descriptions, and the native whisper.cpp transcription path require a separately prepared native bundle and remain experimental. See [optional native models](docs/native-models.md) before preparing a bundle. No model downloads start automatically in the basic setup.
 
@@ -43,6 +44,7 @@ Your archive and linked-device credentials stay in a private local data director
 ## Documentation
 
 - [Local setup and troubleshooting](docs/setup.md)
+- [Stats and archive processing](docs/stats.md)
 - [MCP clients and remote access](docs/mcp.md)
 - [Voice transcription, including Hebrew](docs/transcription.md)
 - [Optional native models and media](docs/native-models.md)

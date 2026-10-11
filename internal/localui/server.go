@@ -242,6 +242,7 @@ var routeMethods = map[string]string{
 	"/api/session": http.MethodGet, "/api/setup": http.MethodGet, "/api/policy": http.MethodPut,
 	"/api/pairing/start": http.MethodPost, "/api/pairing": http.MethodGet, "/api/pairing/qr": http.MethodGet,
 	"/api/status": http.MethodGet, "/api/chats": http.MethodGet, "/api/search": http.MethodPost,
+	"/api/stats":   http.MethodPost,
 	"/api/context": http.MethodPost, "/api/pause": http.MethodPost, "/api/resume": http.MethodPost,
 	"/api/disconnect": http.MethodPost, "/api/data/delete": http.MethodPost,
 	"/api/models": http.MethodGet, "/api/models/state": http.MethodGet,
@@ -511,6 +512,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 		s.policy(w, r, ctx)
 	case "/api/search":
 		s.search(w, r, ctx)
+	case "/api/stats":
+		s.stats(w, r, ctx)
 	case "/api/context":
 		s.context(w, r, ctx)
 	case "/api/chats":

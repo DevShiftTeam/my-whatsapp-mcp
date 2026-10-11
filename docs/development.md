@@ -50,6 +50,8 @@ Atomic alias merges use the internal `archive.Options.AliasDeadline`: 2 seconds 
 
 The local stdio adapter talks to the running app through a private Unix socket. It does not open another WhatsApp session, archive database, or model runtime.
 
+Stats uses owner/password-admin `POST /api/stats` with the existing CSRF and exact-origin checks; it adds no MCP tool. Optional filters are `from` (inclusive Unix seconds), `until` (exclusive Unix seconds), `chat_id`, and `kind` (`all`, `text`, `image`, `voice`, or `other`). Counts, media, activity, and top chats share the filtered readable policy scope and active, unexpired source checks. A bounded response includes `sampled_at` and archive revision, at most 90 adaptive UTC activity buckets, and the top eight chats. Global import and transcription processing stays in `/api/status`, independent of Stats filters. The UI refreshes every five seconds only while Stats and the document are visible, aborts when hidden, and clears stale counts and names after an error. Custom date controls use inclusive local days before conversion to Unix bounds; UTC activity buckets remain separate. Do not present saved-data fractions as complete WhatsApp history or transcription quality. See [Stats](stats.md) for the user guide.
+
 The optional voice service runs separately: retained recording → `internal/transcription` upload → local faster-whisper service → source-bound transcript commit → keyword search and scoped MCP. Its worker lifetime is independent of native previews. It has its own CPU and model-memory budget; cancelling HTTP does not immediately terminate inference. See [transcription](transcription.md) for its configuration and resource limits.
 
 The owner-only voice retry action combines at most 32 guarded download candidates with at most eight exact primary-phone copy requests. Its `queued`, `skipped`, and `requested` counts contain no source identifiers; a request acknowledgement is not an imported recording. Fresh copies arrive through normal authenticated SDK events and remain subject to source, policy, expiry, tombstone, conflict, protocol, SHA, and physical-ownership checks. A later explicit owner action can queue eligible freshly returned references. Preserve completed-original evidence and transcripts; do not add automatic startup resets.
@@ -99,6 +101,8 @@ For browser JavaScript changes, Node.js can check syntax:
 ```sh
 node --check internal/localui/assets/app.js
 ```
+
+With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request-race, logout, and rendering checks against the actual browser source. These use a small DOM fixture, without npm dependencies or a running app. They do not verify browser layout; check desktop and mobile separately.
 
 Manually check keyboard access, dialogs, narrow screens, and Hebrew/English text when changing the browser interface. There is no npm install step.
 

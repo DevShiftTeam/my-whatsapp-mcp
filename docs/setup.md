@@ -68,7 +68,7 @@ Click **Save choices**. Watch the saved-message count as readable messages arriv
 
 ## 5. Verify your import
 
-Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmless, distinctive message from your phone, such as `archivecheck2026 שלום`. Search for `archivecheck2026` in the app and open the result to inspect its conversation context.
+Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmless, distinctive message from your phone, such as `archivecheck2026 שלום`. Open **Archive**, search for `archivecheck2026`, and open the result to inspect its conversation context.
 
 Stop the app with Ctrl+C, start it again with `./bin/wa-indexer serve`, and repeat the search. This checks fresh import, search, and local persistence. Older history is still limited to what WhatsApp delivered.
 
@@ -85,6 +85,10 @@ To reopen the owner window while the app is already running, use a second termin
 ```
 
 Use the same `--data-dir` argument if you originally chose a custom directory. An expired owner window can be reopened this way without scanning a new QR code.
+
+## Check Stats
+
+The app opens on **Stats**; use **Archive** to search conversations. See the [Stats guide](stats.md) for filters, visible-only refresh, UTC activity, and the difference between saved-data counts and global processing status.
 
 ## Where your data lives
 

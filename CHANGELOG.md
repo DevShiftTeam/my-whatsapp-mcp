@@ -4,6 +4,7 @@
 
 ### Added
 
+- An owner Stats dashboard with date, chat, and message-type filters, adaptive UTC activity, saved-media counts, separate archive processing status, and visible-only five-second refresh.
 - Offline original-cache recovery against a stopped private backup, restoring only verified existing recordings' associations under current source authority, without copying recordings or changing the backup.
 - Explicit offline committed-snapshot recovery for eligible source-safety pauses, preserving saved archive data and client grants while recording partial coverage and unverified phone state.
 - Optional env-configured batch transcription through a separate authenticated loopback faster-whisper service, with a pinned multilingual default, a Hebrew ivrit-ai profile, configurable model and language selection, CPU INT8, private installation, and generated transcripts searchable through keyword search and scoped MCP.

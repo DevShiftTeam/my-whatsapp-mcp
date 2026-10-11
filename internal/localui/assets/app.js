@@ -49,6 +49,12 @@
   let authEpoch = 0;
   let authBusy = false;
   let pollingTimer = null;
+  let activeView = "stats";
+  let statsSnapshot = null;
+  let statsVersion = 0;
+  let statsController = null;
+  let statsReloadQueued = false;
+  let statsRenderKey = "";
   let qrURL = "";
   const remoteAdmin = document.documentElement.dataset.remoteAdmin === "true";
   const capabilityKey = "wa_archive_owner_capability";
@@ -60,6 +66,7 @@
     invalid_policy: "Choose an import date and a chat policy before saving.",
     policy_changed: "Your archive settings changed. Reopen settings and try again.",
     invalid_query: "Use a shorter search or adjust the date filters.",
+    invalid_stats_filter: "Choose a valid date range, chat, and message type.",
     cursor_stale: "New messages or settings changed the archive. Run your search again.",
     source_unavailable: "This message is no longer available. Run your search again.",
     reconciliation_required: "Import has stopped because the app could not verify the archive. Search is temporarily unavailable. Your local files are retained.",
@@ -106,7 +113,7 @@
     messages.csrf_denied = messages.unauthorized;
   }
 
-  async function api(path, method = "GET", body) {
+  async function api(path, method = "GET", body, options = {}) {
     if (authExpired) throw new Error(messages.unauthorized);
     const epoch = authEpoch;
     const headers = {};
@@ -116,12 +123,17 @@
     }
     let response;
     try {
-      response = await fetch(path, {method, headers, credentials: "same-origin", cache: "no-store", body: method === "GET" ? undefined : JSON.stringify(body ?? {})});
-    } catch {
+      response = await fetch(path, {method, headers, credentials: "same-origin", cache: "no-store", signal: options.signal, body: method === "GET" ? undefined : JSON.stringify(body ?? {})});
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
       throw new Error("The app is not responding. Check that it is running, then try again.");
     }
     let value = {};
-    try { value = await response.json(); } catch { /* fixed fallback below */ }
+    try { value = await response.json(); }
+    catch (error) {
+      if (error.name === "AbortError") throw error;
+      /* fixed fallback below */
+    }
     if (authExpired || epoch !== authEpoch) throw new Error(messages.unauthorized);
     if (!response.ok) {
       if (path !== "/api/bootstrap" && (response.status === 401 || response.status === 403 && value.code === "csrf_denied")) expireAuth();
@@ -151,6 +163,7 @@
       } catch { /* session already revoked */ }
     }
     clearResults();
+    resetStats();
     activeQuery = "";
     searchRequest = null;
     searching = false;
@@ -222,6 +235,7 @@
       if (remoteSecretExpiry && remoteSecretExpiry <= Date.now()) clearRemoteSecret();
       if (!document.hidden && !authExpired) {
         refreshStatus(); refreshPairing(); refreshModels(); refreshLocalAI(); refreshConnections(); refreshBudget();
+        if (activeView === "stats") refreshStats();
       }
     }, 5000);
   }
@@ -505,6 +519,7 @@
       const changed = previous && (previous.Snapshot?.PolicyGeneration !== next.Snapshot?.PolicyGeneration || previous.Snapshot?.ArchiveRevision !== next.Snapshot?.ArchiveRevision);
       if (changed || next.ReconciliationRequired || next.Connection === "reconciliation_required") {
         clearResults();
+        invalidateStats(true);
         feedback("search-feedback", next.ReconciliationRequired ? "" : "The archive changed. Run your search again to see current messages.");
       }
       status = next;
@@ -544,6 +559,8 @@
       $("status-notice").textContent = notices.join(" ");
       $("status-notice").hidden = !notices.length;
       $("status-notice").classList.toggle("warning", hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot);
+      renderStatsStatus();
+      if (changed && activeView === "stats" && !unsafe) refreshStats();
       if ($("connection-dialog").open) renderConnectionPresentation({...pairingSnapshot,state:status.Connection});
       const policy = setup?.Policy || setup?.policy;
       if (!unsafe && ["connected","discovery","importing"].includes(status.Connection) && policy?.ChatMode === "selective" && !(policy.IncludedChats || []).length && !chats.length && !$("connection-dialog").open && !chatDiscoveryBusy) {
@@ -551,6 +568,373 @@
         try { await loadChats(); } finally { if (epoch === authEpoch) chatDiscoveryBusy = false; }
       }
     } catch (error) { if (version === statusVersion && !authExpired) { $("status-notice").textContent = error.message; $("status-notice").hidden = false; } }
+  }
+
+  function statsCount(value) {
+    const count = Number(value);
+    return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+  }
+
+  function statsNumber(value) {
+    return statsCount(value).toLocaleString();
+  }
+
+  function statsDate(value, options = {dateStyle:"medium", timeStyle:"short"}, allowEpoch = false) {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds === 0 && !allowEpoch) return "No messages yet";
+    const date = new Date(seconds * 1000);
+    return Number.isNaN(date.getTime()) ? "Not observed" : new Intl.DateTimeFormat(undefined, options).format(date);
+  }
+
+  function statsUnavailable() {
+    return Boolean(status?.ReconciliationRequired || status?.Connection === "reconciliation_required");
+  }
+
+  function clearStatsData() {
+    statsSnapshot = null;
+    statsRenderKey = "";
+    for (const id of ["stats-message-count", "stats-chat-count", "stats-sent-count", "stats-received-count", "stats-transcribed", "stats-latest-message"]) $(id).textContent = "—";
+    $("stats-range-description").textContent = "Only readable messages in your saved archive are counted.";
+    $("stats-activity-total").textContent = "";
+    $("stats-chats-total").textContent = "";
+    $("stats-chart").replaceChildren();
+    $("stats-top-chats").replaceChildren();
+    $("stats-kinds").replaceChildren();
+    $("stats-kind-bar").replaceChildren();
+    $("stats-activity-rows").replaceChildren();
+    $("stats-voice-progress").value = 0;
+    $("stats-voice-progress").max = 1;
+    $("stats-activity-table").hidden = true;
+    $("stats-voice-description").textContent = "Saved transcripts and original recordings appear here.";
+  }
+
+  function invalidateStats(clear = false) {
+    statsVersion++;
+    statsController?.abort();
+    statsReloadQueued = false;
+    if (clear) clearStatsData();
+  }
+
+  function resetStats() {
+    invalidateStats(true);
+    $("stats-filters").reset();
+    $("stats-chat").replaceChildren(new Option("All archived chats", ""));
+    $("stats-custom-dates").hidden = true;
+    $("stats-data").setAttribute("aria-busy", "false");
+    $("stats-updated").textContent = "Checking archive";
+    $("stats-notice").textContent = "";
+    $("stats-notice").hidden = true;
+    feedback("stats-feedback", "");
+    for (const kind of ["keyword", "media", "semantic"]) {
+      $("stats-" + kind + "-state").textContent = "Checking";
+      $("stats-" + kind + "-detail").textContent = "";
+      $("stats-" + kind + "-progress").value = 0;
+      $("stats-" + kind + "-progress").max = 1;
+    }
+    $("stats-connection-state").textContent = "Checking connection";
+    $("stats-connection-description").textContent = "Checking WhatsApp and import status…";
+    activeView = "stats";
+  }
+
+  function selectWorkspaceView(view, focus = false) {
+    if (authExpired || !["stats", "archive"].includes(view)) return;
+    activeView = view;
+    $("stats-view").hidden = view !== "stats";
+    $("archive-view").hidden = view !== "archive";
+    for (const name of ["stats", "archive"]) {
+      if (name === view) $("nav-" + name).setAttribute("aria-current", "page");
+      else $("nav-" + name).removeAttribute("aria-current");
+    }
+    document.querySelector(".skip-link").setAttribute("href", view === "stats" ? "#stats-title" : "#search-query");
+    if (view === "stats") {
+      renderStatsStatus();
+      refreshStats();
+      if (focus) $("stats-title").focus({preventScroll:true});
+    } else {
+      invalidateStats();
+      if (focus) ($("search-content").hidden ? $("import-action") : $("search-query")).focus({preventScroll:true});
+    }
+  }
+
+  function renderStatsChatOptions() {
+    const select = $("stats-chat");
+    const chosen = select.value;
+    select.replaceChildren(new Option("All archived chats", ""));
+    for (const chat of chats) {
+      if (setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
+    }
+    select.value = chosen;
+    if (chosen && !select.value) invalidateStats(true);
+  }
+
+  function statsFilter() {
+    const request = {};
+    const range = $("stats-range").value;
+    if (range === "custom") {
+      if (!$("stats-from").value && !$("stats-until").value) throw new Error("Choose at least one custom date.");
+      if ($("stats-from").value) request.from = Math.floor(dayStart($("stats-from").value).getTime() / 1000);
+      if ($("stats-until").value) {
+        const end = dayStart($("stats-until").value);
+        end.setDate(end.getDate() + 1);
+        request.until = Math.floor(end.getTime() / 1000);
+      }
+      if (request.from !== undefined && request.until !== undefined && request.from >= request.until) throw new Error("The end date must be on or after the start date.");
+    } else if (range !== "all") {
+      const end = new Date();
+      end.setHours(0, 0, 0, 0);
+      end.setDate(end.getDate() + 1);
+      const start = new Date(end);
+      start.setDate(start.getDate() - Number(range));
+      request.from = Math.floor(start.getTime() / 1000);
+      request.until = Math.floor(end.getTime() / 1000);
+    }
+    if ($("stats-chat").value) request.chat_id = $("stats-chat").value;
+    if ($("stats-kind").value !== "all") request.kind = $("stats-kind").value;
+    return request;
+  }
+
+  function changeStatsFilters() {
+    $("stats-custom-dates").hidden = $("stats-range").value !== "custom";
+    invalidateStats(true);
+    $("stats-updated").textContent = "Updating view";
+    refreshStats();
+  }
+
+  async function refreshStats() {
+    if (authExpired || activeView !== "stats" || document.hidden) return;
+    if (statsUnavailable()) {
+      invalidateStats(true);
+      feedback("stats-feedback", "Stats are unavailable while the archive requires checks.", true);
+      return;
+    }
+    if (statsController) {
+      statsReloadQueued = true;
+      return;
+    }
+    let filter;
+    try { filter = statsFilter(); }
+    catch (error) {
+      $("stats-data").setAttribute("aria-busy", "false");
+      feedback("stats-feedback", error.message, true);
+      return;
+    }
+    const version = ++statsVersion;
+    const epoch = authEpoch;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    statsController = controller;
+    $("stats-data").setAttribute("aria-busy", "true");
+    $("stats-refresh").disabled = true;
+    try {
+      const snapshot = await api("/api/stats", "POST", filter, {signal:controller.signal});
+      if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden || statsUnavailable()) return;
+      if (![snapshot.messages, snapshot.chats, snapshot.sent, snapshot.received].every(value => Number.isSafeInteger(value) && value >= 0) || !Array.isArray(snapshot.daily) || !Array.isArray(snapshot.top_chats) || !Array.isArray(snapshot.kinds)) throw new Error("Stats could not be read. Use Refresh stats to try again.");
+      renderStats(snapshot);
+      $("stats-updated").textContent = "Updated " + statsDate(snapshot.sampled_at, {hour:"numeric", minute:"2-digit", second:"2-digit"});
+      document.querySelector(".stats-update").dataset.state = "ready";
+      feedback("stats-feedback", "");
+    } catch (error) {
+      if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden) return;
+      clearStatsData();
+      $("stats-updated").textContent = "Update unavailable";
+      document.querySelector(".stats-update").dataset.state = "error";
+      feedback("stats-feedback", error.name === "AbortError" ? "Stats took too long to load. Use Refresh stats to try again." : error.message, true);
+    } finally {
+      window.clearTimeout(timeout);
+      if (statsController === controller) {
+        statsController = null;
+        if (epoch === authEpoch) {
+          $("stats-data").setAttribute("aria-busy", "false");
+          $("stats-refresh").disabled = false;
+        }
+      }
+      if (statsReloadQueued && !authExpired && activeView === "stats" && !document.hidden) {
+        statsReloadQueued = false;
+        refreshStats();
+      }
+    }
+  }
+
+  function renderStatsProgress(kind, progress) {
+    const state = $("stats-" + kind + "-state");
+    const detail = $("stats-" + kind + "-detail");
+    const bar = $("stats-" + kind + "-progress");
+    const complete = statsCount(progress?.Complete);
+    const pending = statsCount(progress?.Pending);
+    const failed = statsCount(progress?.Failed);
+    const total = complete + pending + failed;
+    const disabled = !progress || progress.State === "not_configured";
+    state.textContent = statsUnavailable() ? "Unavailable" : disabled ? "Not configured" : progressText(progress);
+    state.parentElement.parentElement.dataset.state = failed ? "failed" : progress?.State || "not_configured";
+    bar.max = total || 1;
+    bar.value = statsUnavailable() ? 0 : complete;
+    bar.hidden = disabled || statsUnavailable() || !total;
+    detail.textContent = statsUnavailable() ? "Archive checks are required before processing can continue." : disabled ? kind === "keyword" ? "Available when messages arrive." : "Optional. Configure in Models and media." : total ? statsNumber(complete) + " completed · " + statsNumber(pending) + " waiting" + (failed ? " · " + statsNumber(failed) + " failed" : "") : "No queued jobs.";
+  }
+
+  function renderStatsStatus() {
+    if (!status) return;
+    const policy = setup?.Policy || setup?.policy;
+    const view = importPresentation(status, policy, setup?.configured, chats.length, pairingSnapshot);
+    const connected = ["connected", "discovery", "importing"].includes(status.Connection);
+    $("stats-connection-state").textContent = status.Paused ? "Import paused" : $("connection-status").textContent;
+    $("stats-connection-dot").dataset.state = status.Connection || "setup_required";
+    $("stats-connection-description").textContent = statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !status.Paused && Number(status.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
+    $("stats-connection-action").textContent = !setup?.configured ? "Set up your archive" : status.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
+    const notice = $("status-notice");
+    $("stats-notice").textContent = notice.textContent;
+    $("stats-notice").hidden = notice.hidden;
+    for (const [kind, progress] of [["keyword", status.Keyword], ["media", status.Media], ["semantic", status.Semantic]]) renderStatsProgress(kind, progress);
+  }
+
+  function renderStatsChart(snapshot) {
+    const target = $("stats-chart");
+    target.replaceChildren();
+    const rows = (snapshot.daily || []).slice(0, 90);
+    const table = $("stats-activity-rows");
+    table.replaceChildren();
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "stats-empty";
+      empty.textContent = setup?.configured ? "No readable messages match these filters. Try a wider date range or another chat." : "Set up your archive to see messages and activity here.";
+      target.append(empty);
+      $("stats-activity-table").hidden = true;
+      return;
+    }
+    $("stats-activity-table").hidden = false;
+    const ns = "http://www.w3.org/2000/svg";
+    function svgNode(name, attributes, text) {
+      const node = document.createElementNS(ns, name);
+      for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+    const width = Math.max(260, target.clientWidth);
+    const height = width < 480 ? 205 : 238;
+    const left = 43, right = 9, top = 14, bottom = 34;
+    const plotWidth = width - left - right;
+    const plotHeight = height - top - bottom;
+    const maximum = Math.max(1, ...rows.map(row => statsCount(row.messages)));
+    const magnitude = 10 ** Math.floor(Math.log10(maximum));
+    const axisMaximum = Math.max(4, Math.ceil(maximum / magnitude) * magnitude);
+    const chart = svgNode("svg", {viewBox:"0 0 " + width + " " + height, role:"img", "aria-label":"Message activity: " + statsNumber(snapshot.messages) + " messages across " + rows.length + " UTC periods. An accessible table follows."});
+    for (let tick = 0; tick <= 4; tick++) {
+      const y = top + plotHeight * tick / 4;
+      chart.append(svgNode("line", {x1:left, y1:y, x2:width - right, y2:y, class:"chart-grid"}));
+      const value = Math.round(axisMaximum * (4 - tick) / 4);
+      chart.append(svgNode("text", {x:left - 8, y:y + 4, "text-anchor":"end", class:"chart-label"}, new Intl.NumberFormat(undefined, {notation:axisMaximum >= 10000 ? "compact" : "standard", maximumFractionDigits:1}).format(value)));
+    }
+    const stride = plotWidth / rows.length;
+    const gap = Math.max(1, Math.min(5, stride * .24));
+    const labelCount = width < 480 ? 3 : 5;
+    const labelIndices = new Set([0, rows.length - 1]);
+    for (let index = 1; index < labelCount - 1; index++) labelIndices.add(Math.round(index * (rows.length - 1) / (labelCount - 1)));
+    rows.forEach((row, index) => {
+      const count = statsCount(row.messages);
+      const barHeight = count / axisMaximum * plotHeight;
+      const x = left + index * stride + gap / 2;
+      const rect = svgNode("rect", {x, y:top + plotHeight - barHeight, width:Math.max(1, stride - gap), height:barHeight, rx:Math.min(2, stride / 4), class:"chart-bar"});
+      rect.append(svgNode("title", {}, String(row.date) + ": " + statsNumber(count) + " messages"));
+      chart.append(rect);
+      if (labelIndices.has(index)) {
+        const date = new Date(String(row.date) + "T00:00:00Z");
+        const options = snapshot.activity_interval === "year" ? {year:"numeric", timeZone:"UTC"} : snapshot.activity_interval === "month" ? {month:"short", year:"2-digit", timeZone:"UTC"} : {month:"short", day:"numeric", timeZone:"UTC"};
+        const label = Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, options).format(date);
+        const anchor = index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle";
+        const textX = index === 0 ? left : index === rows.length - 1 ? width - right : left + (index + .5) * stride;
+        chart.append(svgNode("text", {x:textX, y:height - 9, "text-anchor":anchor, class:"chart-label"}, label));
+      }
+      const tableRow = document.createElement("tr");
+      for (const text of [row.date, statsNumber(count)]) {
+        const cell = document.createElement("td");
+        cell.textContent = String(text);
+        tableRow.append(cell);
+      }
+      table.append(tableRow);
+    });
+    target.append(chart);
+  }
+
+  function renderStats(snapshot) {
+    statsSnapshot = snapshot;
+    const key = JSON.stringify({...snapshot, sampled_at:0});
+    if (key === statsRenderKey) return;
+    statsRenderKey = key;
+    $("stats-message-count").textContent = statsNumber(snapshot.messages);
+    $("stats-chat-count").textContent = statsNumber(snapshot.chats);
+    $("stats-sent-count").textContent = statsNumber(snapshot.sent);
+    $("stats-received-count").textContent = statsNumber(snapshot.received);
+    $("stats-latest-message").textContent = statsDate(snapshot.last_message_at, undefined, statsCount(snapshot.messages) > 0);
+    const range = $("stats-range");
+    const rangeName = range.options[range.selectedIndex]?.text || "Selected history";
+    $("stats-range-description").textContent = rangeName + ". Only readable, saved messages are included.";
+    const intervals = {day:"day", week:"week", month:"month", year:"year"};
+    const interval = intervals[snapshot.activity_interval] || "day";
+    const step = statsCount(snapshot.activity_step) || 1;
+    $("stats-activity-description").textContent = "Messages by date sent, grouped by " + (step > 1 ? step + " " + interval + "s" : interval) + " in UTC.";
+    $("stats-activity-total").textContent = statsNumber(snapshot.messages) + " messages";
+    $("stats-chats-total").textContent = statsNumber(snapshot.chats) + " chats";
+    renderStatsChart(snapshot);
+    const top = $("stats-top-chats");
+    top.replaceChildren();
+    const topChats = (snapshot.top_chats || []).slice(0, 8);
+    const maxChat = Math.max(1, ...topChats.map(chat => statsCount(chat.messages)));
+    for (const chat of topChats) {
+      const item = document.createElement("li");
+      const row = document.createElement("div");
+      row.className = "stats-chat-row";
+      row.append(bdi(chat.name || "Unnamed chat", "stats-chat-name"));
+      const count = document.createElement("strong");
+      count.textContent = statsNumber(chat.messages);
+      row.append(count);
+      const track = document.createElement("div");
+      track.className = "stats-chat-track";
+      track.setAttribute("aria-hidden", "true");
+      const fill = document.createElement("span");
+      fill.style.width = statsCount(chat.messages) / maxChat * 100 + "%";
+      track.append(fill);
+      item.append(row, track);
+      top.append(item);
+    }
+    if (!topChats.length) {
+      const empty = document.createElement("li");
+      empty.className = "stats-empty";
+      empty.textContent = "No chats match these filters.";
+      top.append(empty);
+    }
+    const kindLabels = {text:"Text", image:"Images", voice:"Voice notes", other:"Other"};
+    const kindCounts = new Map((snapshot.kinds || []).map(kind => [kind.kind, statsCount(kind.messages)]));
+    const kinds = $("stats-kinds"), composition = $("stats-kind-bar");
+    kinds.replaceChildren();
+    composition.replaceChildren();
+    for (const [kind, label] of Object.entries(kindLabels)) {
+      const count = kindCounts.get(kind) || 0;
+      const item = document.createElement("li");
+      const color = document.createElement("span");
+      color.className = "stats-kind-color";
+      color.dataset.kind = kind;
+      color.setAttribute("aria-hidden", "true");
+      const name = document.createElement("span");
+      name.textContent = label;
+      const number = document.createElement("strong");
+      number.textContent = statsNumber(count);
+      item.append(color, name, number);
+      kinds.append(item);
+      if (count) {
+        const segment = document.createElement("span");
+        segment.dataset.kind = kind;
+        segment.style.flexGrow = String(count);
+        segment.style.flexBasis = "0";
+        composition.append(segment);
+      }
+    }
+    const voice = statsCount(snapshot.media?.voice_messages);
+    const transcribed = Math.min(voice, statsCount(snapshot.media?.transcribed_voice));
+    const retained = statsCount(snapshot.media?.retained_voice);
+    $("stats-transcribed").textContent = statsNumber(transcribed) + " / " + statsNumber(voice);
+    $("stats-voice-progress").max = voice || 1;
+    $("stats-voice-progress").value = transcribed;
+    $("stats-voice-description").textContent = voice ? statsNumber(retained) + " original recordings retained. A voice note needs a saved recording before it can be transcribed." : "No voice notes in this view.";
   }
 
   function bytesText(bytes) {
@@ -901,6 +1285,7 @@
     }
     select.value = chosen;
     $("chat-discovery-note").textContent = cursor ? "Showing the first discovered chats. More chats are available; narrow your archive selection before importing them." : chats.length ? "Select chats to save their messages. Coverage below describes received history only." : "No chats discovered yet. Link WhatsApp, then refresh. With no selection, no message bodies are saved.";
+    renderStatsChatOptions();
     renderImportState();
   }
 
@@ -1246,6 +1631,7 @@
       $("settings-dialog").close();
       // Policy changes invalidate visible results rather than leaving stale bodies on screen.
       clearResults();
+      invalidateStats(true);
       await refreshStatus();
       assertOwner(epoch);
       await loadChats();
@@ -1526,6 +1912,33 @@
     if (success || pairingSnapshot?.has_session === true) await refreshPairing();
   }
 
+  $("nav-stats").addEventListener("click", () => selectWorkspaceView("stats", true));
+  $("nav-archive").addEventListener("click", () => selectWorkspaceView("archive", true));
+  $("stats-filters").addEventListener("submit", event => event.preventDefault());
+  $("stats-filters").addEventListener("change", changeStatsFilters);
+  $("stats-refresh").addEventListener("click", refreshStats);
+  $("stats-models-open").addEventListener("click", () => $("models-open").click());
+  $("stats-connection-action").addEventListener("click", async () => {
+    if (authExpired) return;
+    if (!setup?.configured) await openSettings();
+    else if (status?.Paused && !statsUnavailable()) await command($("stats-connection-action"), "/api/resume", "stats-feedback", "Import resumed.");
+    else $("connection-open").click();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) invalidateStats();
+    else if (!authExpired && activeView === "stats") {
+      refreshStatus();
+      refreshStats();
+    }
+  });
+  let statsResizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (statsResizeTimer !== null) window.clearTimeout(statsResizeTimer);
+    statsResizeTimer = window.setTimeout(() => {
+      statsResizeTimer = null;
+      if (!authExpired && activeView === "stats" && statsSnapshot && !statsUnavailable()) renderStatsChart(statsSnapshot);
+    }, 100);
+  });
   $("policy-form").addEventListener("change",updatePolicyFields);
   $("policy-form").addEventListener("submit",savePolicy);
   $("settings-open").addEventListener("click",openSettings);
@@ -1620,6 +2033,7 @@
       $("admin-logout").hidden = !remoteAdmin;
       $("auth-screen").hidden = true;
       $("workspace").hidden = false;
+      selectWorkspaceView("stats");
       await refreshStatus();
       if (epoch !== authEpoch || authExpired) return;
       await refreshPairing();
@@ -1628,7 +2042,7 @@
       else {
         await loadChats();
         if (epoch !== authEpoch || authExpired) return;
-        ($("search-content").hidden ? $("import-action") : $("search-query")).focus();
+        $("stats-title").focus({preventScroll:true});
       }
       if (epoch === authEpoch && !authExpired) startPolling();
     } catch (error) {

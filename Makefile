@@ -4,7 +4,7 @@ PYTHON ?= python3
 TAGS := fts5,sqlite_fts5
 ARGS ?=
 
-.PHONY: build run demo test vet formatcheck script-test
+.PHONY: build run demo test vet formatcheck script-test ui-test
 
 build:
 	GO="$(GO)" sh scripts/app/build.sh
@@ -29,3 +29,7 @@ script-test:
 	$(PYTHON) -m unittest discover -s scripts/app -p 'test_*.py'
 	$(PYTHON) -m unittest discover -s scripts/package -p 'test_*.py'
 	$(PYTHON) -m unittest discover -s services/transcription/tests -p 'test_*.py'
+
+ui-test:
+	node --check internal/localui/assets/app.js
+	node scripts/ui/test_stats.mjs
