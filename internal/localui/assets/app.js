@@ -832,16 +832,17 @@
     rows.forEach((row, index) => {
       const count = statsCount(row.messages);
       const barHeight = count / axisMaximum * plotHeight;
-      const x = left + index * stride + gap / 2;
-      const rect = svgNode("rect", {x, y:top + plotHeight - barHeight, width:Math.max(1, stride - gap), height:barHeight, rx:Math.min(2, stride / 4), class:"chart-bar"});
+      const barWidth = Math.max(1, Math.min(48, stride - gap));
+      const x = left + (index + .5) * stride - barWidth / 2;
+      const rect = svgNode("rect", {x, y:top + plotHeight - barHeight, width:barWidth, height:barHeight, rx:Math.min(2, stride / 4), class:"chart-bar"});
       rect.append(svgNode("title", {}, String(row.date) + ": " + statsNumber(count) + " messages"));
       chart.append(rect);
       if (labelIndices.has(index)) {
         const date = new Date(String(row.date) + "T00:00:00Z");
         const options = snapshot.activity_interval === "year" ? {year:"numeric", timeZone:"UTC"} : snapshot.activity_interval === "month" ? {month:"short", year:"2-digit", timeZone:"UTC"} : {month:"short", day:"numeric", timeZone:"UTC"};
         const label = Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, options).format(date);
-        const anchor = index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle";
-        const textX = index === 0 ? left : index === rows.length - 1 ? width - right : left + (index + .5) * stride;
+        const anchor = rows.length === 1 ? "middle" : index === 0 ? "start" : index === rows.length - 1 ? "end" : "middle";
+        const textX = rows.length === 1 ? left + stride / 2 : index === 0 ? left : index === rows.length - 1 ? width - right : left + (index + .5) * stride;
         chart.append(svgNode("text", {x:textX, y:height - 9, "text-anchor":anchor, class:"chart-label"}, label));
       }
       const tableRow = document.createElement("tr");
@@ -2042,7 +2043,6 @@
       else {
         await loadChats();
         if (epoch !== authEpoch || authExpired) return;
-        $("stats-title").focus({preventScroll:true});
       }
       if (epoch === authEpoch && !authExpired) startPolling();
     } catch (error) {
