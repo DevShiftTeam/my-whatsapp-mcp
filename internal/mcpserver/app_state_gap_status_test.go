@@ -91,7 +91,7 @@ func assertArchiveSnapshotDisclosure(t *testing.T, payload []byte) {
 }
 
 func TestMCPArchiveSnapshotLabelRequiresCoverageDisclosure(t *testing.T) {
-	wire, err := json.Marshal(sourceLabel())
+	wire, err := json.Marshal(sourceLabel(archive.ReadSnapshot{}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -141,8 +141,8 @@ func (s *Store) beginRead(ctx context.Context, scope ReadScope, requestChats []C
 	var mode DateMode
 	var importStart int64
 	var rolling int64
-	err = tx.QueryRowContext(bounded, `SELECT p.generation,p.date_mode,p.import_start,p.rolling_retention,a.archive_revision,a.index_generation
- FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&generation, &mode, &importStart, &rolling, &f.snapshot.ArchiveRevision, &f.snapshot.IndexGeneration)
+	err = tx.QueryRowContext(bounded, `SELECT p.generation,p.date_mode,p.import_start,p.rolling_retention,a.archive_revision,a.index_generation,a.recovery_epoch,a.recovery_code
+ FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&generation, &mode, &importStart, &rolling, &f.snapshot.ArchiveRevision, &f.snapshot.IndexGeneration, &f.snapshot.RecoveryEpoch, &f.snapshot.RecoveryCode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fail(ErrUnauthorized)
 	}
@@ -325,6 +325,7 @@ func (f *readFrame) responseGuard() (ResponseGuard, error) {
 		ScopeIdentity:    identity,
 		safetyEpoch:      f.epoch,
 		indexGeneration:  f.snapshot.IndexGeneration,
+		recoveryEpoch:    f.snapshot.RecoveryEpoch,
 		minSent:          f.minSent,
 		minExpiry:        f.minExpiry,
 		rolling:          f.rolling,
@@ -398,14 +399,14 @@ func (f *readFrame) finish() error {
 	}
 	defer verification.Rollback()
 	var live ReadSnapshot
-	err = verification.QueryRowContext(f.ctx, `SELECT p.generation,a.archive_revision,a.index_generation FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&live.PolicyGeneration, &live.ArchiveRevision, &live.IndexGeneration)
+	err = verification.QueryRowContext(f.ctx, `SELECT p.generation,a.archive_revision,a.index_generation,a.recovery_epoch,a.recovery_code FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&live.PolicyGeneration, &live.ArchiveRevision, &live.IndexGeneration, &live.RecoveryEpoch, &live.RecoveryCode)
 	if err != nil {
 		return readError(f.ctx, err)
 	}
 	if live.PolicyGeneration != f.snapshot.PolicyGeneration {
 		return ErrPolicyChanged
 	}
-	if live.IndexGeneration != f.snapshot.IndexGeneration {
+	if live.IndexGeneration != f.snapshot.IndexGeneration || live.RecoveryEpoch != f.snapshot.RecoveryEpoch {
 		return ErrCursorStale
 	}
 	if err = f.verifySources(verification, now); err != nil {
@@ -812,6 +813,10 @@ func (f *readFrame) chatViews(limit, offset int) ([]ChatView, error) {
 			chat.Coverage = "partial"
 			chat.GapCodes = append(chat.GapCodes, "unresolved_deletion")
 		}
+		if f.snapshot.RecoveryCode == "owner_restored_snapshot" {
+			chat.Coverage = "partial"
+			chat.GapCodes = append(chat.GapCodes, "owner_restored_snapshot")
+		}
 		out = append(out, chat)
 	}
 	if err = rows.Err(); err != nil {
@@ -910,6 +915,13 @@ func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *Respo
 		return StatusSnapshot{}, err
 	}
 	status := StatusSnapshot{Connection: ConnectionState("disconnected"), Coverage: CoverageState("unknown"), Chats: chats, Snapshot: f.snapshot, Keyword: Progress{State: ProgressState("ready")}, Semantic: Progress{State: ProgressState("not_configured")}, Media: Progress{State: ProgressState("not_configured")}, Codes: []string{}}
+	// Restoration preserves a stored snapshot; it cannot verify changes that
+	// WhatsApp may have sent during the interrupted observation. This fixed
+	// warning applies even when the caller's permitted scope has no messages.
+	if f.snapshot.RecoveryCode == "owner_restored_snapshot" {
+		status.Coverage = "partial"
+		status.Codes = append(status.Codes, "owner_restored_snapshot")
+	}
 	var minSent sql.NullInt64
 	if err = f.tx.QueryRowContext(f.ctx, "SELECT count(*),min(m.original_sent_at) FROM "+authorizedTables+" WHERE "+f.where, f.args...).Scan(&status.Messages, &minSent); err != nil {
 		return StatusSnapshot{}, readError(f.ctx, err)

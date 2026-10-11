@@ -425,6 +425,7 @@
   }
 
   function progressText(progress) {
+    if (progress?.Code === "transcription_busy") return "Transcribing another recording";
     if (!progress) return "Not configured";
     return codeText(progress.State || "not_configured");
   }
@@ -516,8 +517,9 @@
       const hasStateSyncGap = !unsafe && (status.Codes || []).includes("app_state_sync_error");
       const hasMessageGap = !unsafe && (status.Codes || []).some(code => ["undecryptable_message", "source_revision_conflict"].includes(code));
       const hasUnresolvedDeletion = !unsafe && (status.Codes || []).includes("unresolved_deletion");
+      const hasRestoredSnapshot = !unsafe && status.Snapshot?.RecoveryCode === "owner_restored_snapshot";
       $("messages-count").textContent = unsafe ? "—" : count.toLocaleString();
-      $("coverage-status").textContent = unsafe ? "Archive checks required" : hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
+      $("coverage-status").textContent = unsafe ? "Archive checks required" : hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
       $("history-detail").textContent = unsafe ? "Message counts are unavailable while this archive is paused." : count ? "Only the history delivered by WhatsApp is included." : "Messages appear here after WhatsApp sends them.";
       $("keyword-status").textContent = unsafe ? "Unavailable" : !count ? "Waiting" : progressText(status.Keyword);
       $("keyword-detail").textContent = unsafe ? "Search is paused until the archive is safe to read." : !count ? "Ready when messages arrive." : status.Keyword?.Pending ? Number(status.Keyword.Pending).toLocaleString() + " waiting to index" : "Search your saved message text.";
@@ -530,6 +532,7 @@
       $("connection-open").textContent = unsafe ? "View import problem" : connectionView.busy || connectionView.ended || ["connected","pairing","discovery","importing"].includes(status.Connection) ? "Connection details" : pairingSnapshot?.has_session === true ? "Reconnect WhatsApp" : "Link WhatsApp";
       renderImportState();
       const notices = [];
+      if (hasRestoredSnapshot) notices.push("You restored this stored archive after an interrupted import. Messages, edits, or deletions during the interruption may be missing. Current WhatsApp state is unverified; known unavailable sources remain withheld.");
       if (hasStateSyncGap) notices.push(stateSyncGapText(status));
       if (hasMessageGap) notices.push("Some WhatsApp messages were unavailable, could not be decrypted, or had conflicting updates. Affected messages are withheld; other readable messages can still be imported and searched. Received history is incomplete." + ((status.Codes || []).includes("undecryptable_message") ? " WhatsApp may retry delivery." : ""));
       if (hasUnresolvedDeletion) notices.push("Some deleted messages could not be matched completely. Possible matches are withheld; other messages remain searchable.");
@@ -540,7 +543,7 @@
       }
       $("status-notice").textContent = notices.join(" ");
       $("status-notice").hidden = !notices.length;
-      $("status-notice").classList.toggle("warning", hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion);
+      $("status-notice").classList.toggle("warning", hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot);
       if ($("connection-dialog").open) renderConnectionPresentation({...pairingSnapshot,state:status.Connection});
       const policy = setup?.Policy || setup?.policy;
       if (!unsafe && ["connected","discovery","importing"].includes(status.Connection) && policy?.ChatMode === "selective" && !(policy.IncludedChats || []).length && !chats.length && !$("connection-dialog").open && !chatDiscoveryBusy) {
@@ -771,15 +774,16 @@
     const epoch = authEpoch;
     voiceRetryBusy = true;
     updateVoiceRetryControls();
-    feedback("voice-retry-feedback", "Checking failed voice downloads…");
+    feedback("voice-retry-feedback", "Checking voice downloads and missing references…");
     try {
       const value = await api("/api/voice/retry", "POST", {});
       if (epoch !== authEpoch || authExpired || !$("models-dialog").open) return;
-      if (!Number.isSafeInteger(value.queued) || !Number.isSafeInteger(value.skipped) || value.queued < 0 || value.skipped < 0 || value.queued + value.skipped > 32) throw new Error(messages.voice_retry_unavailable);
+      if (!Number.isSafeInteger(value.queued) || !Number.isSafeInteger(value.skipped) || !Number.isSafeInteger(value.requested) || value.queued < 0 || value.skipped < 0 || value.requested < 0 || value.requested > 8 || value.queued + value.skipped > 32) throw new Error(messages.voice_retry_unavailable);
       const text = value.queued
         ? value.queued + " voice download" + (value.queued === 1 ? "" : "s") + " queued. Downloads need a connected WhatsApp session; transcription needs its configured service."
-        : "No failed voice downloads could be queued in this batch.";
-      feedback("voice-retry-feedback", text + (value.skipped ? " " + value.skipped + " unusable download reference" + (value.skipped === 1 ? " was" : "s were") + " skipped. Retry again to check the next batch." : ""));
+        : "No voice downloads could be queued in this batch.";
+      const requested = value.requested ? " Asked your phone for " + value.requested + " missing voice note reference" + (value.requested === 1 ? "." : "s.") + " Keep WhatsApp open on your phone, wait for its response, then click Retry voice downloads again to queue returned recordings." : "";
+      feedback("voice-retry-feedback", text + requested + (value.skipped ? " " + value.skipped + " unusable download reference" + (value.skipped === 1 ? " was" : "s were") + " skipped. Retry again to check the next batch." : ""));
     } catch (error) {
       if (epoch === authEpoch && !authExpired && $("models-dialog").open) feedback("voice-retry-feedback", error.message, true);
     } finally {

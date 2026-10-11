@@ -272,6 +272,64 @@ func (s *Store) updateMedia(ctx context.Context, k SourceKey, version SourceVers
 		return e
 	})
 }
+
+// Already committed identity mappings need no new control mutation. Verify the
+// exact pair in one read snapshot so media work cannot stall these no-op
+// observations behind the serialized writer's control deadline.
+func (s *Store) committedAlias(ctx context.Context, a SourceAlias) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	s.lifeMu.RLock()
+	defer s.lifeMu.RUnlock()
+	if s.closed {
+		return false, ErrArchiveUnavailable
+	}
+	epoch, err := s.readSafety(a.Account)
+	if err != nil {
+		return false, err
+	}
+	bounded, cancel := s.readContext(ctx)
+	defer cancel()
+	tx, err := s.readDB.BeginTx(bounded, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return false, fixedSQLError(err)
+	}
+	defer tx.Rollback()
+	var accounts int
+	var account string
+	if err = tx.QueryRowContext(bounded, "SELECT count(*),COALESCE(MIN(account),'') FROM accounts").Scan(&accounts, &account); err != nil {
+		return false, fixedSQLError(err)
+	}
+	if accounts == 0 {
+		return false, nil
+	}
+	if accounts != 1 || account != a.Account {
+		return false, ErrUnauthorized
+	}
+	var mappings, matching int
+	if err = tx.QueryRowContext(bounded, "SELECT count(*),COALESCE(SUM(canonical=?),0) FROM identity_aliases WHERE account=? AND alias IN (?,?)", a.PhoneJID, a.Account, a.PhoneJID, a.LID).Scan(&mappings, &matching); err != nil {
+		return false, fixedSQLError(err)
+	}
+	if mappings != 2 || matching != 2 {
+		return false, nil
+	}
+	if err = tx.Commit(); err != nil {
+		return false, fixedSQLError(err)
+	}
+	if err = bounded.Err(); err != nil {
+		return false, err
+	}
+	if err = s.verifyReadSafety(a.Account, epoch); errors.Is(err, ErrPolicyChanged) {
+		// The observation still needs authoritative handling after a clean
+		// epoch transition. Falling back avoids dropping its source message.
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 	if !strings.HasSuffix(a.PhoneJID, "@s.whatsapp.net") || !strings.HasSuffix(a.LID, "@lid") {
 		return ErrInvalidEvent
@@ -302,7 +360,7 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 		if existingMappings == 2 {
 			return nil
 		}
-		if e := extensionInvalidateAll(ctx, tx, a.Account); e != nil {
+		if e := invalidateAliasSources(ctx, tx, a); e != nil {
 			return e
 		}
 		// Prevent unique-key collision before moving any source key. Incompatible
@@ -368,11 +426,15 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 		if _, e := tx.ExecContext(ctx, "INSERT INTO chat_tombstones(account,chat,cutoff) SELECT account,?,cutoff FROM chat_tombstones WHERE account=? AND chat=? ON CONFLICT(account,chat) DO UPDATE SET cutoff=MAX(cutoff,excluded.cutoff)", a.PhoneJID, a.Account, a.LID); e != nil {
 			return e
 		}
-		if _, e := bumpRevision(ctx, tx); e != nil {
+		rev, e := bumpRevision(ctx, tx)
+		if e != nil {
 			return e
 		}
 		p, e := s.loadPolicy(ctx, tx)
 		if e != nil {
+			return e
+		}
+		if e = terminalizeAliasTombstones(ctx, tx, a, p.Generation, rev); e != nil {
 			return e
 		}
 		return reconstructDirty(ctx, tx, p.Generation)
@@ -384,6 +446,73 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 		_ = s.persistUnsafe(persistCtx, a.Account, "identity_alias_conflict")
 	}
 	return e
+}
+
+// A new identity mapping revokes only sources whose identity or reply changes.
+// Invalidating each source also removes every dependent multi-source window;
+// unrelated original downloads, transcripts, and extraction leases stay valid.
+func invalidateAliasSources(ctx context.Context, tx *sql.Tx, a SourceAlias) error {
+	rows, err := tx.QueryContext(ctx, `SELECT m.id FROM messages m
+ LEFT JOIN chats c ON c.id=m.chat_id LEFT JOIN identities i ON i.id=m.sender_id
+ WHERE m.account=? AND (m.source_chat=? OR m.source_sender=? OR m.reply_chat=? OR m.reply_sender=?
+ OR (c.account=m.account AND c.source_chat=?) OR (i.account=m.account AND i.source_identity=?))
+ ORDER BY m.id`, a.Account, a.LID, a.LID, a.LID, a.LID, a.LID, a.LID)
+	if err != nil {
+		return err
+	}
+	var ids []MessageID
+	for rows.Next() {
+		var id MessageID
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err = extensionInvalidate(ctx, tx, id, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// A mapped LID deletion can newly cover an existing PN source. Apply the same
+// irreversible clear-chat transition after merging canonical tombstone keys.
+func terminalizeAliasTombstones(ctx context.Context, tx *sql.Tx, a SourceAlias, generation Generation, rev ArchiveRevision) error {
+	rows, err := tx.QueryContext(ctx, `SELECT m.rowid,m.id,m.chat_id,m.source_chat,m.source_sender,m.source_message,m.from_me,m.protocol_revision,m.original_sent_at
+ FROM messages m WHERE m.account=? AND m.state<>'deleted' AND (
+ (m.source_chat=? AND m.original_date_known=1 AND EXISTS(SELECT 1 FROM chat_tombstones ct WHERE ct.account=m.account AND ct.chat=m.source_chat AND m.original_sent_at<=ct.cutoff))
+ OR ((m.source_chat=? OR m.source_sender=?) AND EXISTS(SELECT 1 FROM source_tombstones st WHERE st.account=m.account AND st.chat=m.source_chat AND st.sender=m.source_sender AND st.message=m.source_message AND st.from_me=m.from_me)))
+ ORDER BY m.id`, a.Account, a.PhoneJID, a.PhoneJID, a.PhoneJID)
+	if err != nil {
+		return err
+	}
+	var list []sourceDeletion
+	for rows.Next() {
+		var v sourceDeletion
+		if err = rows.Scan(&v.row, &v.id, &v.chat, &v.sourceChat, &v.sender, &v.message, &v.from, &v.revision, &v.sent); err != nil {
+			rows.Close()
+			return err
+		}
+		list = append(list, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, v := range list {
+		if err = terminalizeSource(ctx, tx, a.Account, generation, v, rev); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) SetSourceNames(ctx context.Context, n SourceNames) error {
@@ -543,7 +672,7 @@ func (s *Store) DiscoveryChats(ctx context.Context, request ChatListRequest) (Di
 // witnesses in public status. Witnesses do not authorize unsafe or gap commands.
 // Connector errors, account identifiers and source text are excluded.
 func IsDiagnosticFailureCode(code string) bool {
-	if validUnsafeReason(UnsafeReason(code)) || code == "archive_unavailable" {
+	if validUnsafeReason(UnsafeReason(code)) || code == "archive_unavailable" || code == "owner_restored_snapshot" {
 		return true
 	}
 	switch code {
@@ -570,7 +699,7 @@ func (s *Store) DiagnosticStatus(ctx context.Context) (StatusSnapshot, error) {
 		return StatusSnapshot{}, e
 	}
 	status := StatusSnapshot{Connection: "setup_required", Coverage: "unknown", Keyword: Progress{State: "not_configured"}, Semantic: Progress{State: "not_configured"}, Media: Progress{State: "not_configured"}, Snapshot: ReadSnapshot{PolicyGeneration: p.Generation}}
-	if e = s.readDB.QueryRowContext(ctx, "SELECT archive_revision,index_generation FROM archive_meta WHERE id=1").Scan(&status.Snapshot.ArchiveRevision, &status.Snapshot.IndexGeneration); e != nil {
+	if e = s.readDB.QueryRowContext(ctx, "SELECT archive_revision,index_generation,recovery_epoch,recovery_code FROM archive_meta WHERE id=1").Scan(&status.Snapshot.ArchiveRevision, &status.Snapshot.IndexGeneration, &status.Snapshot.RecoveryEpoch, &status.Snapshot.RecoveryCode); e != nil {
 		return status, fixedSQLError(e)
 	}
 	s.safetyMu.RLock()

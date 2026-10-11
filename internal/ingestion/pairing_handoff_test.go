@@ -12,8 +12,9 @@ import (
 
 type handoffConnection struct {
 	*refreshConnection
-	activity chan string
-	stopHook func()
+	activity   chan string
+	stopHook   func()
+	removeHook func()
 }
 
 func (c *handoffConnection) ConnectContext(ctx context.Context) error {
@@ -29,6 +30,13 @@ func (c *handoffConnection) Disconnect() {
 		c.stopHook()
 	}
 	c.activity <- "disconnect"
+}
+func (c *handoffConnection) RemoveEventHandler(id uint32) bool {
+	removed := c.refreshConnection.RemoveEventHandler(id)
+	if c.removeHook != nil {
+		c.removeHook()
+	}
+	return removed
 }
 func (c *handoffConnection) currentHandler(t *testing.T) whatsmeow.EventHandler {
 	t.Helper()

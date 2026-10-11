@@ -35,8 +35,8 @@ func TestExtensionMigrationsAreOrderedChecksummedAndReopen(t *testing.T) {
 			t.Fatalf("migration order/checksum: %d %d", i, v)
 		}
 	}
-	if i != 10 {
-		t.Fatalf("expected 10 ordered migrations, got %d", i)
+	if i != 11 {
+		t.Fatalf("expected 11 ordered migrations, got %d", i)
 	}
 	body, err := migrationFiles.ReadFile("migrations/001_archive.sql")
 	if err != nil {
@@ -74,7 +74,7 @@ func TestExtensionMigrationGapAndChangedChecksumReject(t *testing.T) {
 				query = "UPDATE schema_migrations SET checksum='changed' WHERE version=3"
 			}
 			if name == "future" {
-				query = "INSERT INTO schema_migrations(version,checksum) VALUES(11,'future')"
+				query = "INSERT INTO schema_migrations(version,checksum) SELECT max(version)+1,'future' FROM schema_migrations"
 				expected = ErrSchemaTooNew
 			}
 			if _, err = s.writeDB.Exec(query); err != nil {

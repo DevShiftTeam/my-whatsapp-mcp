@@ -18,38 +18,44 @@ import (
 
 // Options bounds all background admissions and foreground SQLite reads.
 type Options struct {
-	BodyQueueCount    int
-	BodyQueueBytes    int
-	ControlQueueCount int
-	ControlDeadline   time.Duration
-	ReadTimeout       time.Duration
-	ReadConnections   int
-	Now               func() time.Time
+	BodyQueueCount        int
+	BodyQueueBytes        int
+	ControlQueueCount     int
+	ControlDeadline       time.Duration
+	AliasDeadline         time.Duration // atomic identity merge: default 2s, maximum 5s
+	ReadTimeout           time.Duration
+	ReadConnections       int
+	Now                   func() time.Time
+	originalCacheRecovery bool // private stopped-profile preservation factory only
 }
 
 // Store owns one serialized writer and a separate limited query-only read pool.
 // SQLite handles and protected paths never cross the public interfaces.
 type Store struct {
-	lockFile           *os.File
-	writeDB, readDB    *sql.DB
-	privateDir         string
-	options            Options
-	extensionGuards    extensionGuardState
-	credentialFence    credentialFenceState
-	cursorKey          []byte
-	bodies, controls   chan command
-	stop               chan struct{}
-	done               chan struct{}
-	lifeMu             sync.RWMutex
-	closed             bool
-	queuedBytes        atomic.Int64
-	queuedCount        atomic.Int64
-	safetyMu           sync.RWMutex
-	safetyEpoch        uint64
-	unsafe             map[string]bool
-	unclean            bool
-	observation        ObservationID
-	observationAccount string
+	lockFile                *os.File
+	writeDB, readDB         *sql.DB
+	privateDir              string
+	options                 Options
+	extensionGuards         extensionGuardState
+	credentialFence         credentialFenceState
+	cursorKey               []byte
+	bodies, controls        chan command
+	stop                    chan struct{}
+	done                    chan struct{}
+	lifeMu                  sync.RWMutex
+	writerMu                sync.Mutex
+	closed                  bool
+	queuedCommands          atomic.Int64
+	queuedBytes             atomic.Int64
+	queuedCount             atomic.Int64
+	safetyMu                sync.RWMutex
+	safetyEpoch             uint64
+	unsafe                  map[string]bool
+	unclean                 bool
+	observation             ObservationID
+	observationAccount      string
+	snapshotRecoveryFault   func(string) error
+	snapshotRecoveryPending atomic.Bool
 }
 
 func normalizedOptions(o Options) (Options, error) {
@@ -65,6 +71,9 @@ func normalizedOptions(o Options) (Options, error) {
 	if o.ControlDeadline == 0 {
 		o.ControlDeadline = 500 * time.Millisecond
 	}
+	if o.AliasDeadline == 0 {
+		o.AliasDeadline = 2 * time.Second
+	}
 	if o.ReadTimeout == 0 {
 		o.ReadTimeout = 5 * time.Second
 	}
@@ -74,7 +83,7 @@ func normalizedOptions(o Options) (Options, error) {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	if o.BodyQueueCount < 1 || o.BodyQueueCount > 4096 || o.BodyQueueBytes < 1024 || o.BodyQueueBytes > 64<<20 || o.ControlQueueCount < 1 || o.ControlQueueCount > 1024 || o.ControlDeadline <= 0 || o.ControlDeadline > 2*time.Second || o.ReadTimeout <= 0 || o.ReadTimeout > 30*time.Second || o.ReadConnections < 1 || o.ReadConnections > 8 {
+	if o.BodyQueueCount < 1 || o.BodyQueueCount > 4096 || o.BodyQueueBytes < 1024 || o.BodyQueueBytes > 64<<20 || o.ControlQueueCount < 1 || o.ControlQueueCount > 1024 || o.ControlDeadline <= 0 || o.ControlDeadline > 2*time.Second || o.AliasDeadline <= 0 || o.AliasDeadline > 5*time.Second || o.ReadTimeout <= 0 || o.ReadTimeout > 30*time.Second || o.ReadConnections < 1 || o.ReadConnections > 8 {
 		return o, ErrInvalidPolicy
 	}
 	return o, nil
@@ -93,7 +102,13 @@ func Open(ctx context.Context, privateDir string, options Options) (*Store, erro
 	if err != nil {
 		return nil, err
 	}
-	dir, err := preparePrivateDir(privateDir)
+	var dir string
+	if o.originalCacheRecovery {
+		_, err = originalCacheExistingArchive(privateDir, true)
+		dir = privateDir
+	} else {
+		dir, err = preparePrivateDir(privateDir)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +129,20 @@ func Open(ctx context.Context, privateDir string, options Options) (*Store, erro
 		}
 	}()
 	// Pre-create the DB privately so sidecars inherit owner-only permissions.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	flags := os.O_CREATE | os.O_RDWR
+	if o.originalCacheRecovery {
+		flags = os.O_RDWR
+	}
+	f, err := os.OpenFile(path, flags, 0600)
 	if err != nil {
 		return nil, ErrArchiveUnavailable
 	}
 	f.Close()
 	base := url.URL{Scheme: "file", Path: path}
 	values := url.Values{"_busy_timeout": {"500"}, "_foreign_keys": {"on"}, "_cache_size": {"-4096"}, "_synchronous": {"FULL"}, "_secure_delete": {"on"}}
+	if o.originalCacheRecovery {
+		values.Set("mode", "rw")
+	}
 	base.RawQuery = values.Encode()
 	db, err := sql.Open("sqlite3", base.String())
 	if err != nil {
@@ -129,11 +151,18 @@ func Open(ctx context.Context, privateDir string, options Options) (*Store, erro
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	fail := func(e error) (*Store, error) { db.Close(); return nil, e }
-	if _, err = db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
-		return fail(ErrArchiveUnavailable)
-	}
-	if err = migrate(ctx, db); err != nil {
-		return fail(err)
+	if o.originalCacheRecovery {
+		var mode string
+		if err = db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
+			return fail(ErrArchiveUnavailable)
+		}
+	} else {
+		if _, err = db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
+			return fail(ErrArchiveUnavailable)
+		}
+		if err = migrate(ctx, db); err != nil {
+			return fail(err)
+		}
 	}
 	values.Set("mode", "ro")
 	values.Set("_query_only", "on")
@@ -195,6 +224,17 @@ func Open(ctx context.Context, privateDir string, options Options) (*Store, erro
 	if err != nil {
 		reads.Close()
 		return fail(ErrArchiveUnavailable)
+	}
+	// A prepared restore remains denied even after its old filesystem witnesses
+	// were removed. Only another explicit offline owner operation completes it.
+	var pendingRecovery int
+	if err = db.QueryRowContext(ctx, "SELECT count(*) FROM snapshot_recovery_audit WHERE phase='prepared'").Scan(&pendingRecovery); err != nil {
+		reads.Close()
+		return fail(ErrArchiveUnavailable)
+	}
+	if pendingRecovery != 0 {
+		s.unclean = true
+		s.snapshotRecoveryPending.Store(true)
 	}
 	if _, err = s.sweepExpired(ctx); err != nil {
 		reads.Close()

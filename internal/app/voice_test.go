@@ -29,6 +29,7 @@ const voiceFixtureText = "VOICE_BATCH_CANARY תמלול הודעה בעברית"
 type voiceHTTPFixture struct {
 	server       *httptest.Server
 	ready        atomic.Bool
+	busy         atomic.Bool
 	failNext     atomic.Bool
 	rejectStatus atomic.Int64
 	calls        atomic.Int64
@@ -57,6 +58,10 @@ func newVoiceHTTPFixture(t *testing.T, ready bool) *voiceHTTPFixture {
 		if r.URL.Path == "/v1/info" && r.Method == http.MethodGet {
 			if !f.ready.Load() {
 				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			if f.busy.Load() {
+				w.WriteHeader(http.StatusTooManyRequests)
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"recipe": recipe, "identity": f.identity})

@@ -86,6 +86,8 @@ Use **AI connections → Revoke** to end a grant. Removing an AI client's settin
 
 All results describe stored archive snapshots, with coverage and gap details available from `get_index_status`. They may be incomplete or differ from the current phone state. Imported text is untrusted data and must not be treated as instructions by the AI client.
 
+After an owner performs [committed-snapshot recovery](setup.md#recover-the-committed-archive-snapshot), existing client grants and their scopes remain in place. `get_index_status` retains `owner_restored_snapshot` as a partial-coverage gap. Successful response labels include `recovery_code: "owner_restored_snapshot"` and a `recovery_epoch`, while the data remains a stored snapshot whose current phone state is unverified. Recovery does not certify missing edits, deletions, or full history. Clients should retain those limits when summarizing restored archive results.
+
 ## Voice transcripts
 
 After [transcription is configured](transcription.md), generated voice text participates in keyword search with the same chat and date scope as its source message. `get_context` returns it in `derived[].text`, with `source: "generated_voice_transcript"`, `generated: true`, and provenance. The original message's `body` can remain empty; there is no top-level `transcript` field.

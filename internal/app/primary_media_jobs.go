@@ -100,7 +100,7 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 					code := "extraction_failed"
 					terminal := false
 					switch {
-					case errors.Is(err, transcription.ErrUnavailable), errors.Is(err, transcription.ErrUnauthorized), errors.Is(err, transcription.ErrModelChanged):
+					case errors.Is(err, transcription.ErrBusy), errors.Is(err, transcription.ErrUnavailable), errors.Is(err, transcription.ErrUnauthorized), errors.Is(err, transcription.ErrModelChanged):
 						code = "model_unavailable"
 					case errors.Is(err, transcription.ErrInvalidRequest), errors.Is(err, transcription.ErrInvalidResponse):
 						code, terminal = "invalid_result", true
@@ -128,6 +128,8 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 
 func primaryExtractionCode(err error) string {
 	switch {
+	case errors.Is(err, transcription.ErrBusy):
+		return "transcription_busy"
 	case errors.Is(err, transcription.ErrUnavailable):
 		return "transcription_unavailable"
 	case errors.Is(err, transcription.ErrUnauthorized):

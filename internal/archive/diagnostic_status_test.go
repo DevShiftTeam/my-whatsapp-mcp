@@ -15,6 +15,29 @@ import (
 
 func TestDiagnosticStatusExposesOnlyAllowlistedUnsafeReasons(t *testing.T) {
 	ctx := context.Background()
+	t.Run("restored_snapshot_is_diagnostic_only", func(t *testing.T) {
+		s := testArchive(t)
+		p := testPolicy(t, s)
+		apply(t, s, event("restored-diagnostic", "private fixture body", 1, EventOriginal), p.Generation)
+		if !IsDiagnosticFailureCode("owner_restored_snapshot") || IsDiagnosticFailureCode("owner_restored_snapshot:PRIVATE") {
+			t.Fatal("restoration diagnostic must admit only its fixed code")
+		}
+		if err := s.MarkUnsafe(ctx, "account", "owner_restored_snapshot"); !errors.Is(err, ErrInvalidEvent) {
+			t.Fatalf("restoration diagnostic became an unsafe command: %v", err)
+		}
+		if _, err := s.writeDB.ExecContext(ctx, `UPDATE archive_meta SET recovery_epoch=1,recovery_code='owner_restored_snapshot' WHERE id=1`); err != nil {
+			t.Fatal(err)
+		}
+		// A new real failure must retain recovery identity in the body-free
+		// fallback while keeping all message counts and contents unavailable.
+		if err := s.MarkUnsafe(ctx, "account", "drain_failed"); err != nil {
+			t.Fatal(err)
+		}
+		status, err := s.DiagnosticStatus(ctx)
+		if err != nil || !status.ReconciliationRequired || status.Messages != 0 || len(status.Chats) != 0 || status.Snapshot.RecoveryCode != "owner_restored_snapshot" || status.Snapshot.RecoveryEpoch != 1 {
+			t.Fatalf("unsafe diagnostic fallback lost recovery identity or exposed content: %v", err)
+		}
+	})
 	for _, reason := range []UnsafeReason{"history_limit_exceeded", "unsafe_mutation_projection",
 		"app_state_sync_error", "undecryptable_message", "ambiguous_message_structure", "ambiguous_edit_structure"} {
 		t.Run(string(reason), func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -82,6 +83,8 @@ type Runtime struct {
 	queueClosed               bool
 	deliveriesDone            chan struct{}
 	deliveryStopDone          chan struct{}
+	connectDone               chan struct{}
+	socketStopDone            chan struct{}
 	deliveryStopping          chan struct{} // deliveryMu; closed before removing the SDK handler
 	workerDone                chan struct{}
 	qrDone                    chan struct{}
@@ -140,6 +143,7 @@ func New(config Config, store archive.ConnectorStore, callbacks Callbacks) (*Run
 	return r, nil
 }
 func newRuntime(config Config, store archive.ConnectorStore, callbacks Callbacks, client *whatsmeow.Client, c connection) *Runtime {
+	client.Log = newPhoneResponseLogger(client.Log)
 	return &Runtime{config: config, store: store, callbacks: callbacks, client: client, connection: c, quiesced: true, optionalJoined: true, sessionDeleted: client.Store.Deleted, status: Status{Connection: "disconnected", HasSession: client.Store.ID != nil && !client.Store.Deleted, Codes: []string{"coverage_unknown", "phone_behavior_not_run", "session_metadata_parity_not_run", "session_canary_audit_not_run"}}}
 }
 
@@ -187,6 +191,24 @@ func connectionErrorClass(err error) (string, int) {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "deadline", 0
+	}
+	for _, known := range []struct {
+		err   error
+		class string
+	}{
+		{archive.ErrReconciliationRequired, "reconciliation_required"},
+		{archive.ErrQueueLimitExceeded, "queue_limit_exceeded"},
+		{archive.ErrArchiveUnavailable, "archive_unavailable"},
+		{archive.ErrSourceRevisionConflict, "source_revision_conflict"},
+		{archive.ErrIdentityAliasConflict, "identity_alias_conflict"},
+		{archive.ErrMutationMetadataMissing, "mutation_metadata_missing"},
+		{archive.ErrPolicyChanged, "policy_changed"},
+		{archive.ErrInvalidPolicy, "invalid_policy"},
+		{archive.ErrInvalidEvent, "invalid_event"},
+	} {
+		if errors.Is(err, known.err) {
+			return known.class, 0
+		}
 	}
 	if errors.Is(err, wmstore.ErrDeviceDeleted) {
 		return "device_deleted", 0
@@ -247,6 +269,52 @@ func (r *Runtime) connectionDiagnostic(phase, event string, err error, reason in
 
 func (r *Runtime) connectionFailure(phase string, err error) error {
 	r.connectionDiagnostic(phase, "none", err, 0, false)
+	recordRuntimeFailure(phase, "connection_failed", err)
+	return err
+}
+
+// Diagnostic fields are closed codes. Error text may contain message bodies,
+// account identifiers, signed URLs, credentials, or private filesystem paths.
+func runtimeFailureDiagnostic(stage, code string, err error) []byte {
+	switch stage {
+	case "start", "runtime_closed", "session_close_failed", "session_deleted", "reconciliation_required", "optional_join", "prior_stop", "policy", "session_missing", "recovery_refused", "observation", "recovery_policy", "connect", "recovery_start", "post_pair_start", "post_pair_stop", "qr_channel":
+	case "stop_handler", "stop_deliveries", "stop_source", "stop_connect", "stop_socket", "stop_qr", "stop_sync", "stop_store", "stop_observation", "stop_optional":
+	case "source_message", "unreadable_account", "unreadable_sync", "connected_account", "connected_sync", "backfill_request", "disconnected_sync", "app_state_sync", "control_invalidation", "message_structure", "message_limit", "queue_admission", "history_event":
+	case "source_policy", "source_canonical", "source_alias", "source_session_alias", "source_sender_alias", "source_recipient_alias", "source_names", "source_expiry", "source_body", "source_apply", "source_sync":
+	default:
+		stage = "unknown"
+	}
+	switch code {
+	case "connection_failed", "optional_join_failed", "drain_failed", "reconciliation_required", "archive_unavailable", "history_corrupt", "history_limit_exceeded", "ambiguous_message_structure", "ambiguous_edit_structure", "mutation_metadata_missing", "queue_limit_exceeded", "identity_alias_conflict", "source_revision_conflict", "unsafe_mutation_projection", "control_admission_failed", "source_operation_failed", "source_parent_canceled", "source_parent_deadline":
+	default:
+		code = "unknown"
+	}
+	class, _ := connectionErrorClass(err)
+	encoded, _ := json.Marshal(struct {
+		Event string `json:"event"`
+		Stage string `json:"stage"`
+		Code  string `json:"code"`
+		Class string `json:"class"`
+	}{"runtime_failure", stage, code, class})
+	return append(encoded, '\n')
+}
+
+func recordRuntimeFailure(stage, code string, err error) {
+	_, _ = os.Stderr.Write(runtimeFailureDiagnostic(stage, code, err))
+}
+
+// Return the original error unchanged: source revision rejection is meaningful
+// only after its exact store quarantine result, and callers compare that value.
+func sourceOperationFailure(ctx context.Context, stage string, err error) error {
+	if err != nil {
+		code := "source_operation_failed"
+		if errors.Is(ctx.Err(), context.Canceled) {
+			code = "source_parent_canceled"
+		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			code = "source_parent_deadline"
+		}
+		recordRuntimeFailure(stage, code, err)
+	}
 	return err
 }
 
@@ -397,6 +465,7 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 	}
 	if deleted {
 		r.connectionDiagnostic("session_deleted", "none", wmstore.ErrDeviceDeleted, 0, false)
+		recordRuntimeFailure("session_deleted", "connection_failed", wmstore.ErrDeviceDeleted)
 		return archive.ErrSourceUnavailable
 	}
 	if r.Status().ReconciliationRequired {
@@ -434,8 +503,16 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 		if r.Status().Connection != "disconnected" {
 			return nil
 		}
-		if err := r.stop(ctx); err != nil {
+		// The request controls a new dial, while already accepted source work
+		// belongs to the previous observation and needs its own finite drain.
+		drainCtx, cancelDrain := context.WithTimeout(context.Background(), recoveryDrainTimeout)
+		err := r.stop(drainCtx)
+		cancelDrain()
+		if err != nil {
 			return r.connectionFailure("prior_stop", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return r.connectionFailure("start", err)
 		}
 	}
 	policy, err := r.store.Policy(ctx)
@@ -490,6 +567,7 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 		qr, err = r.connection.GetQRChannel(r.runCtx)
 		if err != nil {
 			r.connectionDiagnostic("qr_channel", "none", err, 0, false)
+			recordRuntimeFailure("qr_channel", "connection_failed", err)
 			_ = r.stop(ctx)
 			return archive.ErrSourceUnavailable
 		}
@@ -505,6 +583,8 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 	r.queueClosed = false
 	r.deliveriesDone = nil
 	r.deliveryStopDone = nil
+	r.connectDone = nil
+	r.socketStopDone = nil
 	r.mu.Lock()
 	r.quiesced = false
 	r.qrEnded = false
@@ -536,14 +616,9 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 	}
 	r.mu.Unlock()
 	r.notify()
-	// ConnectContext retains its context for the socket's entire lifetime. The
-	// operation context may cancel startup, but must detach before handoff.
-	runCtx, runCancel := r.runCtx, r.cancel
-	startupCanceled := make(chan struct{})
-	detachStartup := context.AfterFunc(ctx, func() {
-		runCancel()
-		close(startupCanceled)
-	})
+	// ConnectContext retains its context for the socket's entire lifetime.
+	// Caller cancellation begins an owned drain; it cannot cancel source work
+	// that the SDK admitted before its connect call returned.
 	r.connectionDiagnostic(connectPhase, "none", nil, 0, false)
 	// Policy and observation preparation may block while a manual lifecycle
 	// operation withdraws recovery intent before it can acquire op. Recheck
@@ -555,9 +630,6 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 	}
 	r.mu.Unlock()
 	if !authorized {
-		if !detachStartup() {
-			<-startupCanceled
-		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), recoveryDrainTimeout)
 		defer cleanupCancel()
 		if cleanupErr := r.stop(cleanupCtx); cleanupErr != nil {
@@ -565,18 +637,26 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 		}
 		return r.connectionFailure("recovery_refused", archive.ErrSourceUnavailable)
 	}
-	err = r.connection.ConnectContext(runCtx)
-	r.snapshotSocketState()
-	if !detachStartup() {
-		<-startupCanceled
+	r.connectDone = make(chan struct{})
+	connectDone := r.connectDone
+	connectResult := make(chan error, 1)
+	ownedConnection, runCtx := r.connection, r.runCtx
+	go func() {
+		connectResult <- ownedConnection.ConnectContext(runCtx)
+		close(connectDone)
+	}()
+	select {
+	case err = <-connectResult:
+	case <-ctx.Done():
+		err = ctx.Err()
 	}
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
 	if err != nil {
 		r.connectionDiagnostic(connectPhase, "none", err, 0, false)
-		runCancel()
-		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
+		recordRuntimeFailure(connectPhase, "connection_failed", err)
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), recoveryDrainTimeout)
 		defer cancelCleanup()
 		if cleanupErr := r.stop(cleanupCtx); cleanupErr != nil {
 			return cleanupErr
@@ -584,6 +664,9 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 		r.noteStartupRecoveryFailure(connectPhase)
 		return archive.ErrSourceUnavailable
 	}
+	// The SDK releases its socket lock before returning from ConnectContext.
+	// A still-pending dial is joined by stop before any socket-state query.
+	r.snapshotSocketState()
 	r.mu.Lock()
 	if r.status.ConnectionDiagnostic.Phase == connectPhase {
 		r.status.ConnectionDiagnostic.Phase = "awaiting_authentication"
@@ -746,6 +829,7 @@ func (r *Runtime) stop(ctx context.Context) error {
 	r.stopOptional()
 	if r.observation == "" {
 		if err := r.joinOptional(ctx); err != nil {
+			recordRuntimeFailure("stop_optional", "optional_join_failed", err)
 			return err
 		}
 		r.mu.Lock()
@@ -766,17 +850,21 @@ func (r *Runtime) stop(ctx context.Context) error {
 		}
 	}
 	r.deliveryMu.Unlock()
-	r.cancelActive()
+	// Accepted history downloads are source work: their remaining records may
+	// contain deletions. Keep their context alive while the source worker drains.
+	// Optional transfers were canceled above; a failed join below still fences
+	// the archive and cancels source work through failClosed.
 	if r.deliveryStopDone == nil {
 		r.deliveryStopDone = make(chan struct{})
 		done := r.deliveryStopDone
 		handler := r.handler
-		go func() { r.connection.RemoveEventHandler(handler); r.connection.Disconnect(); close(done) }()
+		go func() { r.connection.RemoveEventHandler(handler); close(done) }()
 	}
 	select {
 	case <-r.deliveryStopDone:
 	case <-ctx.Done():
-		r.failClosed("drain_failed")
+		r.failClosedAt("stop_handler", "drain_failed", ctx.Err())
+		r.startSocketStop()
 		return ctx.Err()
 	}
 	// Remove admission before waiting, so no Add can race with Wait.
@@ -788,7 +876,8 @@ func (r *Runtime) stop(ctx context.Context) error {
 	select {
 	case <-r.deliveriesDone:
 	case <-ctx.Done():
-		r.failClosed("reconciliation_required")
+		r.failClosedAt("stop_deliveries", "reconciliation_required", ctx.Err())
+		r.startSocketStop()
 		return ctx.Err()
 	}
 	if r.queue != nil {
@@ -799,19 +888,39 @@ func (r *Runtime) stop(ctx context.Context) error {
 		select {
 		case <-r.workerDone:
 		case <-ctx.Done():
-			r.failClosed("reconciliation_required")
+			r.failClosedAt("stop_source", "reconciliation_required", ctx.Err())
+			r.startSocketStop()
 			return ctx.Err()
 		}
 		r.queue = nil
 	}
+	// Accepted history may need the socket for media metadata. Cancel its run
+	// only after the source worker drains, then interrupt and join an empty or
+	// failed startup dial before taking the SDK's socket shutdown lock.
 	if r.cancel != nil {
 		r.cancel()
+	}
+	if r.connectDone != nil {
+		select {
+		case <-r.connectDone:
+		case <-ctx.Done():
+			r.failClosedAt("stop_connect", "drain_failed", ctx.Err())
+			r.startSocketStop()
+			return ctx.Err()
+		}
+	}
+	// Retain this cleanup owner across retries if SDK shutdown misses the bound.
+	select {
+	case <-r.startSocketStop():
+	case <-ctx.Done():
+		r.failClosedAt("stop_socket", "drain_failed", ctx.Err())
+		return ctx.Err()
 	}
 	if r.qrDone != nil {
 		select {
 		case <-r.qrDone:
 		case <-ctx.Done():
-			r.failClosed("reconciliation_required")
+			r.failClosedAt("stop_qr", "reconciliation_required", ctx.Err())
 			return ctx.Err()
 		}
 	}
@@ -824,6 +933,7 @@ func (r *Runtime) stop(ctx context.Context) error {
 	r.mu.Unlock()
 	if unsafe {
 		if err := r.joinOptional(ctx); err != nil {
+			recordRuntimeFailure("stop_optional", "optional_join_failed", err)
 			return err
 		}
 		r.mu.Lock()
@@ -834,18 +944,18 @@ func (r *Runtime) stop(ctx context.Context) error {
 	}
 	if account := r.SourceAccount(); account != "" {
 		if err := r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: account, Connection: "disconnected", CoverageUnknown: true}); err != nil {
-			r.failClosed("archive_unavailable")
+			r.failClosedAt("stop_sync", "archive_unavailable", err)
 			return err
 		}
 	}
 	if drain, ok := r.store.(interface{ Drain(context.Context) error }); ok {
 		if err := drain.Drain(ctx); err != nil {
-			r.failClosed("archive_unavailable")
+			r.failClosedAt("stop_store", "archive_unavailable", err)
 			return err
 		}
 	}
 	if err := r.store.EndObservation(ctx, r.observation); err != nil {
-		r.failClosed("reconciliation_required")
+		r.failClosedAt("stop_observation", "reconciliation_required", err)
 		return err
 	}
 	r.observation = ""
@@ -853,6 +963,7 @@ func (r *Runtime) stop(ctx context.Context) error {
 	// The source observation ends before an optional-only join. A failed media
 	// cleanup must not leave a false lost-source marker after process restart.
 	if err := r.joinOptional(ctx); err != nil {
+		recordRuntimeFailure("stop_optional", "optional_join_failed", err)
 		return err
 	}
 	r.mu.Lock()
@@ -861,6 +972,24 @@ func (r *Runtime) stop(ctx context.Context) error {
 	r.notify()
 	return nil
 }
+
+// Lifecycle operations hold r.op while creating or joining this single owner.
+func (r *Runtime) startSocketStop() <-chan struct{} {
+	if r.socketStopDone == nil {
+		r.socketStopDone = make(chan struct{})
+		done := r.socketStopDone
+		ownedConnection, connectDone := r.connection, r.connectDone
+		go func() {
+			if connectDone != nil {
+				<-connectDone
+			}
+			ownedConnection.Disconnect()
+			close(done)
+		}()
+	}
+	return r.socketStopDone
+}
+
 func (r *Runtime) deliver(event any) {
 	r.mu.Lock()
 	run := r.recoveryRun
@@ -922,7 +1051,7 @@ func (r *Runtime) deliverRun(event any, run uint64) {
 		}
 		cancel()
 		if err != nil {
-			r.failClosed("archive_unavailable", collection, class, syncKind)
+			r.failClosedAt("app_state_sync", "archive_unavailable", err, collection, class, syncKind)
 			return
 		}
 		r.mu.Lock()
@@ -941,16 +1070,16 @@ func (r *Runtime) deliverRun(event any, run uint64) {
 	case *events.UndecryptableMessage:
 		event = unreadableMessageGap{}
 	case *events.HistorySync:
-		r.failClosed("history_corrupt")
+		r.failClosedAt("history_event", "history_corrupt", nil)
 		return
 	}
 	if m, ok := event.(*events.Message); ok {
 		if err := validateMessageStructure(m); err != nil {
-			r.failClosed("ambiguous_message_structure")
+			r.failClosedAt("message_structure", "ambiguous_message_structure", err)
 			return
 		}
 		if !recordWithinLimit(m) && m.Message.GetProtocolMessage().GetHistorySyncNotification() == nil {
-			r.failClosed("history_limit_exceeded")
+			r.failClosedAt("message_limit", "history_limit_exceeded", errLimitExceeded)
 			return
 		}
 	}
@@ -966,7 +1095,7 @@ func (r *Runtime) deliverRun(event any, run uint64) {
 				return
 			}
 			if !errors.Is(err, archive.ErrInvalidEvent) {
-				r.failClosed("reconciliation_required")
+				r.failClosedAt("control_invalidation", "reconciliation_required", err)
 			}
 			return
 		}
@@ -1098,7 +1227,7 @@ func (r *Runtime) rejectAdmission() {
 	}
 	r.status.Dropped++
 	r.mu.Unlock()
-	r.failClosed("queue_limit_exceeded")
+	r.failClosedAt("queue_admission", "queue_limit_exceeded", archive.ErrQueueLimitExceeded)
 }
 
 func (r *Runtime) wakeAdmissionLocked() {
@@ -1134,16 +1263,19 @@ func (r *Runtime) consume(item queuedEvent) {
 		return
 	}
 	var err error
+	stage := "source_message"
 	switch e := item.event.(type) {
 	case *events.Message:
 		err = r.messageWithMediaOutcome(r.runCtx, e)
 	case unreadableMessageGap:
+		stage = "unreadable_account"
 		err = r.ensureAccount(r.runCtx)
 		if err == nil {
+			stage = "unreadable_sync"
 			err = r.store.SetSyncStatus(r.runCtx, archive.SyncUpdate{Account: r.SourceAccount(), Connection: r.Status().Connection, GapCode: "undecryptable_message", CoverageUnknown: true})
 		}
 		if err != nil {
-			r.failClosed("archive_unavailable")
+			r.failClosedAt(stage, "archive_unavailable", err)
 			return
 		}
 		r.mu.Lock()
@@ -1156,6 +1288,7 @@ func (r *Runtime) consume(item queuedEvent) {
 		}
 		r.mu.Unlock()
 	case *events.Connected:
+		stage = "connected_account"
 		err = r.ensureAccount(r.runCtx)
 		if err == nil {
 			r.mu.Lock()
@@ -1165,15 +1298,18 @@ func (r *Runtime) consume(item queuedEvent) {
 				r.status.HasSession = true
 			}
 			r.mu.Unlock()
+			stage = "connected_sync"
 			err = r.store.SetSyncStatus(r.runCtx, archive.SyncUpdate{Account: r.SourceAccount(), Connection: "connected", CoverageUnknown: true})
 		}
 		if err == nil {
 			r.snapshotSocketState()
 			r.connectionDiagnostic("connected", "connected", nil, 0, false)
+			stage = "backfill_request"
 			err = r.requestBackfill(r.runCtx)
 			r.WakeOriginalDownloads()
 		}
 	case *events.Disconnected, *events.LoggedOut:
+		stage = "disconnected_sync"
 		r.mu.Lock()
 		r.status.Connection = "disconnected"
 		r.mu.Unlock()
@@ -1185,7 +1321,7 @@ func (r *Runtime) consume(item queuedEvent) {
 		}
 	}
 	if err != nil && !r.recordMediaOutcome(err) && !errors.Is(err, archive.ErrInvalidEvent) && !errors.Is(err, archive.ErrPolicyChanged) {
-		r.failClosed("reconciliation_required")
+		r.failClosedAt(stage, "reconciliation_required", err)
 	}
 	r.notify()
 }
@@ -1270,6 +1406,11 @@ func appStateFailureCodes(event *events.AppStateSyncError) (collection, class, s
 }
 
 func (r *Runtime) failClosed(code string, diagnosticCodes ...string) {
+	r.failClosedAt("unknown", code, nil, diagnosticCodes...)
+}
+
+func (r *Runtime) failClosedAt(stage, code string, err error, diagnosticCodes ...string) {
+	defer recordRuntimeFailure(stage, code, err)
 	r.mu.Lock()
 	already := r.status.ReconciliationRequired
 	if !already {

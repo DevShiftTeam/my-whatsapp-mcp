@@ -238,12 +238,17 @@ func TestUnresolvedDeletionMigrationNineUpgradePreservesSourcesAndCursor(t *test
 	if err := s.readDB.QueryRow("SELECT cursor_key FROM archive_meta WHERE id=1").Scan(&key); err != nil {
 		t.Fatal(err)
 	}
-	// Migration 10 adds only the withholding table. Removing that empty
-	// table and its receipt reconstructs a checksummed version-9 archive.
+	// Reconstruct a checksummed version-9 archive, including removal of the
+	// later empty recovery audit and its archive metadata columns.
+	for _, statement := range []string{"DROP TABLE snapshot_recovery_audit", "ALTER TABLE archive_meta DROP COLUMN recovery_epoch", "ALTER TABLE archive_meta DROP COLUMN recovery_code"} {
+		if _, err := s.writeDB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := s.writeDB.Exec("DROP TABLE unresolved_deletions"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.writeDB.Exec("DELETE FROM schema_migrations WHERE version=10"); err != nil {
+	if _, err := s.writeDB.Exec("DELETE FROM schema_migrations WHERE version>=10"); err != nil {
 		t.Fatal(err)
 	}
 	dir := s.privateDir
@@ -257,8 +262,8 @@ func TestUnresolvedDeletionMigrationNineUpgradePreservesSourcesAndCursor(t *test
 	defer s.Close()
 	var version int
 	var reopenedKey []byte
-	if err := s.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 10 {
-		t.Fatalf("version-9 archive did not upgrade to 10: %d %v", version, err)
+	if err := s.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 11 {
+		t.Fatalf("version-9 archive did not upgrade to 11: %d %v", version, err)
 	}
 	if err := s.readDB.QueryRow("SELECT cursor_key FROM archive_meta WHERE id=1").Scan(&reopenedKey); err != nil || !bytes.Equal(key, reopenedKey) {
 		t.Fatalf("upgrade replaced the archive cursor identity: %v", err)

@@ -159,6 +159,8 @@ type ReadSnapshot struct {
 	PolicyGeneration Generation
 	ArchiveRevision  ArchiveRevision
 	IndexGeneration  uint64
+	RecoveryEpoch    uint64
+	RecoveryCode     string
 }
 type SearchRequest struct {
 	Query       string

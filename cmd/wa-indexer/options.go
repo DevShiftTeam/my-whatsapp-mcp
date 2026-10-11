@@ -28,6 +28,7 @@ type options struct {
 	config               string
 	listen               string
 	dataDir              string
+	backupDir            string
 	demo                 bool
 	demoAcceptance       bool
 	noOpen               bool
@@ -65,6 +66,10 @@ func parseArgs(args []string) (options, error) {
 		opts.demo = true
 	case "doctor":
 		opts.command = "doctor"
+	case "recover-snapshot":
+		opts.command = "recover_snapshot"
+	case "recover-original-cache":
+		opts.command = "recover_original_cache"
 	case "models":
 		if len(args) < 3 || (args[1] != "install" && args[1] != "verify") || !validProfileArgument(args[2]) {
 			return options{}, errArguments
@@ -88,7 +93,12 @@ func parseArgs(args []string) (options, error) {
 		flags.StringVar(&opts.config, "config", "", "")
 	} else {
 		flags.StringVar(&opts.dataDir, "data-dir", "", "")
-		flags.StringVar(&originalBudget, "originals-budget", "", "")
+		if opts.command == "recover_original_cache" {
+			flags.StringVar(&opts.backupDir, "backup-dir", "", "")
+		}
+		if opts.command != "recover_snapshot" && opts.command != "recover_original_cache" {
+			flags.StringVar(&originalBudget, "originals-budget", "", "")
+		}
 	}
 	if opts.command == "serve" {
 		flags.BoolVar(&opts.demoAcceptance, "demo-acceptance-fixtures", false, "")
@@ -120,6 +130,12 @@ func parseArgs(args []string) (options, error) {
 		return options{}, errArguments
 	}
 	if opts.command == "mcp_stdio" && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
+		return options{}, errArguments
+	}
+	if (opts.command == "recover_snapshot" || opts.command == "recover_original_cache") && (!filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir) {
+		return options{}, errArguments
+	}
+	if opts.command == "recover_original_cache" && (!filepath.IsAbs(opts.backupDir) || filepath.Clean(opts.backupDir) != opts.backupDir || opts.backupDir == opts.dataDir) {
 		return options{}, errArguments
 	}
 	var emptyDataDir bool

@@ -63,7 +63,7 @@ func TestOpenRejectsUnsafeExistingFiles(t *testing.T) {
 func TestMigrationRejectsNewerSchema(t *testing.T) {
 	s := testArchive(t)
 	dir := s.privateDir
-	if _, err := s.writeDB.Exec("INSERT INTO schema_migrations(version,checksum) VALUES(11,'future')"); err != nil {
+	if _, err := s.writeDB.Exec("INSERT INTO schema_migrations(version,checksum) SELECT max(version)+1,'future' FROM schema_migrations"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

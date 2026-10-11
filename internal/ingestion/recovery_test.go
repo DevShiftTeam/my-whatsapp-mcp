@@ -143,6 +143,9 @@ func TestRecoveryDrainsAcceptedSourceAndDeletionBeforeNewObservation(t *testing.
 	base := fixtureStore()
 	s := &recoveryDrainStore{recordingStore: base, bodyStarted: make(chan struct{}), bodyRelease: make(chan struct{}), deleteStarted: make(chan struct{}), deleteRelease: make(chan struct{})}
 	r, c := recoveryFixture(t, base)
+	removed := make(chan struct{})
+	var removalOnce sync.Once
+	c.removeHook = func() { removalOnce.Do(func() { close(removed) }) }
 	r.store = s
 	t.Cleanup(func() { releaseRecoveryBarrier(s.bodyRelease); releaseRecoveryBarrier(s.deleteRelease) })
 	h := c.currentHandler(t)
@@ -172,7 +175,11 @@ func TestRecoveryDrainsAcceptedSourceAndDeletionBeforeNewObservation(t *testing.
 		}
 		result <- err
 	}()
-	waitHandoffActivity(t, c, "disconnect")
+	select {
+	case <-removed:
+	case <-time.After(time.Second):
+		t.Fatal("recovery did not stop source admission before draining accepted work")
+	}
 	base.mu.Lock()
 	order := append([]string(nil), base.order...)
 	base.mu.Unlock()
@@ -190,6 +197,7 @@ func TestRecoveryDrainsAcceptedSourceAndDeletionBeforeNewObservation(t *testing.
 		t.Fatal("guarded recovery did not join source/control work")
 	}
 	<-controlDone
+	waitHandoffActivity(t, c, "disconnect")
 	waitHandoffActivity(t, c, "connect")
 	base.mu.Lock()
 	order = append([]string(nil), base.order...)
@@ -427,6 +435,9 @@ func TestRecoveryCancellationAfterStopDrainsWithoutNewDialOrUnsafeMarker(t *test
 	base := fixtureStore()
 	s := &recoveryDrainStore{recordingStore: base, bodyStarted: make(chan struct{}), bodyRelease: make(chan struct{})}
 	r, c := recoveryFixture(t, base)
+	removed := make(chan struct{})
+	var removalOnce sync.Once
+	c.removeHook = func() { removalOnce.Do(func() { close(removed) }) }
 	r.store = s
 	t.Cleanup(func() { releaseRecoveryBarrier(s.bodyRelease) })
 	h := c.currentHandler(t)
@@ -448,7 +459,11 @@ func TestRecoveryCancellationAfterStopDrainsWithoutNewDialOrUnsafeMarker(t *test
 		}
 		result <- err
 	}()
-	waitHandoffActivity(t, c, "disconnect")
+	select {
+	case <-removed:
+	case <-time.After(time.Second):
+		t.Fatal("recovery did not stop source admission before cancellation")
+	}
 	cancel()
 	close(s.bodyRelease)
 	select {
@@ -459,6 +474,7 @@ func TestRecoveryCancellationAfterStopDrainsWithoutNewDialOrUnsafeMarker(t *test
 	case <-time.After(time.Second):
 		t.Fatal("canceled recovery did not finish its independent drain")
 	}
+	waitHandoffActivity(t, c, "disconnect")
 	base.mu.Lock()
 	unsafe, applied := len(base.unsafe), len(base.events)
 	base.mu.Unlock()

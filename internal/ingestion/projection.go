@@ -24,13 +24,13 @@ func (r *Runtime) ensureAccount(ctx context.Context) error {
 		return archive.ErrUnauthorized
 	}
 	if _, err := r.store.SourcePolicy(ctx, account); err != nil {
-		return err
+		return sourceOperationFailure(ctx, "source_policy", err)
 	}
 	r.mu.Lock()
 	r.account = account
 	r.mu.Unlock()
 	if !r.client.Store.LID.IsEmpty() {
-		return r.alias(ctx, account, r.client.Store.LID.ToNonAD().String(), archive.AliasSessionMetadata)
+		return r.aliasAt(ctx, "source_session_alias", account, r.client.Store.LID.ToNonAD().String(), archive.AliasSessionMetadata)
 	}
 	return nil
 }
@@ -42,7 +42,8 @@ func (r *Runtime) canonical(ctx context.Context, id string) (string, error) {
 	if err != nil || jid.User == "" || jid.Server == "" {
 		return "", archive.ErrInvalidEvent
 	}
-	return r.store.Canonical(ctx, r.SourceAccount(), jid.ToNonAD().String())
+	canonical, err := r.store.Canonical(ctx, r.SourceAccount(), jid.ToNonAD().String())
+	return canonical, sourceOperationFailure(ctx, "source_canonical", err)
 }
 func (r *Runtime) envelopeKey(ctx context.Context, info types.MessageInfo) (archive.SourceKey, error) {
 	var key archive.SourceKey
@@ -300,7 +301,7 @@ func (r *Runtime) apply(ctx context.Context, e archive.SourceEvent) (archive.App
 	for tries := 0; tries < 2; tries++ {
 		policy, err := r.store.SourcePolicy(ctx, e.Key.Account)
 		if err != nil {
-			return archive.ApplyResult{}, err
+			return archive.ApplyResult{}, sourceOperationFailure(ctx, "source_policy", err)
 		}
 		candidate := e
 		if e.Kind == archive.EventOriginal || e.Kind == archive.EventEditContent {
@@ -313,12 +314,15 @@ func (r *Runtime) apply(ctx context.Context, e archive.SourceEvent) (archive.App
 		}
 		result, err := r.store.ApplySourceEvent(ctx, candidate, policy.Generation)
 		if !errors.Is(err, archive.ErrPolicyChanged) {
-			return result, err
+			return result, sourceOperationFailure(ctx, "source_apply", err)
 		}
 	}
-	return archive.ApplyResult{}, archive.ErrPolicyChanged
+	return archive.ApplyResult{}, sourceOperationFailure(ctx, "source_apply", archive.ErrPolicyChanged)
 }
 func (r *Runtime) alias(ctx context.Context, a, b string, provenance archive.AliasProvenance) error {
+	return r.aliasAt(ctx, "source_alias", a, b, provenance)
+}
+func (r *Runtime) aliasAt(ctx context.Context, stage, a, b string, provenance archive.AliasProvenance) error {
 	if a == "" || b == "" {
 		return nil
 	}
@@ -335,7 +339,8 @@ func (r *Runtime) alias(ctx context.Context, a, b string, provenance archive.Ali
 	if ja.Server != types.DefaultUserServer || jb.Server != types.HiddenUserServer {
 		return archive.ErrInvalidEvent
 	}
-	return r.store.ApplyAlias(ctx, archive.SourceAlias{Account: r.SourceAccount(), PhoneJID: ja.String(), LID: jb.String(), Provenance: provenance})
+	err := r.store.ApplyAlias(ctx, archive.SourceAlias{Account: r.SourceAccount(), PhoneJID: ja.String(), LID: jb.String(), Provenance: provenance})
+	return sourceOperationFailure(ctx, stage, err)
 }
 func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 	if event == nil || event.Message == nil {
@@ -378,12 +383,12 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 			return err
 		}
 		if !event.Info.SenderAlt.IsEmpty() {
-			if err = r.alias(ctx, event.Info.Sender.ToNonAD().String(), event.Info.SenderAlt.ToNonAD().String(), archive.AliasConnectorMapping); err != nil {
+			if err = r.aliasAt(ctx, "source_sender_alias", event.Info.Sender.ToNonAD().String(), event.Info.SenderAlt.ToNonAD().String(), archive.AliasConnectorMapping); err != nil {
 				return err
 			}
 		}
 		if !event.Info.IsGroup && !event.Info.RecipientAlt.IsEmpty() {
-			if err = r.alias(ctx, event.Info.Chat.ToNonAD().String(), event.Info.RecipientAlt.ToNonAD().String(), archive.AliasConnectorMapping); err != nil {
+			if err = r.aliasAt(ctx, "source_recipient_alias", event.Info.Chat.ToNonAD().String(), event.Info.RecipientAlt.ToNonAD().String(), archive.AliasConnectorMapping); err != nil {
 				return err
 			}
 		}
@@ -392,17 +397,17 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 			return err
 		}
 		if err = r.sourceNames(ctx, key, event); err != nil {
-			return err
+			return sourceOperationFailure(ctx, "source_names", err)
 		}
 		e = archive.SourceEvent{Key: key, Kind: archive.EventOriginal, OriginalSentAt: event.Info.Timestamp, OriginalDateKnown: !event.Info.Timestamp.IsZero(), SourceRevision: event.Info.Timestamp.UnixMilli(), BodyKind: archive.MessageUnsupported}
 		body = event.Message
 	}
 	if err = r.sourceExpiry(ctx, &e, event); err != nil {
-		return err
+		return sourceOperationFailure(ctx, "source_expiry", err)
 	}
 	policy, err := r.store.SourcePolicy(ctx, e.Key.Account)
 	if err != nil {
-		return err
+		return sourceOperationFailure(ctx, "source_policy", err)
 	}
 	var pending *pendingMedia
 	if policyPermits(policy, e, time.Now()) {
@@ -411,7 +416,7 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 		} else {
 			pending, err = r.projectBody(ctx, &e, body)
 			if err != nil {
-				return err
+				return sourceOperationFailure(ctx, "source_body", err)
 			}
 		}
 	}
@@ -429,7 +434,7 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 	}
 	r.mu.Unlock()
 	if err = r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: e.Key.Account, Chat: e.Key.Chat, ObservedOldest: e.OriginalSentAt, ObservedLatest: e.OriginalSentAt, Received: 1, Applied: boolCount(result.Outcome == archive.OutcomeApplied), CoverageUnknown: true}); err != nil {
-		return err
+		return sourceOperationFailure(ctx, "source_sync", err)
 	}
 	if pending != nil && result.Outcome == archive.OutcomeApplied && (r.callbacks.MediaAdmitter != nil || r.legacyMediaReceiver && r.callbacks.MediaReceiver != nil) {
 		defer wipePending(pending)

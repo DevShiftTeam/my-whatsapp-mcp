@@ -24,9 +24,11 @@ TRANSCRIPTION_DIR="$HOME/.local/share/my-whatsapp-mcp/transcription"
 python3 services/transcription/setup.py --data-dir "$TRANSCRIPTION_DIR"
 ```
 
-The installer creates a private virtual environment, downloads the pinned model, verifies its files, and generates `transcription.env` with a strong service token. Model files occupy about 1.6 GB, in addition to the Python environment and original recordings. Allow space for another model copy in the download cache during installation, about 1.6 GB for the default model. Installation needs internet access; the running service uses its installed files and does not fetch models.
+The installer creates a private virtual environment, downloads the pinned model, verifies its files, and generates `transcription.env` with a strong service token. The default model files occupy about 1.6 GB, in addition to the Python environment and original recordings. Allow space for another model copy in the download cache during installation, about 1.6 GB for the default model. Installation needs internet access; the running service uses its installed files and does not fetch models.
 
 Python 3.11 is the supported runtime for this path. It does not require torch, torchaudio, pyannote, Docker, a GPU, or an external `ffmpeg` command. PyAV supplies FFmpeg libraries for decoding containers such as WhatsApp's Ogg/Opus recordings.
+
+Complete WhatsApp Ogg/Opus recordings are supported without a final end-of-stream flag. Page checksums, stream sequence, continuation, packet framing, source SHA, and declared size are still verified.
 
 ## 2. Start the transcription service
 
@@ -112,16 +114,35 @@ Original recordings use the archive's [configurable media budget](native-models.
 
 The app uploads retained, verified recording bytes. The service does not fetch arbitrary audio URLs. Uploaded temporary copies are private and are removed after processing. A request timeout stops the app's wait; it does not immediately stop CTranslate2 inference. The service keeps its single-job guard until inference finishes, so retries may wait rather than start another model execution.
 
+The request timeout is finite: 10 minutes by default, with a configurable maximum of 30 minutes. Inference can finish after the request times out or is cancelled, but that request cannot publish its later result.
+
 The archive commits generated text with its source revision and extraction provenance. Transcripts become searchable without embeddings and can remain available after the original recording is evicted, while the source is still valid. Deletion, expiry, archive selection, and MCP scope checks still apply.
 
 ## Existing voice notes and failures
 
-- A source-safety pause blocks voice downloads and source-bound transcription as well as message import and content reads. For example, a durable `drain_failed` state reported with `reconciliation_required` remains after restart or Resume. Preserve the archive and report the fixed diagnostic codes; there is currently no reconciliation command to clear that state. Enabling transcription cannot repair it.
+- A source-safety pause blocks voice downloads and source-bound transcription as well as message import and content reads. A durable `drain_failed` state reported with `reconciliation_required` remains after restart or Resume. Follow the offline [committed-snapshot recovery procedure](setup.md#recover-the-committed-archive-snapshot) for an eligible profile before testing voice processing. Enabling transcription alone cannot repair that state.
 - Retained originals are eligible for the new extraction recipe automatically.
+- If original files remain in the current profile but their associations were invalidated, follow [offline original-cache recovery](setup.md#recover-associations-for-existing-original-recordings) using a stopped private backup. It verifies and restores eligible associations without copying recordings; missing files still need an available download or phone copy.
 - Pending downloads can use saved download references if WhatsApp still serves the recording and the linked session is connected.
-- After setup, open **Models and media → Failed voice downloads** and click **Retry voice downloads** for previously failed downloads. Each click retries at most 32 eligible failed voice downloads under the current archive choices; it does not reset them automatically on startup. Recovery still depends on saved references and WhatsApp serving the recording. The original-media budget still applies.
-- Evicted recordings and missing or invalidated references are not retried by that action. Enabling transcription cannot reconstruct audio that was never retained.
 - `media_availability: "not_retained"` describes the original recording. Check `derived` separately for generated text; a cached original and a transcript are different things.
+- `transcription_busy` means the service is occupied, rather than unavailable. While its health check reports busy, jobs stay pending without being claimed or consuming retry attempts.
 - With an otherwise readable source archive, transcription jobs can wait or retry when the service is unavailable or busy; text import and search stay available. Keep both terminals running and check the app's import status for fixed diagnostic codes. Avoid sharing logs or data files containing private recordings, tokens, or chat contents.
+
+### Retry downloads or ask the phone for missing recordings
+
+1. Keep the archive linked and your primary phone online. Open **Models and media → Failed voice downloads** and click **Retry voice downloads**.
+2. Check the feedback. The action considers at most 32 download retries and can ask the primary phone for at most eight exact missing voice-note copies. Current chat and date choices and the media storage budget still apply.
+3. If it asked your phone for copies, allow time for the phone to respond, then click **Retry voice downloads** again to queue recordings whose fresh references arrived. Phone-copy requests share a 10-second cooldown with manual history/backfill requests. A later click can also request another bounded batch.
+4. Wait for retained originals and completed transcripts, then search a spoken phrase and inspect `get_context` as described above.
+
+| Result count | What it means |
+| --- | --- |
+| `queued` | Eligible original downloads were scheduled. Download and transcription still have to complete. |
+| `requested` | The SDK acknowledged requests for exact copies from the primary phone. This does not prove that a copy arrived or was transcribed. |
+| `skipped` | Download candidates were not queued by this action. The total of `queued` and `skipped` is at most 32. |
+
+Fresh copies must pass the same source, policy, expiry, deletion, conflict, and recording checks as other imports. Existing transcripts and known original SHA records remain intact. Completed or evicted originals, view-once messages, deleted or expired sources, and excluded chats are not requested or reset. Unavailable or mismatched phone copies can remain unreadable. This action does not clear the restored-snapshot coverage gap, guarantee older recordings are still available, or reset downloads automatically on startup.
+
+Phone requests also check the saved WhatsApp identity and message direction against the archive. If the identities disagree, the request is skipped. A successful request acknowledgement still does not establish that the recording arrived.
 
 For read-only AI access, see [MCP setup](mcp.md). For native image and semantic previews, see [native models](native-models.md).

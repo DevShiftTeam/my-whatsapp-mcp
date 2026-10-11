@@ -374,7 +374,7 @@ func TestExtractClassifiesInvalidAudioWithoutLeakingErrorBodies(t *testing.T) {
 		{http.StatusRequestEntityTooLarge, media.ErrLimit},
 		{http.StatusUnsupportedMediaType, media.ErrUnsupported},
 		{http.StatusUnprocessableEntity, media.ErrCorrupt},
-		{http.StatusTooManyRequests, ErrUnavailable},
+		{http.StatusTooManyRequests, ErrBusy},
 		{http.StatusServiceUnavailable, ErrUnavailable},
 		{http.StatusUnauthorized, ErrUnauthorized},
 		{http.StatusForbidden, ErrUnauthorized},

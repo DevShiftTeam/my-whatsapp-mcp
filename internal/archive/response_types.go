@@ -62,6 +62,7 @@ type RetrievedDocument struct {
 type ResponseGuard struct {
 	safetyEpoch        uint64
 	indexGeneration    uint64
+	recoveryEpoch      uint64
 	minSent, minExpiry time.Time
 	rolling            time.Duration
 	roots              []extensionRootResponsePin

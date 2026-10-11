@@ -71,11 +71,15 @@ func TestBodylessHistoryDiagnosticIsPreciseStickyAndStillFatal(t *testing.T) {
 	os.Stderr = previous
 	_ = write.Close()
 	encoded, err := io.ReadAll(io.LimitReader(read, 512))
-	if err != nil || strings.Count(string(encoded), "\n") != 1 {
+	if err != nil {
+		t.Fatal("diagnostic read failed")
+	}
+	history, runtimeCount := historyDiagnosticFrames(t, encoded)
+	if len(history) != 1 || runtimeCount != 2 {
 		t.Fatal("later fenced history emitted another diagnostic")
 	}
 	var diagnostic map[string]any
-	if json.Unmarshal(encoded, &diagnostic) != nil || len(diagnostic) != 4 || diagnostic["event"] != "history_failure" || diagnostic["stage"] != "record_body_missing" || diagnostic["stub"] != "no_stub" || diagnostic["stub_type"] != float64(0) {
+	if json.Unmarshal(history[0], &diagnostic) != nil || len(diagnostic) != 4 || diagnostic["event"] != "history_failure" || diagnostic["stage"] != "record_body_missing" || diagnostic["stub"] != "no_stub" || diagnostic["stub_type"] != float64(0) {
 		t.Fatal("bodyless history did not retain its precise closed stage")
 	}
 }
@@ -107,7 +111,34 @@ func TestHistoryAdminFailureDiagnosticHasClosedReason(t *testing.T) {
 	if err != nil || strings.Contains(string(encoded), private) || strings.Contains(string(encoded), actor) {
 		t.Fatal("administrator diagnostic exposed fixture identities or parameters")
 	}
-	if string(encoded) != "{\"event\":\"history_failure\",\"stage\":\"admin_actor_invalid\",\"stub\":\"admin_revoke\",\"stub_type\":132}\n" {
+	history, runtimeCount := historyDiagnosticFrames(t, encoded)
+	if len(history) != 1 || runtimeCount != 1 || string(history[0]) != "{\"event\":\"history_failure\",\"stage\":\"admin_actor_invalid\",\"stub\":\"admin_revoke\",\"stub_type\":132}" {
 		t.Fatal("administrator diagnostic did not preserve its precise closed cause and enum")
 	}
+}
+
+// A sticky history witness is distinct from the runtime's per-entry fencing
+// diagnostic. Assert both schemas instead of treating extra lines as history.
+func historyDiagnosticFrames(t *testing.T, encoded []byte) ([][]byte, int) {
+	t.Helper()
+	var histories [][]byte
+	runtimeCount := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(encoded)), "\n") {
+		var diagnostic map[string]any
+		if json.Unmarshal([]byte(line), &diagnostic) != nil || len(diagnostic) != 4 {
+			t.Fatal("history diagnostic stream contains an invalid fixed schema")
+		}
+		switch diagnostic["event"] {
+		case "history_failure":
+			histories = append(histories, []byte(line))
+		case "runtime_failure":
+			if diagnostic["stage"] != "unknown" || diagnostic["code"] != "history_corrupt" || diagnostic["class"] != "none" {
+				t.Fatal("history fence emitted an unexpected runtime stage, code, or class")
+			}
+			runtimeCount++
+		default:
+			t.Fatal("history diagnostic stream contains an unexpected event")
+		}
+	}
+	return histories, runtimeCount
 }

@@ -16,7 +16,7 @@ var (
 	ErrInvalidRequest       = errors.New("media request invalid")
 	ErrSourceChanged        = errors.New("media source changed")
 	ErrAuthentication       = errors.New("media authentication failed")
-	ErrFormat               = errors.New("media format unsupported")
+	ErrFormat               = &invalidMediaFormatError{}
 	ErrLimit                = errors.New("media size exceeds admission")
 	ErrWaitingForDiskBudget = errors.New("waiting_for_disk_budget")
 	ErrActiveUse            = errors.New("media owner still active")
@@ -24,6 +24,11 @@ var (
 	ErrPublicationUncertain = errors.New("media publication uncertain")
 	ErrFilesystemMismatch   = errors.New("media filesystem mismatch")
 )
+
+type invalidMediaFormatError struct{}
+
+func (*invalidMediaFormatError) Error() string             { return "media format unsupported" }
+func (*invalidMediaFormatError) MediaFailureClass() string { return "media_invalid_format" }
 
 type Options struct {
 	// ExpectedDevice is mandatory in app composition and optional standalone.

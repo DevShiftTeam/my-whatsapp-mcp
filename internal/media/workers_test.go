@@ -1140,7 +1140,9 @@ func TestPrimaryAudioActualPathOutcomesAndCheckpointOwnership(t *testing.T) {
 			}
 			version := archive.ExtractionVersion{ID: "primary-audio", Kind: archive.JobTranscription, ProfileID: lease.Profile().ID, ProfileIdentity: lease.Profile().Identity, RuntimeSHA256: fingerprint, ExtractorVersion: ExtractorVersion, PromptVersion: "forced-he-v1", Language: "he"}
 			beforeCalls, acquires := 0, 0
-			e, err := NewExtractor(ExtractorOptions{Store: store, Scheduler: scheduler, Runtimes: runtimes, Language: SpeechHebrew, ExtractionVersions: []archive.ExtractionVersion{version}, Timeout: 3 * time.Second,
+			// This ownership fixture also hashes and stages real native executables.
+			// Allow process startup headroom; deadline behavior is tested separately.
+			e, err := NewExtractor(ExtractorOptions{Store: store, Scheduler: scheduler, Runtimes: runtimes, Language: SpeechHebrew, ExtractionVersions: []archive.ExtractionVersion{version}, Timeout: 10 * time.Second,
 				WorkerLifetime: testMediaLifetimeConfig(t, spec),
 				InstanceGuard: mediaInstanceGuardFunc(func() (*os.File, error) {
 					fd, err := unix.FcntlInt(instance.Fd(), unix.F_DUPFD_CLOEXEC, 0)

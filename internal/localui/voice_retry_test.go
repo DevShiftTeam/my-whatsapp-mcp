@@ -19,7 +19,7 @@ func (a *fakeVoiceRetryApplication) RetryVoiceDownloads(context.Context) (VoiceR
 }
 
 func TestVoiceRetryOwnerCapabilityOriginAndFixedEmptyRequest(t *testing.T) {
-	app := &fakeVoiceRetryApplication{fakeApplication: &fakeApplication{}, value: VoiceRetrySnapshot{Queued: 3, Skipped: 1}}
+	app := &fakeVoiceRetryApplication{fakeApplication: &fakeApplication{}, value: VoiceRetrySnapshot{Queued: 3, Skipped: 1, Requested: 2}}
 	s, err := New(Config{Origin: testOrigin}, app)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestVoiceRetryOwnerCapabilityOriginAndFixedEmptyRequest(t *testing.T) {
 		t.Fatal("bounded retry result not exposed to owner")
 	}
 	var fields map[string]any
-	if json.Unmarshal(rr.Body.Bytes(), &fields) != nil || len(fields) != 2 {
+	if json.Unmarshal(rr.Body.Bytes(), &fields) != nil || len(fields) != 3 {
 		t.Fatal("retry exposed identities or private references")
 	}
 }
@@ -70,7 +70,7 @@ func TestVoiceRetryErrorsAndInvalidCountsAreFixed(t *testing.T) {
 		t.Fatal("retry leaked private backend failure")
 	}
 	app.err = nil
-	for _, value := range []VoiceRetrySnapshot{{Queued: -1}, {Skipped: -1}, {Queued: 33}, {Queued: 32, Skipped: 1}} {
+	for _, value := range []VoiceRetrySnapshot{{Queued: -1}, {Skipped: -1}, {Requested: -1}, {Requested: 9}, {Queued: 33}, {Queued: 32, Skipped: 1}} {
 		app.value = value
 		if request(s, "POST", "/api/voice/retry", `{}`, &owner, nil).Code != 503 {
 			t.Fatal("retry returned impossible batch count")

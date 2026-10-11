@@ -25,7 +25,7 @@ func (s *Server) voiceRetry(w http.ResponseWriter, r *http.Request, ctx context.
 		}
 		return
 	}
-	if value.Queued < 0 || value.Skipped < 0 || value.Queued > 32 || value.Skipped > 32 || value.Queued+value.Skipped > 32 {
+	if value.Queued < 0 || value.Skipped < 0 || value.Requested < 0 || value.Requested > 8 || value.Queued > 32 || value.Skipped > 32 || value.Queued+value.Skipped > 32 {
 		fail(w, http.StatusServiceUnavailable, "voice_retry_unavailable")
 		return
 	}

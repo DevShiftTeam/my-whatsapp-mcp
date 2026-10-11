@@ -581,14 +581,14 @@ func (s *Store) HydrateDocuments(ctx context.Context, scope ReadScope, request H
 	if request.Snapshot.PolicyGeneration != f.snapshot.PolicyGeneration {
 		return HydratedPage{}, ErrPolicyChanged
 	}
-	if request.Snapshot.IndexGeneration != f.snapshot.IndexGeneration {
+	if request.Snapshot.IndexGeneration != f.snapshot.IndexGeneration || request.Snapshot.RecoveryEpoch != f.snapshot.RecoveryEpoch {
 		return HydratedPage{}, ErrCursorStale
 	}
 	generation, err := extensionActiveGeneration(f.ctx, f.tx)
 	if err != nil {
 		return HydratedPage{}, err
 	}
-	page := HydratedPage{Snapshot: f.snapshot, Guard: ResponseGuard{PolicyGeneration: f.snapshot.PolicyGeneration, Generation: generation.ID, IndexVersionID: generation.Version.ID, ScopeIdentity: identity, safetyEpoch: f.epoch, indexGeneration: f.snapshot.IndexGeneration, rolling: f.rolling}}
+	page := HydratedPage{Snapshot: f.snapshot, Guard: ResponseGuard{PolicyGeneration: f.snapshot.PolicyGeneration, Generation: generation.ID, IndexVersionID: generation.Version.ID, ScopeIdentity: identity, safetyEpoch: f.epoch, indexGeneration: f.snapshot.IndexGeneration, recoveryEpoch: f.snapshot.RecoveryEpoch, rolling: f.rolling}}
 	guard := make(map[MessageID]SourceReadVersion)
 	rootPins := make(map[DocumentID]extensionRootResponsePin)
 	for _, ref := range request.Documents {
@@ -754,7 +754,7 @@ func extensionResponseFrame(s *Store, ctx context.Context, tx *sql.Tx, scope Rea
 	f := &readFrame{s: s, ctx: ctx, tx: tx, scope: scope, now: now}
 	var mode DateMode
 	var importStart, rolling int64
-	err := tx.QueryRowContext(ctx, `SELECT p.generation,p.date_mode,p.import_start,p.rolling_retention,a.archive_revision,a.index_generation FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&f.snapshot.PolicyGeneration, &mode, &importStart, &rolling, &f.snapshot.ArchiveRevision, &f.snapshot.IndexGeneration)
+	err := tx.QueryRowContext(ctx, `SELECT p.generation,p.date_mode,p.import_start,p.rolling_retention,a.archive_revision,a.index_generation,a.recovery_epoch,a.recovery_code FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&f.snapshot.PolicyGeneration, &mode, &importStart, &rolling, &f.snapshot.ArchiveRevision, &f.snapshot.IndexGeneration, &f.snapshot.RecoveryEpoch, &f.snapshot.RecoveryCode)
 	if err != nil {
 		return nil, readError(ctx, err)
 	}
@@ -861,6 +861,9 @@ func (s *Store) CheckResponse(ctx context.Context, scope ReadScope, check Respon
 		return ReadSnapshot{}, err
 	}
 	if check.Guard.indexGeneration != 0 && check.Guard.indexGeneration != f.snapshot.IndexGeneration {
+		return ReadSnapshot{}, ErrCursorStale
+	}
+	if check.Guard.recoveryEpoch != f.snapshot.RecoveryEpoch {
 		return ReadSnapshot{}, ErrCursorStale
 	}
 	generation, err := extensionActiveGeneration(fenced, tx)

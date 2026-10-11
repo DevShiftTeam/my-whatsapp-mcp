@@ -36,6 +36,7 @@ var (
 	ErrInvalidRequest  = errors.New("transcription request invalid")
 	ErrInvalidResponse = errors.New("transcription response invalid")
 	ErrUnavailable     = errors.New("transcription unavailable")
+	ErrBusy            = errors.New("transcription busy")
 	ErrUnauthorized    = errors.New("transcription authentication failed")
 	ErrModelChanged    = errors.New("transcription model changed")
 	tokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`)
@@ -428,6 +429,8 @@ func responseStatus(status int) error {
 	switch status {
 	case http.StatusOK:
 		return nil
+	case http.StatusTooManyRequests:
+		return ErrBusy
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return ErrUnauthorized
 	case http.StatusConflict:

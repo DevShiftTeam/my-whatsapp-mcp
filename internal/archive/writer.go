@@ -69,15 +69,21 @@ func (s *Store) submit(ctx context.Context, payload any, account string, control
 		s.lifeMu.RUnlock()
 		return nil, ErrArchiveUnavailable
 	}
+	s.queuedCommands.Add(1)
 	c := command{ctx: ctx, payload: payload, reply: make(chan commandResult, 1), bytes: n, account: account, control: control, sourceSensitive: commandSourceSensitive(payload, control)}
 	if control {
-		deadline, cancel := context.WithTimeout(ctx, s.options.ControlDeadline)
+		budget := s.options.ControlDeadline
+		if _, alias := payload.(aliasCommand); alias {
+			budget = s.options.AliasDeadline
+		}
+		deadline, cancel := context.WithTimeout(ctx, budget)
 		defer cancel()
 		c.ctx = deadline
 		select {
 		case s.controls <- c:
 			s.lifeMu.RUnlock()
 		case <-deadline.Done():
+			s.queuedCommands.Add(-1)
 			s.lifeMu.RUnlock()
 			if c.sourceSensitive {
 				s.denyImmediate(account, UnsafeReason("control_admission_failed"))
@@ -86,6 +92,7 @@ func (s *Store) submit(ctx context.Context, payload any, account string, control
 		}
 	} else {
 		if s.queuedCount.Add(1) > int64(s.options.BodyQueueCount) {
+			s.queuedCommands.Add(-1)
 			s.queuedCount.Add(-1)
 			s.lifeMu.RUnlock()
 			if c.sourceSensitive {
@@ -96,6 +103,7 @@ func (s *Store) submit(ctx context.Context, payload any, account string, control
 		for {
 			v := s.queuedBytes.Load()
 			if v+n > int64(s.options.BodyQueueBytes) {
+				s.queuedCommands.Add(-1)
 				s.queuedCount.Add(-1)
 				s.lifeMu.RUnlock()
 				if c.sourceSensitive {
@@ -111,6 +119,7 @@ func (s *Store) submit(ctx context.Context, payload any, account string, control
 		case s.bodies <- c:
 			s.lifeMu.RUnlock()
 		default:
+			s.queuedCommands.Add(-1)
 			s.queuedBytes.Add(-n)
 			s.queuedCount.Add(-1)
 			s.lifeMu.RUnlock()
@@ -150,6 +159,9 @@ func (s *Store) writerLoop() {
 	maintenance := time.NewTicker(time.Minute)
 	defer maintenance.Stop()
 	execute := func(c command) {
+		s.writerMu.Lock()
+		defer s.writerMu.Unlock()
+		defer s.queuedCommands.Add(-1)
 		if !c.control {
 			defer s.queuedBytes.Add(-c.bytes)
 			defer s.queuedCount.Add(-1)
@@ -203,6 +215,9 @@ func (s *Store) writerLoop() {
 			}
 			s.extensionCommandFailure(c.payload)
 		}
+		if _, alias := c.payload.(aliasCommand); alias {
+			recordAliasFailure(c.ctx, "alias_writer_result", e)
+		}
 		c.reply <- commandResult{v, e}
 	}
 	for {
@@ -218,9 +233,11 @@ func (s *Store) writerLoop() {
 		case c := <-s.bodies:
 			execute(c)
 		case <-maintenance.C:
+			s.writerMu.Lock()
 			ctx, cancel := context.WithTimeout(context.Background(), s.options.ControlDeadline)
 			pending, err := s.sweepExpired(ctx)
 			cancel()
+			s.writerMu.Unlock()
 			if err != nil {
 				s.denyImmediate("", "control_admission_failed")
 			}
@@ -308,10 +325,15 @@ func (s *Store) ApplySourceEvent(ctx context.Context, e SourceEvent, expected Ge
 	return v.(ApplyResult), nil
 }
 func (s *Store) ApplyAlias(ctx context.Context, a SourceAlias) error {
-	if !validString(a.Account, 512) || !validString(a.PhoneJID, 512) || !validString(a.LID, 512) || (a.Provenance != AliasConnectorMapping && a.Provenance != AliasSessionMetadata) {
+	if !validString(a.Account, 512) || !validString(a.PhoneJID, 512) || !validString(a.LID, 512) || !strings.HasSuffix(a.PhoneJID, "@s.whatsapp.net") || !strings.HasSuffix(a.LID, "@lid") || (a.Provenance != AliasConnectorMapping && a.Provenance != AliasSessionMetadata) {
 		return ErrInvalidEvent
 	}
+	if committed, err := s.committedAlias(ctx, a); err != nil || committed {
+		recordAliasFailure(ctx, "alias_lookup", err)
+		return err
+	}
 	_, e := s.submit(ctx, aliasCommand{a}, a.Account, true, 0)
+	recordAliasFailure(ctx, "alias_write", e)
 	return e
 }
 func (s *Store) SetSyncStatus(ctx context.Context, u SyncUpdate) error {
@@ -354,7 +376,7 @@ func validConnection(s ConnectionState) bool {
 }
 func validGap(s string) bool {
 	switch s {
-	case "", "backfill_requested_coverage_unknown", "backfill_request_failed", "mutation_metadata_missing", "source_revision_conflict", "history_limit_exceeded", "history_corrupt", "queue_limit_exceeded", "coverage_unknown", "offline_gap", "identity_alias_conflict", "control_admission_failed", "unsafe_mutation_projection", "drain_failed":
+	case "", "backfill_requested_coverage_unknown", "backfill_request_failed", "mutation_metadata_missing", "source_revision_conflict", "history_limit_exceeded", "history_corrupt", "queue_limit_exceeded", "coverage_unknown", "offline_gap", "identity_alias_conflict", "control_admission_failed", "unsafe_mutation_projection", "drain_failed", "owner_restored_snapshot":
 		return true
 	case "app_state_sync_error", "undecryptable_message", "ambiguous_message_structure", "ambiguous_edit_structure", "unresolved_deletion":
 		return true
@@ -1193,6 +1215,30 @@ func (s *Store) setSync(ctx context.Context, u SyncUpdate) error {
 		return e
 	})
 }
+
+type sourceDeletion struct {
+	row                                   int64
+	id, chat, sourceChat, sender, message string
+	from                                  bool
+	revision, sent                        int64
+}
+
+func terminalizeSource(ctx context.Context, tx *sql.Tx, account string, generation Generation, v sourceDeletion, rev ArchiveRevision) error {
+	if err := extensionInvalidate(ctx, tx, MessageID(v.id), rev); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM message_fts WHERE rowid=?", v.row); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE messages SET state='deleted',body='',caption='',normalized_body='',normalized_caption='',content_hash='',extension_media_identity='',local_revision=local_revision+1,media_availability='not_retained',reply_account='',reply_chat='',reply_sender='',reply_message='',reply_from_me=0 WHERE id=?", v.id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO source_tombstones(account,chat,sender,message,from_me,protocol_revision) VALUES(?,?,?,?,?,?) ON CONFLICT(account,chat,sender,message,from_me) DO UPDATE SET protocol_revision=MAX(protocol_revision,excluded.protocol_revision)", account, v.sourceChat, v.sender, v.message, v.from, v.revision); err != nil {
+		return err
+	}
+	return dirtyWindow(ctx, tx, v.chat, generation, v.sent, rev)
+}
+
 func (s *Store) clearChat(ctx context.Context, a, c string, cutoff time.Time) error {
 	if _, e := s.readSafety(a); e != nil {
 		return e
@@ -1212,20 +1258,14 @@ func (s *Store) clearChat(ctx context.Context, a, c string, cutoff time.Time) er
 		if _, e = tx.ExecContext(ctx, "INSERT INTO chat_tombstones(account,chat,cutoff) VALUES(?,?,?) ON CONFLICT(account,chat) DO UPDATE SET cutoff=MAX(cutoff,excluded.cutoff)", a, chat, unixms(cutoff)); e != nil {
 			return e
 		}
-		rows, e := tx.QueryContext(ctx, "SELECT rowid,id,chat_id,source_sender,source_message,from_me,protocol_revision,original_sent_at FROM messages WHERE account=? AND source_chat=? AND original_date_known=1 AND original_sent_at<=? AND state<>'deleted'", a, chat, unixms(cutoff))
+		rows, e := tx.QueryContext(ctx, "SELECT rowid,id,chat_id,source_chat,source_sender,source_message,from_me,protocol_revision,original_sent_at FROM messages WHERE account=? AND source_chat=? AND original_date_known=1 AND original_sent_at<=? AND state<>'deleted'", a, chat, unixms(cutoff))
 		if e != nil {
 			return e
 		}
-		type item struct {
-			row                       int64
-			id, chat, sender, message string
-			from                      bool
-			revision, sent            int64
-		}
-		var list []item
+		var list []sourceDeletion
 		for rows.Next() {
-			var v item
-			if e = rows.Scan(&v.row, &v.id, &v.chat, &v.sender, &v.message, &v.from, &v.revision, &v.sent); e != nil {
+			var v sourceDeletion
+			if e = rows.Scan(&v.row, &v.id, &v.chat, &v.sourceChat, &v.sender, &v.message, &v.from, &v.revision, &v.sent); e != nil {
 				rows.Close()
 				return e
 			}
@@ -1241,19 +1281,7 @@ func (s *Store) clearChat(ctx context.Context, a, c string, cutoff time.Time) er
 			return e
 		}
 		for _, v := range list {
-			if e = extensionInvalidate(ctx, tx, MessageID(v.id), rev); e != nil {
-				return e
-			}
-			if _, e = tx.ExecContext(ctx, "DELETE FROM message_fts WHERE rowid=?", v.row); e != nil {
-				return e
-			}
-			if _, e = tx.ExecContext(ctx, "UPDATE messages SET state='deleted',body='',caption='',normalized_body='',normalized_caption='',content_hash='',extension_media_identity='',local_revision=local_revision+1,media_availability='not_retained',reply_account='',reply_chat='',reply_sender='',reply_message='',reply_from_me=0 WHERE id=?", v.id); e != nil {
-				return e
-			}
-			if _, e = tx.ExecContext(ctx, "INSERT OR IGNORE INTO source_tombstones(account,chat,sender,message,from_me,protocol_revision) VALUES(?,?,?,?,?,?)", a, chat, v.sender, v.message, v.from, v.revision); e != nil {
-				return e
-			}
-			if e = dirtyWindow(ctx, tx, v.chat, p.Generation, v.sent, rev); e != nil {
+			if e = terminalizeSource(ctx, tx, a, p.Generation, v, rev); e != nil {
 				return e
 			}
 		}
@@ -1279,6 +1307,17 @@ func (s *Store) SweepExpired(ctx context.Context) error {
 	return e
 }
 func (s *Store) sweepExpired(ctx context.Context) (bool, error) {
+	// Offline original-cache repair preserves committed content byte-for-byte.
+	// All source/read guards still use the actual clock and deny expired rows.
+	if s.options.originalCacheRecovery {
+		return false, nil
+	}
+	// Do not move the committed revision beneath a prepared owner recovery.
+	// All reads/claims still enforce actual-clock expiry independently. Physical
+	// cleanup resumes after explicit completion, including the next normal Open.
+	if s.snapshotRecoveryPending.Load() {
+		return false, nil
+	}
 	pending := false
 	e := s.transaction(ctx, func(tx *sql.Tx) error {
 		p, e := s.loadPolicy(ctx, tx)

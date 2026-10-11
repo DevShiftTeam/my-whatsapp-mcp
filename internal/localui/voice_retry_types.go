@@ -12,6 +12,7 @@ type VoiceRetryApplication interface {
 }
 
 type VoiceRetrySnapshot struct {
-	Queued  int `json:"queued"`
-	Skipped int `json:"skipped"`
+	Queued    int `json:"queued"`
+	Skipped   int `json:"skipped"`
+	Requested int `json:"requested"`
 }

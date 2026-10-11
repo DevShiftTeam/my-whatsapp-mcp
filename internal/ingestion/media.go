@@ -247,6 +247,7 @@ func (r *Runtime) transferMedia(ctx context.Context, p *pendingMedia, cleanup *m
 	if admitErr != nil {
 		// Optional retention cannot erase a committed source or manufacture an
 		// observation gap. The durable association remains available for retry.
+		recordMediaTransferFailure("admission", p.kind, admitErr)
 		return mediaFailure(admitErr, ErrMediaUnavailable)
 	}
 	if nilMediaPort(admission) {
@@ -265,8 +266,10 @@ func (r *Runtime) transferMedia(ctx context.Context, p *pendingMedia, cleanup *m
 	}
 	if err = r.downloadAttachment(downloadCtx, p.attachment, capped); err != nil || downloadCtx.Err() != nil {
 		if downloadCtx.Err() != nil {
+			recordMediaTransferFailure("download", p.kind, downloadCtx.Err())
 			return mediaFailure(downloadCtx.Err(), ErrMediaUnavailable)
 		}
+		recordMediaTransferFailure("download", p.kind, err)
 		return r.mediaUnavailable(ctx, p, mediaFailure(err, ErrMediaUnavailable))
 	}
 	stat, err := capped.Stat()
@@ -304,6 +307,7 @@ func (r *Runtime) transferMedia(ctx context.Context, p *pendingMedia, cleanup *m
 	// archive source/association transaction. Never overwrite its retained state
 	// with a legacy receipt status, including an uncertain completion response.
 	if err = admission.Complete(downloadCtx, VerifiedMedia{Key: p.key, Version: p.version, Kind: p.kind, SHA256: digest, Bytes: count, Reader: io.LimitReader(capped, count)}); err != nil {
+		recordMediaTransferFailure("completion", p.kind, err)
 		return mediaFailure(err, ErrMediaUnavailable)
 	}
 	return nil

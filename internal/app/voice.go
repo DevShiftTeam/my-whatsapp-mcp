@@ -152,7 +152,9 @@ func (o *voiceOwner) progress(status *archive.Progress) {
 		return
 	}
 	status.Code = code
-	if code != "transcription_ready" {
+	if code == "transcription_busy" {
+		status.State = "pending"
+	} else if code != "transcription_ready" {
 		status.State = "unavailable"
 	} else if status.State == "" || status.State == "not_configured" || status.State == "unavailable" {
 		status.State = "pending"

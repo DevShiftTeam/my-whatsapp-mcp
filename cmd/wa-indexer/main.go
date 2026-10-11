@@ -28,6 +28,8 @@ var errRestartRequired = errors.New("restart_required")
 const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir DIRECTORY] [--no-open]
        wa-indexer demo [--data-dir DIRECTORY] [--no-open]
        wa-indexer doctor [--data-dir DIRECTORY]
+       wa-indexer recover-snapshot --data-dir ABSOLUTE_PRIVATE_PROFILE
+       wa-indexer recover-original-cache --data-dir ABSOLUTE_PRIVATE_PROFILE --backup-dir ABSOLUTE_STOPPED_BACKUP
        wa-indexer models install|verify PROFILE [--data-dir DIRECTORY]
        wa-indexer mcp stdio --config ABSOLUTE_PRIVATE_CONFIG
 
@@ -47,6 +49,12 @@ WA_INDEXER_TRANSCRIPTION_LANGUAGE (auto) and TIMEOUT_SECONDS (600). Use
 --transcription-env-file ABSOLUTE_PRIVATE_ENV to load the private service setup.
 Use --open-existing to open an authenticated running owner without starting an
 app or changing its configuration. Missing owner metadata fails without startup.
+After stopping the app, recover-snapshot explicitly restores the committed
+archive after an eligible interrupted drain. It preserves saved messages and
+clients, records a coverage gap, and does not verify the phone's current state.
+recover-original-cache verifies already-present originals against a stopped
+private backup and current source authority. It restores only eligible cache
+metadata, copies no recordings, and starts no connections or processing workers.
 `
 
 func main() {
@@ -73,6 +81,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := execute(ctx, opts, stdout, stderr); err != nil {
+		if opts.command == "recover_snapshot" {
+			fmt.Fprintln(stderr, snapshotRecoveryErrorMessage(err))
+			return 1
+		}
+		if opts.command == "recover_original_cache" {
+			fmt.Fprintln(stderr, originalCacheRecoveryErrorMessage(err))
+			fmt.Fprintln(stderr, "Earlier eligible cache repairs may have committed. Recovery is idempotent; preserve both profiles before retrying.")
+			return 1
+		}
 		if errors.Is(err, errRestartRequired) {
 			fmt.Fprintln(stderr, "My WhatsApp MCP must restart to apply the supplied service settings.")
 			return 1
@@ -275,6 +292,25 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 // an Application, opens WhatsApp, or starts native model ownership.
 func execute(ctx context.Context, opts options, stdout, stderr io.Writer) (result error) {
 	switch opts.command {
+	case "recover_original_cache":
+		receipt, err := app.RecoverOriginalCache(ctx, opts.dataDir, opts.backupDir)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(receipt)
+	case "recover_snapshot":
+		receipt, err := app.RecoverCommittedSnapshot(ctx, opts.dataDir)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(struct {
+			RecoveryEpoch             uint64                  `json:"recovery_epoch"`
+			ArchiveRevision           archive.ArchiveRevision `json:"archive_revision"`
+			Mode                      string                  `json:"mode"`
+			Code                      string                  `json:"code"`
+			Coverage                  string                  `json:"coverage"`
+			CurrentPhoneStateVerified bool                    `json:"current_phone_state_verified"`
+		}{receipt.RecoveryEpoch, receipt.ArchiveRevision, receipt.Mode, receipt.Code, "partial", false})
 	case "mcp_stdio":
 		cfg, err := mcpserver.ReadCredentialFile(opts.config)
 		if err != nil {
@@ -305,6 +341,52 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) (resul
 		}
 	default:
 		return serve(ctx, opts, stdout, stderr)
+	}
+}
+
+func originalCacheRecoveryErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, appdata.ErrInstanceAlreadyRunning), errors.Is(err, archive.ErrInstanceAlreadyRunning):
+		return "Original cache recovery was refused (instance_already_running). Stop both the current archive and the backup before trying again."
+	case errors.Is(err, appdata.ErrUnsafeDataPath), errors.Is(err, archive.ErrUnsafeDataPath):
+		return "Original cache recovery was refused (unsafe_data_path). Use distinct existing private profiles with their original permissions."
+	case errors.Is(err, appdata.ErrDataUnavailable):
+		return "Original cache recovery was refused (data_unavailable). Both existing profiles require their archive, session, and app state."
+	case errors.Is(err, archive.ErrUnauthorized):
+		return "Original cache recovery was refused (account_mismatch). Use the stopped backup belonging to this WhatsApp archive."
+	case errors.Is(err, archive.ErrReconciliationRequired):
+		return "Original cache recovery was refused (reconciliation_required). Resolve the archive's source-safety state first and keep both profiles unchanged."
+	case errors.Is(err, archive.ErrLimitExceeded):
+		return "Original cache recovery was refused (limit_exceeded). The backup exceeds the bounded recovery inventory. Keep both profiles unchanged."
+	case errors.Is(err, context.Canceled):
+		return "Original cache recovery was canceled (canceled). Keep both profiles unchanged and retry."
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Original cache recovery timed out (deadline). Keep both profiles unchanged and retry."
+	default:
+		return "Original cache recovery could not finish (archive_unavailable). Keep both profiles unchanged and report this diagnostic."
+	}
+}
+
+func snapshotRecoveryErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, appdata.ErrInstanceAlreadyRunning), errors.Is(err, archive.ErrInstanceAlreadyRunning):
+		return "Snapshot recovery was refused (instance_already_running). Close the archive app before trying again."
+	case errors.Is(err, appdata.ErrUnsafeDataPath), errors.Is(err, archive.ErrUnsafeDataPath):
+		return "Snapshot recovery was refused (unsafe_data_path). Use the existing private app data folder and check its permissions."
+	case errors.Is(err, appdata.ErrDataUnavailable):
+		return "Snapshot recovery was refused (data_unavailable). The existing archive, session, and app state are required. Keep the data folder unchanged."
+	case errors.Is(err, archive.ErrReconciliationRequired):
+		return "Snapshot recovery was refused (reconciliation_required). This archive is not eligible for interrupted-drain recovery. Keep the data folder unchanged."
+	case errors.Is(err, archive.ErrPolicyChanged):
+		return "Snapshot recovery was refused (policy_changed). Archive safety changed during recovery. Keep the data folder unchanged and retry."
+	case app.StartupErrorCode(err) == "extraction_recovery_pending":
+		return "Snapshot recovery could not finish (extraction_recovery_pending). Prior media ownership could not be settled. Keep the data folder unchanged and retry."
+	case errors.Is(err, context.Canceled):
+		return "Snapshot recovery was canceled (canceled). Keep the data folder unchanged and retry."
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Snapshot recovery timed out (deadline). Keep the data folder unchanged and retry."
+	default:
+		return "Snapshot recovery could not finish (archive_unavailable). Keep the data folder unchanged and retry."
 	}
 }
 

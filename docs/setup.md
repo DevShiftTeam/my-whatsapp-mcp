@@ -99,6 +99,50 @@ The databases are unencrypted. Enable OS disk encryption. Stop the app before co
 
 Disconnecting WhatsApp keeps the saved archive. **Chats and dates → Delete all local data** removes the archive, linked session, and client credentials on this computer; it does not delete phone messages.
 
+## Recover the committed archive snapshot
+
+A durable source-safety pause, such as `reconciliation_required` with `drain_failed`, survives an ordinary restart or **Resume**. If the archive passes integrity and recovery checks, the explicit offline recovery command can restore access to its last committed snapshot while keeping a durable partial-coverage warning.
+
+1. Stop the app. Recovery requires exclusive access to the same existing data directory; it cannot run beside a live server.
+2. Make a private backup of the entire data directory, preserving its permissions. Keep the archive, linked-device session, and client files together.
+3. Run the updated executable with your existing directory's canonical absolute path:
+
+```sh
+./bin/wa-indexer recover-snapshot \
+  --data-dir "/absolute/path/to/existing/archive"
+```
+
+Use only `--data-dir` for this command. It does not connect to WhatsApp or start model and media workers. It validates the existing profile and archive, records an audited recovery, and preserves committed messages, known deletions and conflicts, expiry, archive choices, the linked-device store, and client grants.
+
+Recovery accepts eligible `drain_failed` and `unclean_shutdown` interruptions. It refuses unexplained unsafe markers, identity conflicts, other unsafe reasons, and failed structural checks. If the command itself was interrupted, rerunning it can complete its prepared audit after revalidation; a newer unsafe state remains refused.
+
+A successful receipt reports `mode: "committed_snapshot"`, `code: "owner_restored_snapshot"`, `coverage: "partial"`, and `current_phone_state_verified: false`, together with a recovery epoch and archive revision. Restart `serve` with the same data directory, listener settings, private env files, and other launch arguments. Check the saved-message count and a known search result, then test an existing MCP connection.
+
+This procedure does not reconcile missing WhatsApp edits or deletions, reconstruct undelivered history, or prove the current phone state. The `owner_restored_snapshot` gap remains visible to MCP clients. Known source restrictions still apply. Ordinary startup never runs recovery automatically.
+
+If recovery refuses the profile or reports `reconciliation_required`, keep the backup and report the fixed diagnostic code. Unsupported unsafe reasons or failed structural checks require diagnosis; do not change archive files to bypass the refusal.
+
+## Recover associations for existing original recordings
+
+If verified original recordings are still in the current profile but their cache associations were invalidated, an offline command can check them against a stopped private backup. This repairs eligible metadata; it cannot recover missing files or copy recordings out of the backup.
+
+1. Stop the app. Both the current profile and backup must be existing private profiles with their instance-lock files, and neither may have a running owner.
+2. Keep the backup unchanged. Use distinct canonical absolute paths for the current profile and the stopped backup:
+
+```sh
+./bin/wa-indexer recover-original-cache \
+  --data-dir "/absolute/path/to/existing/archive" \
+  --backup-dir "/absolute/path/to/stopped/private/backup"
+```
+
+The backup must be checkpointed: a nonempty SQLite WAL is refused without modification. More than 256 qualifying originals in the backup is also refused before any repair. The current archive must already use the schema expected by the executable.
+
+Use only these two flags. Recovery verifies the existing recording bytes and authenticated completion evidence against matching current source authority. Current policy, deletion, conflict, and expiry checks still apply. It preserves messages, client grants, completion evidence, and media quota charges, and changes only eligible cache associations. It creates no profile or database, performs no migrations or expiry cleanup, starts no network or model work, and copies or deletes no recordings. The backup remains unchanged.
+
+Success returns only aggregate `restored` and `skipped` counts. A missing, changed, or invalid individual recording is skipped; ownership or structural failures stop the command. Repairs commit separately for each artifact, so a later failure can leave earlier associations restored. Repeating the command is safe and idempotent after resolving the reported fixed diagnostic.
+
+Restart the archive with its existing data directory and launch arguments. With transcription configured, eligible restored recordings can be processed normally. Check the generated text through search and MCP; cache recovery itself does not transcribe audio, repair missing phone history, or clear coverage gaps.
+
 ## Troubleshooting
 
 | Symptom | What to do |
@@ -108,7 +152,7 @@ Disconnecting WhatsApp keeps the saved archive. **Chats and dates → Delete all
 | Owner session ended | Run `serve --open-existing` while the app is running. If it has stopped, run `serve`. |
 | Port already in use | Reopen the existing app. If another program owns the port, stop it or choose a different literal loopback port with `--listen 127.0.0.1:64166`. |
 | `unsafe_data_path` | Use the original data directory or a fresh empty local directory. Check ownership, private permissions, and symlinks; do not loosen permissions to bypass the check. |
-| `reconciliation_required` | Keep the data directory unchanged and report the fixed diagnostic codes. A durable source-safety failure such as `drain_failed` persists across restart and Resume; the app currently has no reconciliation command to clear it. Import and content reads remain blocked until verified recovery. |
+| `reconciliation_required` | Keep the data directory unchanged. A durable source-safety failure such as `drain_failed` persists across restart and Resume; use the explicit [committed-snapshot recovery procedure](#recover-the-committed-archive-snapshot) only for an eligible profile. If recovery refuses it, preserve the backup and report the fixed code. |
 | Partial history or sync gaps | Readable stored messages may still be searchable. Coverage warnings remain because unavailable messages and missed edits or deletions cannot be reconstructed reliably. |
 
 For an offline diagnostic report, stop the app first, then run `./bin/wa-indexer doctor`. Review it before sharing; do not attach your data directory.

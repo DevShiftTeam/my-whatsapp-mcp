@@ -261,5 +261,8 @@ func (v mediaVerification) ogg() (string, bool) {
 		eos = h[5]&4 != 0
 		offset += int64(len(page))
 	}
-	return codec, audio && eos && len(packet) == 0
+	// WhatsApp Opus recordings can finish on a complete page without EOS.
+	// RFC 7845 section 3 requires readers to handle this; incomplete pages and
+	// packets still fail the framing checks above. Vorbis keeps its EOS gate.
+	return codec, audio && len(packet) == 0 && (eos || codec == "opus")
 }
