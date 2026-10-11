@@ -110,7 +110,7 @@ dialog{border:1px solid var(--line);border-radius:14px;width:min(610px,calc(100%
 .stats-update .icon-button { display: grid; place-items: center; padding: 9px; min-height: 44px; min-width: 44px; }
 .stats-update svg { width: 19px; height: 19px; }
 .stats-filters { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(180px, 1.3fr) minmax(155px, .8fr); gap: 14px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
-.stats-filters > label, .stats-custom-dates label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 600; }
+.stats-filters > label, .stats-custom-dates label { display: flex; flex-direction: column; min-width: 0; gap: 7px; font-size: 12px; font-weight: 600; }
 .stats-filters select, .stats-filters input { width: 100%; min-height: 44px; padding: 10px 12px; font-size: 13px; font-weight: 400; background:var(--paper); }
 .stats-custom-dates { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
 .stats-custom-dates .field-help { grid-column: 1 / -1; margin-top: 0; }
