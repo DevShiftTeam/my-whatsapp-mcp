@@ -55,6 +55,12 @@ func TestExpiryMaintenanceTimeoutKeepsReadableArchiveAndFinalExpiryGuards(t *tes
 	if !errors.Is(err, context.DeadlineExceeded) || s.writeDB.Stats().WaitCount <= baseline {
 		t.Fatal("expiry cleanup did not reach the blocked writer connection before its deadline")
 	}
+	// The caller can observe its deadline before the actor records its final
+	// epoch invalidation. Join that canceled task before creating fresh guards,
+	// keeping the writer connection held so physical cleanup cannot run.
+	if err = s.Drain(context.Background()); err != nil {
+		t.Fatal("canceled expiry cleanup did not settle while the writer connection remained held")
+	}
 	if _, err = s.readSafety("account"); err != nil {
 		t.Fatal("derived expiry cleanup timeout poisoned the readable source archive")
 	}
