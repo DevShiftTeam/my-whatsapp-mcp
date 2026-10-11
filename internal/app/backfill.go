@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
 )
 
 const productBackfillLimit = 32

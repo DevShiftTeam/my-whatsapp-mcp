@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
 )
 
 const maxRemoteSecretResponse = 4096

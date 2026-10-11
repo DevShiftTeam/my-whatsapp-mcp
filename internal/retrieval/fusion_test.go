@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 func ref(id string, kind archive.DocumentKind, members ...string) archive.DocumentRef {

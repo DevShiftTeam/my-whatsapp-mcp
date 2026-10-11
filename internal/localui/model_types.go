@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
 )
 
 var ErrModelOperationBusy = errors.New("model_operation_busy")

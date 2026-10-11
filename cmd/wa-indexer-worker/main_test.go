@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
 )
 
 func TestNativeFactoryRejectsUninheritedComponentPaths(t *testing.T) {

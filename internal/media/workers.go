@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 	"golang.org/x/sys/unix"
 )
 

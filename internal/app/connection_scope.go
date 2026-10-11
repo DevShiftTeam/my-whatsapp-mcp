@@ -1,6 +1,6 @@
 package app
 
-import "github.com/Bodokh/wa-indexer/internal/archive"
+import "github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 
 // Grant publication checks persisted effective authority against explicit input.
 func nativeGrantWithinPolicy(scope archive.ReadScope, policy archive.CredentialPolicy) bool {

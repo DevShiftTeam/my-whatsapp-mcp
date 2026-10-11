@@ -4,7 +4,7 @@ package ingestion
 
 import (
 	"context"
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"go.mau.fi/whatsmeow"
 	"io"
 	"time"

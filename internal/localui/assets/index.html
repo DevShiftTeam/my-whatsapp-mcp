@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>WhatsApp archive</title>
+  <title>My WhatsApp MCP</title>
+  <link rel="icon" type="image/png" href="/assets/logo.png">
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#search-query">Skip to search</a>
   <section id="auth-screen" class="auth-screen" aria-labelledby="auth-title">
-    <div class="archive-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v12H9l-4 4V4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8h6M9 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-    <h1 id="auth-title">WA Indexer</h1>
+    <div class="archive-mark" aria-hidden="true"><img src="/assets/logo.png" alt="" width="35" height="35"></div>
+    <h1 id="auth-title">My WhatsApp MCP</h1>
     <p id="auth-message" role="status" aria-live="polite">Opening your private owner session…</p>
     <form id="admin-login-form" class="admin-login-form" hidden>
       <label for="admin-password">Admin password</label>
@@ -24,7 +25,7 @@
   </section>
   <main id="workspace" hidden>
     <header class="topbar">
-      <div class="identity"><span class="archive-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v12H9l-4 4V4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8h6M9 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><h1>WA Indexer</h1><p>Your private WhatsApp archive</p></div></div>
+      <div class="identity"><span class="archive-mark" aria-hidden="true"><img src="/assets/logo.png" alt="" width="35" height="35"></span><div><h1>My WhatsApp MCP</h1><p>Your private WhatsApp archive</p></div></div>
       <div class="top-actions"><span id="demo-label" class="demo-label" hidden>Synthetic demo</span><span class="local-label"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><rect x="4" y="8" width="12" height="9" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 8V5a3.5 3.5 0 0 1 7 0v3" stroke="currentColor" stroke-width="1.5"/></svg>Stored on this computer</span><button id="admin-logout" class="secondary" type="button" hidden>Sign out</button></div>
     </header>
     <div class="app-layout">

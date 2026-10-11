@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 	"github.com/daulet/tokenizers"
 	ort "github.com/yalue/onnxruntime_go"
 	"golang.org/x/sys/unix"

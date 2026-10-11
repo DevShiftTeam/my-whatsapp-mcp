@@ -3,7 +3,7 @@ package ingestion
 import (
 	"context"
 	"errors"
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"go.mau.fi/whatsmeow/types/events"
 	"math"
 	"time"

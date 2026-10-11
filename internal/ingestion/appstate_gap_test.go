@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"

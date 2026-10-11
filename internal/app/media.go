@@ -3,11 +3,11 @@ package app
 import (
 	"context"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 
-	"github.com/Bodokh/wa-indexer/internal/compute"
-	"github.com/Bodokh/wa-indexer/internal/media"
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/compute"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 )
 
 // MediaConfig accepts only trusted audited bundle/runtime inputs. It is never

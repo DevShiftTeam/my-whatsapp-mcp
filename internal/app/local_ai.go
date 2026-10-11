@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/compute"
-	"github.com/Bodokh/wa-indexer/internal/indexing"
-	"github.com/Bodokh/wa-indexer/internal/localui"
-	"github.com/Bodokh/wa-indexer/internal/media"
-	"github.com/Bodokh/wa-indexer/internal/retrieval"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/compute"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/indexing"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/retrieval"
 )
 
 type localAIOwner struct {

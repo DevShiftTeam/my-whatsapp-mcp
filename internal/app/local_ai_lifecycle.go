@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Bodokh/wa-indexer/internal/inference"
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 )
 
 // AI-only drain leaves the archive, originals, model operations, MCP and shared

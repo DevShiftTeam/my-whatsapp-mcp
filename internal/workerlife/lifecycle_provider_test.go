@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
 )
 
 type lifecycleProviderFunc func(context.Context, *os.File, int64) (ExecutableLease, error)

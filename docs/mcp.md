@@ -4,7 +4,7 @@ MCP exposes four read-only tools: `search_messages`, `get_context`, `list_chats`
 
 ## Local Codex or Claude Code
 
-1. Keep WA Indexer running and confirm that a message is searchable in its browser interface.
+1. Keep My WhatsApp MCP running and confirm that a message is searchable in its browser interface.
 2. Open **AI connections → Create a read-only connection**.
 3. Choose your client and **Local, on this computer**.
 4. Name the connection, select the permitted chats and dates, set an expiry, and create it.
@@ -17,7 +17,7 @@ Hosted Composio and Claude connectors cannot use this local adapter because they
 
 ## Remote bearer access
 
-Remote access is an advanced setup. You need an HTTPS hostname, a tunnel or reverse proxy to this computer, and a client that can send an `Authorization` header. WA Indexer does not configure the tunnel or run an OAuth authorization server.
+Remote access is an advanced setup. You need an HTTPS hostname, a tunnel or reverse proxy to this computer, and a client that can send an `Authorization` header. My WhatsApp MCP does not configure the tunnel or run an OAuth authorization server.
 
 The proxy must preserve the configured public `Host` header and pass `Authorization` unchanged. Replacing `Host` with `localhost` causes the app to reject the request; `X-Forwarded-Host` does not replace this check.
 
@@ -38,10 +38,10 @@ Create a connection in **AI connections**, choosing **Remote**. Select a narrow 
 Clients must send:
 
 ```text
-Authorization: Bearer <WA Indexer client token>
+Authorization: Bearer <My WhatsApp MCP client token>
 ```
 
-Use the receiving client's secret store or the generated guide's dedicated environment variable. Keep tokens out of URLs, source control, and public logs. A Composio project API key is separate from the WA Indexer token. Composio's API-key mapping must produce `Authorization: Bearer {{generic_api_key}}`; an API Key dropdown alone does not guarantee that header.
+Use the receiving client's secret store or the generated guide's dedicated environment variable. Keep tokens out of URLs, source control, and public logs. A Composio project API key is separate from the My WhatsApp MCP token. Composio's API-key mapping must produce `Authorization: Bearer {{generic_api_key}}`; an API Key dropdown alone does not guarantee that header.
 
 Claude hosted connectors need an account that supports custom request headers. Only pass `--mcp-header-auth-available` if you have confirmed that capability. The ordinary bearer endpoint is not an OAuth endpoint.
 
@@ -61,7 +61,7 @@ A private env file contains one literal line:
 WA_INDEXER_ADMIN_PASSWORD_HASH=<complete encoded hash>
 ```
 
-Use an absolute file path, mode `0600`, in a directory owned by you with mode `0700`. The file must not be a symlink or hardlink and must have no extended ACL grants. Do not quote the value, prefix it with `export`, or source the file in a shell; WA Indexer parses it as data.
+Use an absolute file path, mode `0600`, in a directory owned by you with mode `0700`. The file must not be a symlink or hardlink and must have no extended ACL grants. Do not quote the value, prefix it with `export`, or source the file in a shell; the app parses it as data.
 
 After preparing the file, stop the app and use a configuration like this, replacing both the hostname and the example absolute path:
 

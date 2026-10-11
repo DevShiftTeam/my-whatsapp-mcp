@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
 )
 
 type fakeModelApplication struct {

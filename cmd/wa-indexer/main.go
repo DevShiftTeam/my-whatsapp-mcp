@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/app"
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/localui"
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/app"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 )
 
 var errStartup = errors.New("application_unavailable")
@@ -62,7 +62,7 @@ func signalMain() int {
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	opts, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(stderr, "WA Indexer could not read the launch options. Run wa-indexer --help.")
+		fmt.Fprintln(stderr, "My WhatsApp MCP could not read the launch options. Run wa-indexer --help.")
 		return 2
 	}
 	if opts.help {
@@ -71,7 +71,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if err := execute(ctx, opts, stdout, stderr); err != nil {
 		if errors.Is(err, errRestartRequired) {
-			fmt.Fprintln(stderr, "WA Indexer must restart to apply the supplied remote route settings.")
+			fmt.Fprintln(stderr, "My WhatsApp MCP must restart to apply the supplied remote route settings.")
 			return 1
 		}
 		fmt.Fprintln(stderr, startupErrorMessage(err))
@@ -85,45 +85,45 @@ func startupErrorMessage(err error) string {
 	// source identifiers and must never become terminal output.
 	switch app.StartupErrorCode(err) {
 	case "native_namespace_unavailable":
-		return "WA Indexer could not run (native_namespace_unavailable). Local runtime files could not be prepared. Restart the app and keep the existing data folder."
+		return "My WhatsApp MCP could not run (native_namespace_unavailable). Local runtime files could not be prepared. Restart the app and keep the existing data folder."
 	case "extraction_recovery_pending":
-		return "WA Indexer could not run (extraction_recovery_pending). Local media recovery is incomplete. Keep the data folder unchanged and retry after recovery."
+		return "My WhatsApp MCP could not run (extraction_recovery_pending). Local media recovery is incomplete. Keep the data folder unchanged and retry after recovery."
 	case "local_ai_bundle_unavailable":
-		return "WA Indexer could not run (local_ai_bundle_unavailable). Local AI resources are unavailable. Start the app from its complete app bundle."
+		return "My WhatsApp MCP could not run (local_ai_bundle_unavailable). Local AI resources are unavailable. Start the app from its complete app bundle."
 	}
 	switch {
 	case errors.Is(err, errAdminConfig):
-		return "WA Indexer could not run (admin_auth_unavailable). Configure the private admin password hash and HTTPS admin route, then restart."
+		return "My WhatsApp MCP could not run (admin_auth_unavailable). Configure the private admin password hash and HTTPS admin route, then restart."
 	case errors.Is(err, appdata.ErrUnsafeDataPath), errors.Is(err, archive.ErrUnsafeDataPath):
-		return "WA Indexer could not run (unsafe_data_path). The data folder failed an ownership or privacy check. Check its permissions or use the original app data folder."
+		return "My WhatsApp MCP could not run (unsafe_data_path). The data folder failed an ownership or privacy check. Check its permissions or use the original app data folder."
 	case errors.Is(err, appdata.ErrDataUnavailable):
-		return "WA Indexer could not run (data_unavailable). Local app data could not be opened. Check that the data folder is accessible, then try again."
+		return "My WhatsApp MCP could not run (data_unavailable). Local app data could not be opened. Check that the data folder is accessible, then try again."
 	case errors.Is(err, appdata.ErrLockRequired):
-		return "WA Indexer could not run (instance_lock_required). Ownership of the data folder could not be established. Restart the app and try again."
+		return "My WhatsApp MCP could not run (instance_lock_required). Ownership of the data folder could not be established. Restart the app and try again."
 	case errors.Is(err, appdata.ErrInstanceAlreadyRunning), errors.Is(err, archive.ErrInstanceAlreadyRunning):
-		return "WA Indexer could not run (instance_already_running). Another WA Indexer instance owns this data folder. Close that instance and try again."
+		return "My WhatsApp MCP could not run (instance_already_running). Another My WhatsApp MCP instance owns this data folder. Close that instance and try again."
 	case errors.Is(err, archive.ErrArchiveUnavailable):
-		return "WA Indexer could not run (archive_unavailable). The local archive could not be opened. Keep the data folder unchanged and retry."
+		return "My WhatsApp MCP could not run (archive_unavailable). The local archive could not be opened. Keep the data folder unchanged and retry."
 	case errors.Is(err, archive.ErrSourceUnavailable):
-		return "WA Indexer could not run (source_unavailable). WhatsApp data is unavailable. Restart the app and try again."
+		return "My WhatsApp MCP could not run (source_unavailable). WhatsApp data is unavailable. Restart the app and try again."
 	case errors.Is(err, archive.ErrReconciliationRequired):
-		return "WA Indexer could not run (reconciliation_required). An interrupted import requires archive recovery. Keep the data folder unchanged."
+		return "My WhatsApp MCP could not run (reconciliation_required). An interrupted import requires archive recovery. Keep the data folder unchanged."
 	case errors.Is(err, archive.ErrSchemaTooNew):
-		return "WA Indexer could not run (schema_too_new). This archive needs a newer app version. Use the version that created it or a newer compatible version."
+		return "My WhatsApp MCP could not run (schema_too_new). This archive needs a newer app version. Use the version that created it or a newer compatible version."
 	case errors.Is(err, archive.ErrSchemaChanged):
-		return "WA Indexer could not run (schema_changed). The archive schema changed. Restart with a compatible app version and keep the data folder unchanged."
+		return "My WhatsApp MCP could not run (schema_changed). The archive schema changed. Restart with a compatible app version and keep the data folder unchanged."
 	case errors.Is(err, archive.ErrFTS5Unavailable):
-		return "WA Indexer could not run (fts5_unavailable). This build lacks keyword search support. Use the complete WA Indexer app build."
+		return "My WhatsApp MCP could not run (fts5_unavailable). This build lacks keyword search support. Use the complete My WhatsApp MCP app build."
 	case errors.Is(err, archive.ErrUnauthorized):
-		return "WA Indexer could not run (unauthorized). The archive and linked WhatsApp account do not match. Use the matching account and data folder."
+		return "My WhatsApp MCP could not run (unauthorized). The archive and linked WhatsApp account do not match. Use the matching account and data folder."
 	case errors.Is(err, appdata.ErrUnsupportedPlatform):
-		return "WA Indexer could not run (unsupported_platform). This platform is not supported by the local app. Use a supported app build."
+		return "My WhatsApp MCP could not run (unsupported_platform). This platform is not supported by the local app. Use a supported app build."
 	case errors.Is(err, context.Canceled):
-		return "WA Indexer could not run (canceled). Startup was canceled. Start the app again when ready."
+		return "My WhatsApp MCP could not run (canceled). Startup was canceled. Start the app again when ready."
 	case errors.Is(err, context.DeadlineExceeded):
-		return "WA Indexer could not run (deadline). Startup timed out. Restart the app and try again."
+		return "My WhatsApp MCP could not run (deadline). Startup timed out. Restart the app and try again."
 	default:
-		return "WA Indexer could not run (application_unavailable). Restart the app and try again."
+		return "My WhatsApp MCP could not run (application_unavailable). Restart the app and try again."
 	}
 }
 
@@ -242,7 +242,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err := application.WriteOwnerURL(server.AttachURL()); err != nil {
 		return errStartup
 	}
-	fmt.Fprintln(stdout, "WA Indexer is running. Open the private owner link on this computer.")
+	fmt.Fprintln(stdout, "My WhatsApp MCP is running. Open the private owner link on this computer.")
 	if !opts.noOpen {
 		openCtx, openCancel := context.WithTimeout(serveCtx, 5*time.Second)
 		err := openBrowser(openCtx, server.BootstrapURL())
@@ -328,6 +328,6 @@ func attachExisting(ctx context.Context, candidate string, demo, noOpen bool, st
 			return errStartup
 		}
 	}
-	fmt.Fprintln(stdout, "WA Indexer is already running. Open the private owner link on this computer.")
+	fmt.Fprintln(stdout, "My WhatsApp MCP is already running. Open the private owner link on this computer.")
 	return nil
 }

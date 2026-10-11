@@ -5,8 +5,8 @@ package indexing
 import (
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
 )
 
 // Aliases keep one authoritative archive DTO contract for every consumer.

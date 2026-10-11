@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
-	"github.com/Bodokh/wa-indexer/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
 )
 
 const demoOCRCanary = "SYNTHETIC_OCR_ACCEPTANCE"

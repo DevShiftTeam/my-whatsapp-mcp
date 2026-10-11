@@ -6,16 +6,16 @@ import (
 	"os"
 	"sync/atomic"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/compute"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
-	"github.com/Bodokh/wa-indexer/internal/inference"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
-	"github.com/Bodokh/wa-indexer/internal/media"
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
-	"github.com/Bodokh/wa-indexer/internal/retrieval"
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/compute"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/retrieval"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 )
 
 // NativeConfig is explicit immutable native configuration. No candidate profile

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
 )
 
 var (

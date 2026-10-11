@@ -3,7 +3,7 @@ package app
 import (
 	"encoding/hex"
 	"encoding/json"
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"unicode/utf8"
 )
 

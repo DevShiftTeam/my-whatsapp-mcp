@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
-	"github.com/Bodokh/wa-indexer/internal/app"
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/app"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 	"net"
 	"net/http"
 	"path/filepath"

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 func TestBoundedOpaqueCursorRecomputesWithoutDuplicates(t *testing.T) {

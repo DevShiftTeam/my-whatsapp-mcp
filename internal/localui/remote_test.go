@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 const remoteTestOrigin = "https://archive.example.com"
@@ -127,7 +127,7 @@ func TestRemoteConfigurationFailsClosed(t *testing.T) {
 func TestRemotePublicShellHasNoCapabilitiesAndAnonymousAPIsNeverCallApplication(t *testing.T) {
 	app := &fakeApplication{}
 	s := remoteServer(t, app)
-	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css"} {
+	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/logo.png"} {
 		rr := remoteRequest(s, "GET", path, "", nil, nil)
 		if rr.Code != http.StatusOK || len(rr.Result().Cookies()) != 0 {
 			t.Fatalf("asset rejected or granted cookie: %s", path)
@@ -138,6 +138,12 @@ func TestRemotePublicShellHasNoCapabilitiesAndAnonymousAPIsNeverCallApplication(
 		if path == "/" && !strings.Contains(rr.Body.String(), `data-remote-admin="true"`) {
 			t.Fatal("remote shell mode missing")
 		}
+		if path == "/assets/logo.png" {
+			assertPublicPNG(t, rr)
+			if rr.Header().Get("Strict-Transport-Security") != "max-age=31536000" {
+				t.Fatal("remote logo response lacks HSTS")
+			}
+		}
 	}
 	for path, method := range routeMethods {
 		rr := remoteRequest(s, method, path, `{}`, nil, nil)
@@ -147,7 +153,7 @@ func TestRemotePublicShellHasNoCapabilitiesAndAnonymousAPIsNeverCallApplication(
 		assertFixedError(t, rr)
 		assertNoCalls(t, app, 0)
 	}
-	for _, path := range []string{"/api/bootstrap", "/api/owner/attach", "/unknown", "/api/unknown", "/api/auth/register"} {
+	for _, path := range []string{"/api/bootstrap", "/api/owner/attach", "/unknown", "/api/unknown", "/api/auth/register", "/assets/unlisted.png"} {
 		for _, method := range []string{"GET", "POST"} {
 			rr := remoteRequest(s, method, path, `{}`, nil, nil)
 			if rr.Code != http.StatusNotFound {

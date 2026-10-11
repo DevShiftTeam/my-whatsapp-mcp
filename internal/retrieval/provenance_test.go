@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 // Generated OCR/caption/speech must never occupy an original-text snippet.

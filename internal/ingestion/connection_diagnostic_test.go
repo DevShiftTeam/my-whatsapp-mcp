@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/socket"
 	wmstore "go.mau.fi/whatsmeow/store"

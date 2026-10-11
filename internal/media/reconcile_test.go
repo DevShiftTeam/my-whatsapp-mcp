@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 func retainTestOriginal(t *testing.T, s *Store, f *fakeRepository) DownloadRequest {

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
 )
 
 type trackedOriginal struct {

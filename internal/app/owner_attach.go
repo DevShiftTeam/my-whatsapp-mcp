@@ -1,6 +1,6 @@
 package app
 
-import "github.com/Bodokh/wa-indexer/internal/appdata"
+import "github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
 
 // OwnerAttachURL reads a private candidate from the same config-owned real/demo
 // root. It is not proof of a live owner: the caller must authenticate Attach.

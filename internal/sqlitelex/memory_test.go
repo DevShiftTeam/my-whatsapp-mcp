@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/sqlitelex/internal/testsqlite"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/sqlitelex/internal/testsqlite"
 )
 
 func TestDensityReleasesStatementAndConnectionMemory(t *testing.T) {

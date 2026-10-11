@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
 	"go.mau.fi/whatsmeow"
 	"golang.org/x/sys/unix"
 )

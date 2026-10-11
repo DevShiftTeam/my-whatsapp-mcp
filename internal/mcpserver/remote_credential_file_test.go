@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 const remoteFileFixtureID archive.CredentialID = "0123456789abcdef0123456789abcdef"

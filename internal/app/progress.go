@@ -1,6 +1,6 @@
 package app
 
-import "github.com/Bodokh/wa-indexer/internal/archive"
+import "github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 
 func (r *resources) progress(status *archive.StatusSnapshot) {
 	if r.recoveryPending.Load() {

@@ -12,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 const cursorLifetime = 5 * time.Minute

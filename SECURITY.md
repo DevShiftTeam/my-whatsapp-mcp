@@ -1,6 +1,6 @@
 # Security
 
-WA Indexer stores private conversations and linked-device credentials. The default browser interface binds to loopback and uses a private owner session. MCP clients receive separate, scoped, expiring credentials. Remote browser administration requires its own password configuration and HTTPS route.
+My WhatsApp MCP stores private conversations and linked-device credentials. The default browser interface binds to loopback and uses a private owner session. MCP clients receive separate, scoped, expiring credentials. Remote browser administration requires its own password configuration and HTTPS route.
 
 The app does not encrypt its SQLite databases or protect them from software already running as your OS user. Use disk encryption, private backups, and a dedicated local data directory. Do not publish the data directory, owner links, QR codes, env files, or tokens.
 

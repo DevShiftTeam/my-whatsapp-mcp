@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
-	"github.com/Bodokh/wa-indexer/internal/localui"
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 	"github.com/skip2/go-qrcode"
 )
 

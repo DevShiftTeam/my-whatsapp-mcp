@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/retrieval"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/retrieval"
 	"sync/atomic"
 )
 

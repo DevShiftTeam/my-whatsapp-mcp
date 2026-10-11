@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
 )
 
 func validProfileID(id string) bool {

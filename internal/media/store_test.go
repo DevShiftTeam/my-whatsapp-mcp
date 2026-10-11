@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
 )
 
 type fakeRepository struct {

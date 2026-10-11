@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 	"errors"
-	"github.com/Bodokh/wa-indexer/internal/localui"
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
 	"testing"
 	"time"
 )

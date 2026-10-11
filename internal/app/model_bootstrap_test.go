@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
 	"os"
 	"path/filepath"
 	"testing"

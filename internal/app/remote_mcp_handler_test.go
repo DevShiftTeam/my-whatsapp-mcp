@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/localui"
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 )
 
 func borrowedRemoteMCPTestApp(handler http.Handler) *Application {

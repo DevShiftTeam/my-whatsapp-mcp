@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 const testOrigin = "http://127.0.0.1:44771"
@@ -210,6 +210,28 @@ func assertNoCalls(t *testing.T, app *fakeApplication, before int) {
 	}
 }
 
+func assertPublicPNG(t *testing.T, rr *httptest.ResponseRecorder) {
+	t.Helper()
+	if rr.Header().Get("Content-Type") != "image/png" || !bytes.HasPrefix(rr.Body.Bytes(), []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatal("logo response must be a PNG with an explicit content type")
+	}
+	for header, value := range map[string]string{
+		"Cache-Control":                "no-store",
+		"X-Content-Type-Options":       "nosniff",
+		"Referrer-Policy":              "no-referrer",
+		"X-Frame-Options":              "DENY",
+		"Cross-Origin-Resource-Policy": "same-origin",
+		"Permissions-Policy":           "camera=(), microphone=(), geolocation=()",
+	} {
+		if rr.Header().Get(header) != value {
+			t.Fatalf("logo protection header %s=%q", header, rr.Header().Get(header))
+		}
+	}
+	if csp := rr.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "img-src 'self' blob:") || strings.Contains(csp, "unsafe-") {
+		t.Fatalf("logo response lacks restrictive CSP: %q", csp)
+	}
+}
+
 func TestConfigurationRejectsNonLiteralOrNonHTTPOrigins(t *testing.T) {
 	for _, origin := range []string{"", "http://localhost:44771", "http://example.com:44771", "http://0.0.0.0:44771", "http://192.0.2.1:44771", "https://127.0.0.1:44771", "http://user@127.0.0.1:44771", "http://127.0.0.1:44771/path", "http://127.0.0.1:44771?token=x", "http://127.0.0.1:44771?", "http://127.0.0.1:44771#", "http://127.0.0.1:44771#token=x"} {
 		t.Run(origin, func(t *testing.T) {
@@ -224,7 +246,7 @@ func TestBootstrapIsOneTimeAndSecretNeverAppearsInPublicShell(t *testing.T) {
 	app := &fakeApplication{}
 	s := newTestServer(t, app)
 	token := bootstrapToken(t, s)
-	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css"} {
+	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/logo.png"} {
 		rr := request(s, http.MethodGet, path, "", nil, nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("public asset %s status=%d", path, rr.Code)
@@ -235,6 +257,12 @@ func TestBootstrapIsOneTimeAndSecretNeverAppearsInPublicShell(t *testing.T) {
 		if len(rr.Result().Cookies()) != 0 {
 			t.Fatalf("public asset %s grants a session", path)
 		}
+		if path == "/assets/logo.png" {
+			assertPublicPNG(t, rr)
+		}
+	}
+	if rr := request(s, http.MethodGet, "/assets/unlisted.png", "", nil, nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("unlisted asset status=%d", rr.Code)
 	}
 	for _, headers := range []map[string]string{{"Origin": ""}, {"Origin": "http://evil.example"}, {"Origin": "null"}, {"Origin": testOrigin + "/"}, {"Host": "evil.example", "X-Forwarded-Host": "127.0.0.1:44771"}} {
 		body, _ := json.Marshal(map[string]string{"token": token})

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 	"sync"
 )
 

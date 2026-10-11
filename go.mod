@@ -1,4 +1,4 @@
-module github.com/Bodokh/wa-indexer
+module github.com/Bodokh/my-whatsapp-mcp
 
 go 1.26.0
 

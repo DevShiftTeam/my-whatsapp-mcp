@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 func TestBackfillOnlyNewSelectedChatsAndNeverImplicitAll(t *testing.T) {

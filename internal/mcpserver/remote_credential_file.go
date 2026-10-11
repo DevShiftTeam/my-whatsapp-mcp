@@ -12,8 +12,8 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
 )
 
 // RemoteEndpoint is trusted route metadata. The server never dials PublicURL.

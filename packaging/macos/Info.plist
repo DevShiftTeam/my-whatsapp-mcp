@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>local.wa-indexer.app</string>
-<key>CFBundleName</key><string>WA Indexer</string>
-<key>CFBundleDisplayName</key><string>WA Indexer</string>
+<key>CFBundleName</key><string>My WhatsApp MCP</string>
+<key>CFBundleDisplayName</key><string>My WhatsApp MCP</string>
 <key>CFBundleExecutable</key><string>wa-indexer</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>

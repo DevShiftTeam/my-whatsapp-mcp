@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Bodokh/wa-indexer/internal/clientsetup"
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 var errAdminConfig = errors.New("admin_auth_unavailable")

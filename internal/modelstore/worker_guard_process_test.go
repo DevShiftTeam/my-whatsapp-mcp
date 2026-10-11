@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 	"golang.org/x/sys/unix"
 )
 

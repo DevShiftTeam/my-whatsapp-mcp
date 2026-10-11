@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 func TestLocalAIRefusalPreservesQueriesAndDesiredRevision(t *testing.T) {

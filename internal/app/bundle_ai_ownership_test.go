@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
 )
 
 func TestEarlyResourceFailureReturnsBundleCleanupOwner(t *testing.T) {

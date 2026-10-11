@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Bodokh/wa-indexer/internal/compute"
-	"github.com/Bodokh/wa-indexer/internal/inference"
-	"github.com/Bodokh/wa-indexer/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/compute"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
 )
 
 type bundledAI struct {

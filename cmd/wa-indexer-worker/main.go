@@ -7,8 +7,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/Bodokh/wa-indexer/internal/inference"
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 	"golang.org/x/sys/unix"
 )
 

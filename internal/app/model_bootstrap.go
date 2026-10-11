@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
 )
 
 // Only the acquired-instance activation boundary may create model control

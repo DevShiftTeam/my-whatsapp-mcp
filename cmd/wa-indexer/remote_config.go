@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/Bodokh/wa-indexer/internal/app"
-	"github.com/Bodokh/wa-indexer/internal/clientsetup"
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/app"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 	"net/url"
 )
 

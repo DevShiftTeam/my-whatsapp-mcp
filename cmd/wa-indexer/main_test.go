@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/app"
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/app"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 type opaqueStartupError struct {
@@ -285,7 +285,7 @@ func TestRunDemoKeepsOwnerURLPrivateAndClosesResources(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("application shutdown exceeded its bound")
 	}
-	if stdout.String() != "WA Indexer is running. Open the private owner link on this computer.\n" || stderr.Len() != 0 {
+	if stdout.String() != "My WhatsApp MCP is running. Open the private owner link on this computer.\n" || stderr.Len() != 0 {
 		t.Fatal("application output did not preserve its private-link contract")
 	}
 	if _, err := os.Stat(openerLog); !errors.Is(err, os.ErrNotExist) {

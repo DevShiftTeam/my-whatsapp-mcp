@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 // Desired AI selection shares the existing private application state. It is

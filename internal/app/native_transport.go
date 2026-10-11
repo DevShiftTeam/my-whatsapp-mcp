@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 )
 
 // Caller has verified the grant and owns lifecycle serialization. A v1 client

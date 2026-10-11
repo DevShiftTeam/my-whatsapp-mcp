@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 // verifyMediaFile never changes the descriptor's offset. The caller must stop

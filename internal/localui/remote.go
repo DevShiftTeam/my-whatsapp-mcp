@@ -200,7 +200,7 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		remoteFail(w, 400, "invalid_request")
 		return
 	}
-	if r.Method == http.MethodGet && (r.URL.Path == "/" || r.URL.Path == "/assets/app.css" || r.URL.Path == "/assets/app.js") {
+	if r.Method == http.MethodGet && (r.URL.Path == "/" || r.URL.Path == "/assets/app.css" || r.URL.Path == "/assets/app.js" || r.URL.Path == "/assets/logo.png") {
 		s.static(w, r)
 		return
 	}

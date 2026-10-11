@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 	"crypto/sha256"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 	"time"
 )
 

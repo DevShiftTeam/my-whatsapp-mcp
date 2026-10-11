@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/golang-jwt/jwt/v5"
 )
 

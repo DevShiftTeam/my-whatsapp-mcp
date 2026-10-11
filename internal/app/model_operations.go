@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 	"errors"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
-	"github.com/Bodokh/wa-indexer/internal/localui"
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
 	"math"
 	"sync"
 	"time"

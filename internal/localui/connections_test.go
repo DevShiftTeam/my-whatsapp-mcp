@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
 )
 
 type fakeConnectionApplication struct {

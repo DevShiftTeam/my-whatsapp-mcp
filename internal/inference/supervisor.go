@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 )
 
 type State string

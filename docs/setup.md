@@ -30,9 +30,11 @@ On other Linux distributions, install their C compiler and Make packages. A grap
 Clone the source repository and enter its directory:
 
 ```sh
-git clone https://github.com/Bodokh/wa-indexer.git
-cd wa-indexer
+git clone https://github.com/Bodokh/my-whatsapp-mcp.git
+cd my-whatsapp-mcp
 ```
+
+If the repository is private, authenticate with a GitHub account that has access.
 
 Build and start the app:
 
@@ -41,7 +43,7 @@ Build and start the app:
 ./bin/wa-indexer serve
 ```
 
-The browser opens an authenticated owner window. The fixed local address is `http://127.0.0.1:64165`, but entering that address alone does not create an owner session. Keep this terminal open while using the archive. The message “WA Indexer is running” means the server is waiting for requests.
+The browser opens an authenticated owner window. The fixed local address is `http://127.0.0.1:64165`, but entering that address alone does not create an owner session. Keep this terminal open while using the archive; the server waits for requests in that terminal. The executable name remains `wa-indexer` for compatibility.
 
 Optional: run `./bin/wa-indexer demo` instead to explore sample conversations. Demo data is separate from your real archive. Stop the demo with Ctrl+C before running `serve`.
 
@@ -89,7 +91,7 @@ Use the same `--data-dir` argument if you originally chose a custom directory. A
 | macOS | `~/Library/Application Support/WA Indexer` |
 | Linux | `$XDG_CONFIG_HOME/WA Indexer`, or `~/.config/WA Indexer` when unset |
 
-The app keeps the archive, WhatsApp session, model files, media, and client credentials outside the source checkout. Directories use mode `0700`; ordinary private files use `0600`. The app rejects symlinks and unsafe permissions. Choose a new, empty local directory if using `--data-dir`; do not point it at your home directory or a folder of unrelated files.
+The data directory keeps its original `WA Indexer` name so existing archives remain usable. The app keeps the archive, WhatsApp session, model files, media, and client credentials outside the source checkout. Directories use mode `0700`; ordinary private files use `0600`. The app rejects symlinks and unsafe permissions. Choose a new, empty local directory if using `--data-dir`; do not point it at your home directory or a folder of unrelated files.
 
 The databases are unencrypted. Enable OS disk encryption. Stop the app before copying the entire data directory for a backup, preserve its private permissions, and keep it out of public or shared folders. Do not open or modify its SQLite files while the app is running.
 

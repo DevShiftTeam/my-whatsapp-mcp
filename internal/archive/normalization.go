@@ -5,7 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Bodokh/wa-indexer/internal/textnorm"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/textnorm"
 )
 
 const LexicalNormalizationVersion = textnorm.LexicalNormalizationVersion

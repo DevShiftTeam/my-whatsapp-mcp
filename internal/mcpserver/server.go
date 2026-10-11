@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

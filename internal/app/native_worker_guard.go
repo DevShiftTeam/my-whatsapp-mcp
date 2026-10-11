@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/Bodokh/wa-indexer/internal/inference"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/inference"
 	"os"
 )
 

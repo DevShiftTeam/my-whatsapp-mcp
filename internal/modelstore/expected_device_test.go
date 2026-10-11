@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
 	"golang.org/x/sys/unix"
 )
 

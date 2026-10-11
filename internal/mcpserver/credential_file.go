@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 // AdapterConfig is the private native-client handoff to an existing daemon.

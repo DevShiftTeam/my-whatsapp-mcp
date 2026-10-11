@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 // Application keeps account scope, connector credentials and owned paths server-side.

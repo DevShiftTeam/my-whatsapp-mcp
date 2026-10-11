@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
-	"github.com/Bodokh/wa-indexer/internal/retrieval"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/retrieval"
 )
 
 func privateTestRoot(t *testing.T) string {

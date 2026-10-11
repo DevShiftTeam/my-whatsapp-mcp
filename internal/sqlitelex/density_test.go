@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/textnorm"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/textnorm"
 	"github.com/mattn/go-sqlite3"
 )
 

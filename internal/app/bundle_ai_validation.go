@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Bodokh/wa-indexer/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
 )
 
 type bundleArtifact struct {

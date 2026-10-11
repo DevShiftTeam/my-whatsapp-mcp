@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 const remoteFixturePrincipal = "wa-indexer/remote-client/v1/00000000000000000000000000000000"

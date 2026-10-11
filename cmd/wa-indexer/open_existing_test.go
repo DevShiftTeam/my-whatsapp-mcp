@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bodokh/wa-indexer/internal/app"
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/app"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 func TestOpenExistingMissingOwnerDoesNotStartOrCreateProfile(t *testing.T) {

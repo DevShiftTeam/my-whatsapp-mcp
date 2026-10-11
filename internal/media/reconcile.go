@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 )
 
 // cleanupArtifact runs only with stopped ownership and an exclusive artifact

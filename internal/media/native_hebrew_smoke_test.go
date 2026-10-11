@@ -21,13 +21,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Bodokh/wa-indexer/internal/appdata"
-	"github.com/Bodokh/wa-indexer/internal/archive"
-	"github.com/Bodokh/wa-indexer/internal/compute"
-	"github.com/Bodokh/wa-indexer/internal/diskspace"
-	"github.com/Bodokh/wa-indexer/internal/ingestion"
-	"github.com/Bodokh/wa-indexer/internal/modelstore"
-	"github.com/Bodokh/wa-indexer/internal/workerlife"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/compute"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/workerlife"
 	"golang.org/x/sys/unix"
 )
 

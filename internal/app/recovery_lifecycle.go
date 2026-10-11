@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"github.com/Bodokh/wa-indexer/internal/media"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/media"
 	"sync"
 	"time"
 )

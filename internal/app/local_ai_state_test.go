@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Bodokh/wa-indexer/internal/localui"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 func TestLocalAIDesiredChoiceDefaultsOffAndPreservesCore(t *testing.T) {
