@@ -13,8 +13,8 @@ import (
 const ClassifiedHistoryGroupParticipantChangeNumber = "v1_group_participant_change_number"
 const ClassifiedHistoryChangeUsername = "v1_noncontent_history_notice"
 
-// ClassifiedHistoryDiagnosticFor defines an exact reviewed diagnostic tuple.
-// It does not classify arbitrary known stubs as safe history.
+// ClassifiedHistoryDiagnosticFor retains the original diagnostic constructors.
+// Authorization uses ClassifiedHistoryDiagnosticAllowed for exact membership.
 func ClassifiedHistoryDiagnosticFor(classification string) (ClassifiedHistoryDiagnostic, bool) {
 	if classification == ClassifiedHistoryGroupParticipantChangeNumber {
 		return ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 33, StubPresent: true, StubKnown: true, Presence: 475}, true
@@ -25,10 +25,27 @@ func ClassifiedHistoryDiagnosticFor(classification string) (ClassifiedHistoryDia
 	return ClassifiedHistoryDiagnostic{}, false
 }
 
+// ClassifiedHistoryDiagnosticAllowed admits only individually reviewed tuples.
+// The notice classification does not authorize arbitrary known protocol stubs.
+func ClassifiedHistoryDiagnosticAllowed(classification string, diagnostic ClassifiedHistoryDiagnostic) bool {
+	expected, known := ClassifiedHistoryDiagnosticFor(classification)
+	if !known {
+		return false
+	}
+	if diagnostic == expected {
+		return true
+	}
+	if classification == ClassifiedHistoryChangeUsername {
+		expected.RawStub = 217
+		return diagnostic == expected
+	}
+	return false
+}
+
 // ClassifiedHistoryConflictProducerSupported limits the reviewed conflict evidence
-// grammar to the two immutable producers qualified for this recovery.
+// grammar to immutable producers qualified for this recovery.
 func ClassifiedHistoryConflictProducerSupported(buildSHA string) bool {
-	return buildSHA == "ff0a3bd06a7f921e50d9b5c6484c481066070db3" || buildSHA == "7a7ca4a2ec0f619c0aff0a25839abcba68805a0a"
+	return buildSHA == "ff0a3bd06a7f921e50d9b5c6484c481066070db3" || buildSHA == "7a7ca4a2ec0f619c0aff0a25839abcba68805a0a" || buildSHA == "028633b7af17c13f016b4b0e95ad3769c3b8dcb1" || buildSHA == "0e4dd9b2643ad3a4263333a4878f747190853c41"
 }
 
 type ClassifiedHistoryDiagnostic struct {
@@ -137,7 +154,7 @@ func canonicalClassifiedHistoryWitness(w ClassifiedHistoryWitness) (string, stri
 	if (w.ObservationMarkerSHA256 == "") != (w.ObservationMarkerIdentity == "") || (w.ObservationMarkerSHA256 != "" && (!validHex(w.ObservationMarkerSHA256, 32) || !validString(w.ObservationMarkerIdentity, 256))) {
 		return "", "", ErrInvalidEvent
 	}
-	if expected, known := ClassifiedHistoryDiagnosticFor(w.Classification); !known || w.Diagnostic != expected {
+	if !ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) {
 		return "", "", ErrInvalidEvent
 	}
 	if w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != ClassifiedHistoryChangeUsername || !ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {

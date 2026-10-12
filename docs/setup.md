@@ -64,6 +64,8 @@ Open **Chats and dates** and choose what to keep:
 
 Click **Save choices**. Watch the saved-message count as readable messages arrive. These choices remain in effect after restarts.
 
+Reviewed roster, administration and display notices without message bodies are handled without stopping import. They do not create message content or change local permissions; unknown or unsafe records still require source-safety checks.
+
 ## 5. Verify your import
 
 Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmless, distinctive message from your phone, such as `archivecheck2026 שלום`. Open **Archive**, search for `archivecheck2026`, and open the result to inspect its conversation context.
@@ -136,7 +138,7 @@ If recovery refuses the profile or reports `reconciliation_required`, keep the b
 
 ## Accept a classified partial history snapshot
 
-`recover-classified-history` is a separate offline operator action for an existing live-recovery profile with an explicitly reviewed `history_corrupt` pause. It admits only two reviewed notice shapes: participant-number change (stub `33`, presence `475`) and username change (stub `193`, presence `411`). The existing `33` classification remains unchanged; username-change acceptance covers only the exact `193` shape, not arbitrary non-content notices. Unknown stubs, other unsafe reasons or changed evidence remain refused. This is owner acceptance of the already committed **partial** snapshot, not replay, reconstruction or proof of current phone history.
+`recover-classified-history` is a separate offline operator action for an existing live-recovery profile with an explicitly reviewed `history_corrupt` pause. It admits only three reviewed notice shapes: participant-number change (stub `33`, presence `475`), username change (stub `193`, presence `411`) and group member link-mode change (stub `217`, presence `411`). The existing `33` and `193` cases remain unchanged; the shared non-content-notice classification admits only the exact `193` and `217` shapes, not arbitrary notices. Unknown stubs, other unsafe reasons or changed evidence remain refused. This is owner acceptance of the already committed **partial** snapshot, not replay, reconstruction or proof of current phone history.
 
 Stop the current destination and every writer first, then make a coherent private backup. A trusted operator must review the matching private evidence and provide its private JSON configuration; do not construct acceptance from a log line alone. The command requires exclusive ownership and evidence bound to the current namespace, safety state and recorded stopped runtime. A new operation after a completed recovery requires fresh matching evidence, recorded append-only; evidence from the completed operation cannot authorize a later safety pause.
 
@@ -145,7 +147,7 @@ Stop the current destination and every writer first, then make a coherent privat
   --config "/absolute/private/recovery.json"
 ```
 
-Use only `--config`; there is no force option or HTTP, MCP or Settings recovery route. The operation preserves the latest destination's linked-device session, current grants, send journal, archive choices and spent recovery allowances. It does not restore any of them from an older profile. Only exact reviewed committed-message-conflict diagnostics can accompany username-change acceptance; conflicting messages remain quarantined, and spent requests are not refilled. Never clear safety markers with SQL or roll back to a stale session to bypass refusal.
+Use only `--config`; there is no force option or HTTP, MCP or Settings recovery route. The operation preserves the latest destination's linked-device session, current grants, send journal, archive choices and spent recovery allowances. It does not restore any of them from an older profile. Only exact reviewed committed-message-conflict diagnostics can accompany username-change or group member link-mode acceptance; conflicting messages remain quarantined, and spent requests are not refilled. Never clear safety markers with SQL or roll back to a stale session to bypass refusal.
 
 Success reports `mode: "committed_snapshot"`, `code: "owner_restored_snapshot"`, `coverage: "partial"`, `current_phone_state_verified: false` and a recovery epoch. Restart the same destination with its existing launch settings, then verify known reads and current permissions. Explicit acceptance is never an automatic startup action or a general guard-clear switch; the partial-coverage warning remains, and later source-safety failures still block access.
 

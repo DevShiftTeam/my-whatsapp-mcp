@@ -132,8 +132,7 @@ func readClassifiedHistoryEvidence(cfg ClassifiedHistoryRecoveryConfig) (Classif
 	if w.EvidenceSHA256 != "" || !liveRebuildValidDigest(e.ReadySHA256) || w.Version != 1 || len(w.RebuildGeneration) != 32 || strings.Trim(w.RebuildGeneration, "0123456789abcdef") != "" || w.UnsafeEpoch == 0 || w.RuntimePID <= 0 || w.LaunchEvidenceKind != "owner_attested_launch_interval_v1" || w.LaunchActionRecordedAt.IsZero() || w.LaunchActionRecordedAt.Location() != time.UTC || w.ProcessObservedAt.Location() != time.UTC || w.StoppedAt.Location() != time.UTC || w.ProcessObservedAt.Before(w.LaunchActionRecordedAt) || w.StoppedAt.Before(w.ProcessObservedAt) || len(w.RuntimeBuildSHA) != 40 || strings.Trim(w.RuntimeBuildSHA, "0123456789abcdef") != "" {
 		return e, ErrClassifiedHistoryRecovery
 	}
-	expectedDiagnostic, knownClassification := archive.ClassifiedHistoryDiagnosticFor(w.Classification)
-	if !knownClassification || w.Diagnostic != expectedDiagnostic || w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != archive.ClassifiedHistoryChangeUsername || !archive.ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
+	if !archive.ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) || w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != archive.ClassifiedHistoryChangeUsername || !archive.ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
 		return e, ErrClassifiedHistoryRecovery
 	}
 	for _, h := range []string{w.OriginalArchiveSHA256, w.OperatorReceiptSHA256, w.DiagnosticLogSHA256, w.LaunchEvidenceSHA256, w.RuntimeBinarySHA256, w.UnsafeMarkerSHA256, w.ProcessReadReceiptSHA256, w.JoinedExitReceiptSHA256} {
