@@ -4,11 +4,11 @@ description: Set up private access for your enrolled devices with one saved node
 ---
 # Tailscale Serve
 
-Choose **Tailscale private — recommended for my devices** for a phone or MCP client that runs on a permitted tailnet device. The source preview embeds Tailscale; a separate Tailscale daemon on the archive host is not part of this managed procedure. Actual provider/device acceptance is **NOT_RUN**.
+Choose **Tailscale private — recommended for my devices** for a phone or MCP client on your own Tailscale network. The app includes Tailscale for this setup, so you do not need a separate daemon on the archive host.
 
 ## Before you start
 
-You need a Tailscale account/tailnet, permission to enroll the archive node, tailnet HTTPS enabled, and access rules allowing the remote device. Install Tailscale on your phone or other client device and enroll it in the intended tailnet. Review [Serve requirements and access rules](https://tailscale.com/docs/features/tailscale-serve) and [plan eligibility](https://tailscale.com/pricing), reviewed **2026-10-12**.
+You need a Tailscale account/tailnet, permission to enroll the archive node, tailnet HTTPS enabled, and access rules allowing the remote device. Install Tailscale on your phone or other client device and enroll it in the intended tailnet. Review [Serve requirements and access rules](https://tailscale.com/docs/features/tailscale-serve) and [plan eligibility](https://tailscale.com/pricing).
 
 ## Save and connect
 
@@ -22,9 +22,9 @@ The saved endpoint contains no token. A sign-in link is for the local owner and 
 
 ## Verify from another device
 
-From an enrolled permitted device, use the exact intended client/version to run all [twelve tools and denial checks](../clients/remote-access.md#acceptance-test). An unenrolled device must not reach the private route. A hosted cloud connector is not a suitable private-tailnet test.
+From an enrolled device, [check your connection](../clients/remote-access.md#check-your-connection) using the AI client you plan to use. Devices outside your Tailscale network cannot reach this private route. Hosted cloud connectors need a public route instead.
 
-Record the endpoint privately; reconnect, restart the app and recreate its container with the **same volume**. Compare the endpoint exactly. Exercise provider revocation and recovery using a disposable qualification account while confirming local keyword search remains usable. Those live checks have not been run here.
+Keep the same data directory or Docker volume across restarts. The saved endpoint should stay the same. Live-provider connection and recovery tests are still pending; see [compatibility](../compatibility.md).
 
 ## Recover, disable and remove
 

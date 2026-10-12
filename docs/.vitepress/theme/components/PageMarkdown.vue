@@ -61,8 +61,8 @@ async function copyMarkdown() {
 
 <template>
   <section v-if="publicPage" class="page-markdown" aria-labelledby="page-markdown-heading">
-    <h2 id="page-markdown-heading">Take this guide with you</h2>
-    <p>The same instructions and qualification record, as plain Markdown.</p>
+    <h2 id="page-markdown-heading">Save this guide</h2>
+    <p>Download or copy this page as Markdown for offline use.</p>
     <div class="page-markdown__actions">
       <a :href="url" target="_self">View Markdown</a>
       <a :href="url" :download="filename">Download Markdown</a>

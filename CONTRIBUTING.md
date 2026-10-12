@@ -2,7 +2,7 @@
 
 Start with the [local setup](docs/setup.md) and [code structure](docs/development.md). Use the synthetic demo or a private temporary profile for development. Do not attach real chats, linked-device credentials, or client tokens to issues or pull requests.
 
-Keep each change focused. Describe the concrete problem, the resulting behavior, and the checks you ran. Update the relevant Markdown guide and [Unreleased changelog](CHANGELOG.md#unreleased) for behavior, setup, or API changes. A passing test with fake data is useful evidence, but it does not prove live WhatsApp history completeness or native model quality.
+Keep each change focused. Describe the concrete problem, the resulting behavior, and the checks you ran. Update the relevant Markdown guide and [Unreleased changelog](CHANGELOG.md#unreleased) for behavior, setup, or API changes. Use sample data in tests. Evaluate recognition quality separately with recordings you have permission to use.
 
 Prefer small packages, typed interfaces, and bounded work. Put persistence changes in `internal/archive`, WhatsApp event handling in `internal/ingestion`, and application lifecycle coordination in `internal/app`. Preserve chat and date scope checks, source invalidation, and final response checks when changing search or MCP.
 

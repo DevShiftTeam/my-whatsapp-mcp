@@ -10,7 +10,7 @@ Downloading model weights alone does not provide the required native runtimes. N
 
 | Feature | Implementation | Current limitation |
 | --- | --- | --- |
-| Semantic search | ONNX Runtime, tokenizers, multilingual-e5-small | Experimental profiles; memory and numerical checks have not produced a selected release profile. |
+| Semantic search | ONNX Runtime, tokenizers, multilingual-e5-small | Experimental; model memory and output checks are incomplete. No default profile is recommended yet. |
 | Image text | Tesseract with Hebrew and English language data | Needs the bundled OCR worker and verified language files. |
 | Image descriptions | llama.cpp with a small vision model | Generated descriptions may omit details or be wrong. |
 | Native voice transcription | whisper.cpp with separate Hebrew and English profiles | Hebrew and mixed-language quality need human evaluation; the English-only profile does not support Hebrew. For faster-whisper, see the [separate guide](transcription.md). |

@@ -219,6 +219,9 @@ export const pages = [
 ];
 
 export const downloads = [
+  { source: 'assets/favicon.ico', route: 'assets/favicon.ico' },
+  { source: 'assets/favicon.png', route: 'assets/favicon.png' },
+  { source: 'assets/apple-touch-icon.png', route: 'assets/apple-touch-icon.png' },
   {
     "source": "assets/logo.png",
     "route": "assets/logo.png"

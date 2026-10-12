@@ -4,7 +4,7 @@ description: Use the development owner interface and understand archive and clie
 ---
 # My WhatsApp user guide
 
-Documentation reviewed 2026-10-12. This guide describes the current development source and its owner interface. A downloadable, qualified macOS app has not been produced. Packaged installation, actual browser/client journeys, real-account history, native AI quality, and 8 GiB operation still need acceptance testing.
+Use this guide after [installing from source](setup.md) or [starting Docker Compose](install/docker-compose.md). There is no downloadable desktop app yet; see [compatibility](compatibility.md) for platform and testing limits.
 
 ## Start locally
 
@@ -16,7 +16,7 @@ For a first look without connecting WhatsApp:
 bin/wa-indexer demo
 ```
 
-The browser opens a private owner session. Save archive choices, open **Manage connection**, then choose **Load synthetic messages**. Search the sample Hebrew and English conversations. Demo has its own data directory and never displays a real pairing code. Its sample extraction text is synthetic; it is not model-quality evidence. Stop the process with Ctrl-C before starting your real archive.
+The browser opens a private owner session. Save archive choices, open **Manage connection**, then choose **Load synthetic messages**. Search the sample Hebrew and English conversations. Demo has its own data directory and never displays a real pairing code. The demo transcripts and image text are samples. Stop the process with Ctrl-C before starting your real archive.
 
 Start the real-account workflow with:
 
@@ -56,9 +56,9 @@ These controls have different purposes:
 | Search filters | Which already-retained messages this search displays |
 | AI connection scope | Which retained messages one client may read |
 
-Keyword search works without AI models. Semantic search requires an eligible encoder and a current semantic index; unavailable or failed inference uses keyword fallback. A bounded result page or no matches does not prove complete history or exhaustive semantic coverage.
+Keyword search works without AI models. Semantic search requires an eligible encoder and a current semantic index; unavailable or failed inference uses keyword fallback. Results cover only the messages retained in your archive.
 
-OCR appears as **Text read from image (OCR)**, generated captions as **Image description (generated)**, and speech output as **Voice transcript**. They are separate from the original WhatsApp body/caption; transcript timing is labeled when available. Current native extraction and Hebrew quality remain unqualified.
+OCR appears as **Text read from image (OCR)**, generated captions as **Image description (generated)**, and speech output as **Voice transcript**. They are separate from the original WhatsApp body/caption; transcript timing is labeled when available. Native image processing is experimental; generated text may contain errors.
 
 ## Original media storage
 
@@ -80,13 +80,13 @@ Stop the existing process before applying this launch override. Omit the flag on
 
 ## Models and local AI
 
-Open **Models and media** to see pinned resource sizes, installation state, and qualification state. **Download pinned resource** is an explicit network action. **Verify local resource** checks the selected installed resource. Downloading or verifying does not enable processing.
+Open **Models and media** to see pinned resource sizes, installation state, and available processing options. **Download pinned resource** is an explicit network action. **Verify local resource** checks the selected installed resource. Downloading or verifying does not enable processing.
 
 Under **Local AI**, the saved choice starts **Off**. Select only components the app offers for the selected mode, then **Apply local AI choice**. Off stops AI work after safe cleanup and keeps saved messages, media, and search data. An unavailable saved choice stays saved; install/verify eligible resources and explicitly retry it when available.
 
-**Current availability:** no qualified native bundle has been produced and the accepted profile allowlist is empty. Ordinary source builds offer keyword search; model installation alone cannot make a disabled AI option eligible. Preview requires a trusted eligible bundle, remains experimental, and does not satisfy release qualification. Do not substitute arbitrary runtime paths or system-installed decoder binaries.
+**Current availability:** there is no supported native AI bundle yet. Ordinary source builds use keyword search. Downloading a model does not enable a disabled option. Use only the resources offered by the app.
 
-The pinned catalog includes multilingual E5 encoder profiles, Tesseract Hebrew/English OCR, Qwen image descriptions, Hebrew/mixed Whisper transcription, and a separate English speech candidate. FP32's memory gate and experimental INT8's numerical-reference gate still fail; Hebrew relevance, image/voice quality, complete worker resources, and 8 GiB suitability remain unverified. See the [reviewed source catalog](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/packaging/model-catalog.json) and [public compatibility summary](compatibility.md).
+The model catalog includes experimental options for semantic search, OCR, image descriptions, and speech. Some candidates still have unresolved memory and output checks. Hebrew quality and use on an 8 GiB computer have not been confirmed. See [media and models](everyday/media-and-models.md) and [compatibility](compatibility.md).
 
 With the app stopped, the CLI also supports `wa-indexer models install PROFILE_ID` and `wa-indexer models verify PROFILE_ID`. Use the exact ID shown in the catalog, the same `--data-dir`, and stop the running app first. Installation may download missing pinned resources. These commands manage resources; they do not activate local AI. Remove an in-use resource through the owner controls after turning off its work and allowing cleanup to finish.
 
@@ -96,7 +96,7 @@ An AI connection exposes four bounded read-only MCP tools: `search_messages`, `g
 
 Open **AI connections**, choose the exact client and connection mode, name the connection, select its chats/dates, and set a future expiry. **Only chats I select** requires at least one included chat. **All archived chats, current and future** explicitly includes every chat you archive now or later, within the selected dates. Blank date fields permit all dates that your archive keeps; they never expand the archive itself.
 
-Create a separate connection for each client. Choose **Show setup instructions** and copy the generated configuration for that client. The wizard provides instructions; it does not modify a client's settings, sign into an account, create a tunnel, or establish that a client works. Current exact-client acceptance remains unverified.
+Create a separate connection for each client. Choose **Show setup instructions** and copy the generated configuration for that client. Paste the generated settings into that client yourself. Actual AI-client connections still need testing; start with a harmless query in a permitted chat.
 
 ### Local connection
 
@@ -144,7 +144,7 @@ Use the connection's **Revoke access** control in My WhatsApp when finished, and
 
 **Archive settings → Delete all local data** requires typing `DELETE LOCAL DATA`. It removes the local archive, linked session, retained media, models, and client material after the app stops their use. It does not delete messages in WhatsApp. Treat it as deletion, not as a way to repair missing history.
 
-If the app reports **Needs attention** or reconciliation required, reads can remain blocked until safe recovery is established. Do not remove private state markers or modify database files to bypass it. Real pairing/restart/reconciliation acceptance is still pending.
+If the app reports **Needs attention** or reconciliation required, reads can remain blocked until safe recovery is established. Do not remove private state markers or modify database files to bypass it.
 
 For a local diagnostic report, stop the running app and use the same data directory:
 
@@ -152,10 +152,8 @@ For a local diagnostic report, stop the running app and use the same data direct
 bin/wa-indexer doctor
 ```
 
-`doctor` is an offline diagnostic, not an installation or native-quality acceptance test. Share only sanitized codes/status when reporting a problem; keep message bodies, QR content, private owner links, tokens, and session files private.
+`doctor` checks the saved archive while the app is stopped. Share only sanitized codes/status when reporting a problem; keep message bodies, QR content, private owner links, tokens, and session files private.
 
-## Qualification and source license
+## License
 
-Original application source is [GPL-3.0-only source license](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/LICENSE); [repository third-party notices](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/THIRD_PARTY_NOTICES) list separate dependency obligations. Current implementation and focused test evidence do not establish redistribution auditing, signing, a complete native package, controlled real-account compatibility, Hebrew/media quality, actual AI clients, hosted authentication, archive-scale performance, or aggregate RSS targets. These remain explicit gates in [compatibility](compatibility.md). Repository-source links may require repository access while it remains private; they are not downloadable releases.
-
-For focused procedures, use [first run](first-run.md), [search](everyday/search.md), [media and models](everyday/media-and-models.md), [remote choices](remote/index.md), [updates](maintenance/updates.md), [backups](maintenance/backups.md), and [uninstall](maintenance/uninstall.md).
+My WhatsApp is licensed under [GPL-3.0-only](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/LICENSE). Bundled and optional components have their own [third-party notices](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/THIRD_PARTY_NOTICES).

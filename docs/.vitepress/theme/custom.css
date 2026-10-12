@@ -55,12 +55,8 @@
   font-size: 0.875rem;
   line-height: 1.65;
 }
-.guide-status__summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 1rem; }
-.guide-status__summary strong { color: var(--vp-c-brand-1); font-size: 1rem; }
-.guide-status__summary span { color: var(--vp-c-text-1); }
+.guide-status strong { color: var(--vp-c-brand-1); font-size: 1rem; }
 .guide-status p { margin: 0.35rem 0; }
-.guide-status summary { cursor: pointer; width: fit-content; text-decoration: underline; text-underline-offset: 3px; }
-.guide-status pre { overflow-x: auto; padding: 0.75rem; color: var(--vp-c-text-1); font: 0.78rem/1.6 var(--vp-font-family-mono); }
 .page-markdown { border-top: 1px solid var(--wa-border); margin-top: 3rem; padding-top: 1.5rem; }
 .page-markdown h2 { font-size: 1.2rem; font-weight: 650; line-height: 1.4; }
 .page-markdown p { margin: 0.65rem 0 1rem; color: var(--vp-c-text-2); line-height: 1.6; }

@@ -1,29 +1,35 @@
 ---
 title: My WhatsApp
-description: A private WhatsApp archive with honest installation and access choices.
+description: Search your WhatsApp archive on your own computer or server.
 ---
 # My WhatsApp
 
-My WhatsApp saves a private, searchable WhatsApp archive on your computer or server. Select chats and dates, pair your own account, and search the messages actually received. Original text is kept separate from OCR, generated image descriptions, and voice transcripts.
+Save and search your WhatsApp conversations on your own computer or server. Link your account by QR code, choose the chats and dates to keep, then search in Hebrew or English. You can also connect an AI client with access to only the chats you allow.
 
-## Choose an installation
+## Get started
 
-The current options are a **native macOS ARM64 development source build** and a **Linux ARM64/AMD64 Docker source preview awaiting combined-source qualification**. There is no qualified downloadable desktop app or container release. [Start here](start-here.md) explains the choice; [compatibility](compatibility.md) records the qualification boundary.
+| Installation | What you need |
+| --- | --- |
+| [Local app](install/desktop.md) | A Mac and the tools to build from source. There is no downloadable app yet. |
+| [Docker Compose](install/docker-compose.md) | Docker on an always-on computer, server, or NAS. The image is built from source. |
+| [Docker](install/docker.md) | A locally built image, if you prefer to manage the container yourself. |
 
-| Path | Best fit | Current availability |
-| :--- | :--- | :--- |
-| [Desktop](install/desktop.md) | A Mac used locally | Development source; package planned |
-| [Docker Compose](install/docker-compose.md) | An always-on host or NAS | Source-built keyword preview; combined-source qualification pending |
-| [Docker](install/docker.md) | A manually managed container | Locally built preview; no release image offered |
+Docker and remote setup are in preview. Read [compatibility](compatibility.md) for current platform support and testing limits.
 
-## Decide what you want to reach
+After installation, follow [First run](first-run.md) to choose your chats and link WhatsApp. [Start here](start-here.md) helps you choose an installation and access method.
 
-On the same computer, use the private owner browser interface and local AI-client adapter. For your phone or another personal device, [Tailscale Serve](remote/tailscale-serve.md) is an implemented source preview with [separate phone login](remote/phone-access.md); actual provider and physical-phone acceptance remain **NOT_RUN**. A hosted AI connector needs a public HTTPS MCP endpoint; compare [remote routes](remote/index.md). The existing [manual Cloudflare MCP route](clients/remote-access.md#tunnel-and-authentication) explains dedicated-listener setup.
+## Use your archive
 
-GitHub Pages is the planned host for these guides; the public site is not deployed. Your archive and MCP server run on your own machine; the documentation site cannot receive WhatsApp history or answer archive queries.
+- [Search saved messages](everyday/search.md) and read the surrounding conversation.
+- [Find attachments](attachments.md) by filename, caption, or nearby messages.
+- [Transcribe voice notes](transcription.md) with an optional local service.
+- [Connect an AI client](mcp.md), with separate permissions for each connection.
+- [Open the archive on your phone](remote/phone-access.md) through optional remote access.
 
-## Make your first archive
+Keyword search needs no AI model. Semantic search, image text, and image descriptions are experimental; see [media and models](everyday/media-and-models.md).
 
-Follow [first run](first-run.md), then [search saved messages](everyday/search.md). Keyword search works without a model. [Media and models](everyday/media-and-models.md) describes explicit activation and current native limits.
+## Your data
 
-Keep private owner links, QR codes, session files and tokens out of shared reports. SQLite is not encrypted by the app; use host disk encryption and private local storage. Before changing a working installation, read [updates](maintenance/updates.md) and [backups](maintenance/backups.md).
+The archive runs on your machine. GitHub Pages hosts these guides, not your conversations or MCP server. WhatsApp only sends the history available to a linked device, so older messages and files may be missing.
+
+The app does not encrypt its SQLite files. Use disk encryption and keep the data directory and [backups](maintenance/backups.md) private. An AI client receives the results you permit it to read. Keep owner login links, QR codes, and client tokens private.

@@ -20,9 +20,9 @@ An unavailable saved choice stays saved. Install and verify eligible resources, 
 
 ## Current native limits
 
-No qualified native bundle exists and the accepted profile allowlist is empty. Ordinary source builds offer keyword search; an installed model cannot make a disabled option eligible. Preview needs a trusted eligible bundle and remains experimental.
+There is no supported native AI bundle yet. Ordinary source builds use keyword search. Downloading a model will not enable a disabled option.
 
-The catalog contains multilingual encoders, Hebrew/English OCR, image-description and speech candidates. FP32 memory and experimental INT8 numerical-reference failures remain open. Hebrew/media quality, complete worker resources and 8 GiB suitability are unverified. [Compatibility](../compatibility.md) summarizes these limits.
+The catalog contains multilingual encoders, Hebrew/English OCR, image-description and speech candidates. The native model candidates still have unresolved memory and output checks. Hebrew recognition, media quality, and operation on an 8 GiB computer have not been confirmed. [Compatibility](../compatibility.md) summarizes these limits.
 
 ## Resource commands for an existing executable
 

@@ -149,7 +149,7 @@ For read-only AI access, see [MCP setup](mcp.md). For native image and semantic 
 
 ## Optional Docker service
 
-The native setup above remains supported. The default archive Compose file has no transcription service or model dependency. This optional container recipe is a source preview awaiting architecture, memory and recording-quality qualification. Its image is separate from the minimal archive image. Dependency/model acquisition happens during explicit provisioning, not ordinary archive startup.
+The native setup above remains supported. The default archive Compose file has no transcription service or model dependency. This optional container recipe is in preview. Platform support, memory use, and recording quality have not yet been tested. Its image is separate from the minimal archive image. Dependency/model acquisition happens during explicit provisioning, not ordinary archive startup.
 
 Build the optional Python 3.11 provisioning image, then install the runtime and model into a separate private volume. Use the image's Linux environment rather than copying a macOS virtual environment:
 
@@ -161,7 +161,7 @@ docker run --rm --mount source=wa-indexer-transcription,target=/var/lib/transcri
   --data-dir /var/lib/transcription/runtime --python python3.11
 ```
 
-Provisioning downloads dependencies and the verified model and creates a mode-0600 private env file inside mode-0700 directories owned by UID/GID 10001. That file includes both `WA_TRANSCRIPTION_TOKEN` and matching `WA_INDEXER_TRANSCRIPTION_TOKEN`; do not print it or put it in the checkout. Keep the generated URL/listen pair `http://127.0.0.1:6971` and `127.0.0.1:6971`. Select a reviewed digest through `TRANSCRIPTION_BASE` before distributing this optional image.
+Provisioning downloads dependencies and the verified model and creates a mode-0600 private env file inside mode-0700 directories owned by UID/GID 10001. That file includes both `WA_TRANSCRIPTION_TOKEN` and matching `WA_INDEXER_TRANSCRIPTION_TOKEN`; do not print it or put it in the checkout. Keep the generated URL/listen pair `http://127.0.0.1:6971` and `127.0.0.1:6971`. Set `TRANSCRIPTION_BASE` to the pinned base image you intend to use before building this optional image.
 
 ```sh
 docker compose -f compose.yaml -f compose.build.yaml -f compose.transcription.yaml \

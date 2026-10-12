@@ -27,7 +27,7 @@ The local app creates its owner login link; this is separate from WhatsApp pairi
 
 ## Check observed coverage
 
-A connected session and a sent history request do not establish stored messages or complete history. Check the received count and visible date range, then confirm an actual search result. **All available history** means what WhatsApp supplies to this linked device. The oldest observed message is not proof that earlier history is complete.
+Wait for messages to arrive after connecting. Check the received count and visible date range, then confirm an actual search result. **All available history** means what WhatsApp supplies to this linked device. Earlier history may still be missing.
 
 Bodies discarded before selecting a chat may be unavailable later. Backfill and retry behavior remains under development; expanding a filter cannot guarantee recovery. A zero count means no import has been observed, even if the connection says connected.
 
@@ -35,4 +35,4 @@ Bodies discarded before selecting a chat may be unavailable later. Backfill and 
 
 Narrowing saved chats or moving the import date later removes stored messages outside that policy. Optional ongoing retention is separate: `0` keeps imported messages; a positive value keeps only that many days. Take a [backup](maintenance/backups.md) before deliberate policy deletion. Search filters only narrow a view and do not change retention.
 
-[Pause import and disconnect](user-guide.md#pause-disconnect-or-delete) keep saved messages. Use [troubleshooting](troubleshooting.md) for missing coverage or reconciliation warnings. Real-account completeness and restart acceptance remain unverified.
+[Pause import and disconnect](user-guide.md#pause-disconnect-or-delete) keep saved messages. Use [troubleshooting](troubleshooting.md) for missing coverage or reconciliation warnings.

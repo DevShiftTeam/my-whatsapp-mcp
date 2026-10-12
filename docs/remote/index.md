@@ -4,7 +4,7 @@ description: Choose a saved HTTPS address for an AI client or your own devices.
 ---
 # Remote access
 
-Remote access is an **implemented source preview**, off until you enable it. Open the local owner interface and choose **Remote access → Set up remote access**. Keep the archive host and app running. No provider account, domain or permission is created automatically.
+Remote access is in preview and starts off. Open the local owner interface and choose **Remote access → Set up remote access**. Keep the archive host and app running. No provider account, domain or permission is created automatically.
 
 ## Choose your route
 
@@ -33,8 +33,8 @@ Retain the same private data directory or Docker volume. The app reloads saved p
 
 During a provider outage, use the local owner interface and keyword search. Inspect the app's fixed recovery message, provider account permissions and saved hostname. Correct the existing account/route, reconnect, and verify the same endpoint. Disable, removal and account-side teardown are detailed in each guide.
 
-## Qualification and cost
+## Support and cost
 
-The wizard, routing, authorization and recovery boundaries have local synthetic tests. **Fresh provider accounts, actual remote clients and physical phones: NOT_RUN.** See [compatibility](../compatibility.md) for immutable builds and measured local results. Setup duration and one-click account provisioning are not claimed.
+Setup through live provider accounts, actual AI clients, and physical phones still needs testing. See [compatibility](../compatibility.md). You set up the provider account and any domain yourself.
 
 Provider limits and eligibility can change. Check the official plan links in the provider guide. Domain purchase/renewal, paid provider services and AI-client subscriptions are separate. Remote results traverse the selected route and receiving AI service. No OAuth server is supplied by this setup.

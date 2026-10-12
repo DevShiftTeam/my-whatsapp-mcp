@@ -65,7 +65,7 @@ export async function exportDocumentation({ stagingRoot, distRoot, baseURL = DEF
     await mkdir(path.dirname(asset.destination), { recursive: true });
     await writeFile(asset.destination, asset.bytes);
   }
-  const index = '# My WhatsApp documentation\n\n' + outputs.map(page => `- [${page.title}](${canonicalURL(page.route, baseURL)}) — [Markdown](${markdownURL(page.route, baseURL)}) — ${page.qualification.availability}; ${page.qualification.status}; reviewed ${page.qualification.reviewedAt}`).join('\n') + '\n';
+  const index = '# My WhatsApp documentation\n\n' + outputs.map(page => `- [${page.title}](${canonicalURL(page.route, baseURL)}) — [Markdown](${markdownURL(page.route, baseURL)})`).join('\n') + '\n';
   await writeFile(indexPath, index);
   await writeFile(fullPath, outputs.map(page => page.content).join('\n'));
   return { pages: outputs.length, markdownRoot, indexPath, fullPath };

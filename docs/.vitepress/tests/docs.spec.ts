@@ -18,7 +18,28 @@ for (const width of [1440, 390]) {
     for (const guide of pages) {
       await page.goto(`${base}${guide.route}.html`);
       await expect(page.locator('.vp-doc h1')).toBeVisible();
-      await expect(page.getByRole('region', { name: 'Guide qualification' })).toContainText('Documentation reviewed');
+      await expect(page.getByText('Qualification record', { exact: true })).toHaveCount(0);
+      await expect(page.locator('.vp-doc')).not.toContainText('documentation_reviewed');
+      if (guide.section === 'Installation') {
+        await expect(page.getByRole('region', { name: 'Setup status' })).toContainText('Preview setup');
+      }
+      if (guide.route === 'index' || guide.route === 'everyday/search') {
+        await expect(page.getByRole('region', { name: 'Setup status' })).toHaveCount(0);
+      }
+      for (const [rel, file, type] of [
+        ['icon', 'favicon.ico', 'image/x-icon'],
+        ['icon', 'favicon.png', 'image/png'],
+        ['apple-touch-icon', 'apple-touch-icon.png', 'image/png']
+      ]) {
+        const href = `${base}assets/${file}`;
+        await expect(page.locator(`head link[rel="${rel}"][href="${href}"]`)).toHaveCount(1);
+        if (guide.route === 'index') {
+          const icon = await page.request.get(href);
+          expect(icon.ok()).toBeTruthy();
+          expect(icon.headers()['content-type']).toBe(type);
+          expect((await icon.body()).length).toBeGreaterThan(100);
+        }
+      }
       const download = page.getByRole('link', { name: 'Download Markdown', exact: true });
       await expect(download).toHaveAttribute('href', `${base}markdown/${guide.route}.md`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();

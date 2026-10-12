@@ -54,7 +54,7 @@ For an MCP-only tunnel, route `/mcp` and canonical `/mcp/attachments/<ticket>` r
 
 Returning a URL does not establish that the AI host consumed the file. Test a known, non-sensitive attachment and confirm the client can download and read it before relying on this workflow.
 
-Combined-source attachment download and exact-client qualification is pending. Reading a downloaded PDF depends on the client and remains separate from the archive’s metadata search; no document-body indexing is claimed.
+Attachment downloads through the current Docker setup and actual AI clients still need testing. Whether an AI client can read a retrieved PDF depends on its file support. The archive searches file metadata and nearby messages, not document contents.
 
 ## Documents imported before attachment support
 
@@ -76,4 +76,4 @@ Fresh authenticated copies can enrich only eligible, unchanged legacy placeholde
 
 ## Tunnel path rules
 
-A client-only HTTPS tunnel must forward `/mcp` and canonical `/mcp/attachments/<ticket>` paths intact to the scoped MCP listener. Tickets are exactly 43 characters of canonical unpadded base64url for 32 random bytes; the application checks canonical encoding and current authority. A rule matching only `/mcp` prevents retained-original downloads. The reviewed [Cloudflare setup](clients/remote-access.md#tunnel-and-authentication) also includes exactly `/api/send/message`, `/api/send/media`, `/api/send/voice` and `/api/send/status` for authenticated JSON access. Those routes require client bearer credentials and separate owner-approved send permissions; they do not grant dashboard access. Keep owner/bootstrap/pairing/admin and native helper routes excluded. See [outbound messaging](clients/outbound-messaging.md#json-api).
+A client-only HTTPS tunnel must forward `/mcp` and canonical `/mcp/attachments/<ticket>` paths intact to the scoped MCP listener. Tickets are exactly 43 characters of canonical unpadded base64url for 32 random bytes; the application checks canonical encoding and current authority. A rule matching only `/mcp` prevents retained-original downloads. The [Cloudflare setup](clients/remote-access.md#tunnel-and-authentication) also includes exactly `/api/send/message`, `/api/send/media`, `/api/send/voice` and `/api/send/status` for authenticated JSON access. Those routes require client bearer credentials and separate owner-approved send permissions; they do not grant dashboard access. Keep owner/bootstrap/pairing/admin and native helper routes excluded. See [outbound messaging](clients/outbound-messaging.md#json-api).

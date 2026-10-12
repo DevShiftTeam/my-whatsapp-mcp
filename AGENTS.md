@@ -20,4 +20,4 @@ Keep documentation beside the code changes. Update the authoritative guide and a
 
 Preserve other work in progress. Use synthetic fixtures and separate test profiles; never print or commit chat contents, linked-device secrets, owner links, tokens, or private env files. Preserve scope, source-invalidation, and response checks when changing reads.
 
-Run checks appropriate to the change using [development](docs/development.md), and report what ran. Keep this repository private until the owner explicitly requests public visibility. Do not publish a package or release without a user request to do so.
+Run checks appropriate to the change using [development](docs/development.md), and report what ran. This is a public repository. Write the README and guides for users and contributors; keep private reports, plans, asset prompts, and local test results outside the tracked tree. Do not publish a package or release without a user request to do so.

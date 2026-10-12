@@ -26,11 +26,16 @@ export default defineConfig({
     nav: sections.map(section => ({ text: section.text, items: section.items })),
     sidebar: sections,
     socialLinks: [{ icon: 'github', link: site.repositoryURL, ariaLabel: 'My WhatsApp on GitHub' }],
-    footer: { message: 'Your archive stays with you. These pages explain the current qualification.' }
+    footer: { message: 'My WhatsApp · Self-hosted WhatsApp archive' }
   },
   transformHead({ pageData }) {
     const route = pageData.relativePath.replace(/\.md$/, '');
+    const icons = [
+      ['link', { rel: 'icon', type: 'image/x-icon', href: `${site.base}assets/favicon.ico` }],
+      ['link', { rel: 'icon', type: 'image/png', sizes: '64x64', href: `${site.base}assets/favicon.png` }],
+      ['link', { rel: 'apple-touch-icon', sizes: '180x180', href: `${site.base}assets/apple-touch-icon.png` }]
+    ];
     return pages.some(page => page.route === route)
-      ? [['link', { rel: 'canonical', href: canonicalURL(route, site.baseURL) }]] : [];
+      ? [...icons, ['link', { rel: 'canonical', href: canonicalURL(route, site.baseURL) }]] : icons;
   }
 });

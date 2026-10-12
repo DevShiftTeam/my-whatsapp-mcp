@@ -16,15 +16,13 @@ const pages = [
 const inventory = { pages, downloads: [{ source: 'assets/example.json', route: 'downloads/example.json' }] };
 const options = { ...pages[0], baseURL, qualification, inventory };
 
-test('removes YAML frontmatter and emits one title, canonical URL and complete qualification', () => {
+test('removes YAML frontmatter and emits one title, source URL and a plain setup notice', () => {
   const result = exportPage({ ...options, markdown: '---\ntitle: old\nprivate: omitted\n---\n# Old title\n\nProcedure.\n' });
   assert.equal((result.match(/^# /gm) || []).length, 1);
   assert.match(result, /^# Docker Compose\n/);
-  assert.match(result, /Canonical: <https:\/\/devshiftteam.github.io\/my-whatsapp-mcp\/install\/docker-compose.html>/);
-  assert.match(result, /documentation_reviewed/);
-  assert.match(result, /planned/);
-  assert.match(result, /2026-10-12/);
-  assert.match(result, /"tests": \[\]/);
+  assert.match(result, /Source: <https:\/\/devshiftteam.github.io\/my-whatsapp-mcp\/install\/docker-compose.html>/);
+  assert.match(result, /Not available yet/);
+  assert.doesNotMatch(result, /documentation_reviewed|reviewedAt|"tests"|Qualification evidence/);
   assert.doesNotMatch(result, /private:|Old title|^---/m);
 });
 
@@ -143,13 +141,12 @@ test('rejects executable and non-YAML frontmatter without evaluating it', () => 
   for (const language of ['yaml', 'yml']) assert.match(exportPage({ ...options, markdown: `---${language}\ntitle: YAML\n---\nProcedure.` }), /Procedure/);
 });
 
-test('retains full test evidence and rejects qualification drift between staged frontmatter and inventory', () => {
+test('keeps build evidence out of user exports and rejects staged qualification drift', () => {
   const local = { ...qualification, availability: 'preview', status: 'locally_tested', tests: [{ buildSha: 'a'.repeat(40), platform: 'darwin', architecture: 'arm64', provider: null, client: null, fixture: 'synthetic-search-v1', testedAt: '2026-10-12', outcome: 'passed' }] };
   const result = exportPage({ ...options, qualification: local, markdown: 'Run the procedure.' });
-  assert.match(result, /locally_tested/);
-  assert.match(result, /"buildSha": "a{40}"/);
-  assert.match(result, /synthetic-search-v1/);
-  assert.match(result, /"provider": null/);
+  assert.match(result, /Preview setup/);
+  assert.match(result, /still in preview/);
+  assert.doesNotMatch(result, /locally_tested|buildSha|synthetic-search-v1|"provider"/);
   assert.throws(() => exportPage({ ...options, markdown: '---\nqualification:\n  availability: preview\n  status: documentation_reviewed\n  reviewedAt: "2026-10-12"\n  tests: []\n---\nProcedure.' }), /qualification differs/);
 });
 
@@ -200,8 +197,9 @@ test('exports deterministically from inventory and combines exact standalone pag
   for (const file of ['llms-full.txt', 'markdown/install/docker-compose.md']) {
     const content = await readFile(path.join(opts.distRoot, file), 'utf8');
     assert.match(content, /Procedure version two/);
-    assert.match(content, /preview/);
-    assert.match(content, /2026-10-13/);
+    assert.match(content, /Preview setup/);
+    assert.match(content, /not yet been tested from start to finish/);
+    assert.doesNotMatch(content, /documentation_reviewed|reviewedAt|2026-10-13/);
     assert.doesNotMatch(content, /Procedure version one|SECRET_SENTINEL/);
   }
 });

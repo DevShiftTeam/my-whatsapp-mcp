@@ -2,6 +2,7 @@ import path from 'node:path';
 import matter from 'gray-matter';
 import MarkdownIt from 'markdown-it';
 import { validateInventory, validateQualification } from './prepare.mjs';
+import { guideNotice } from './guide-notice.mjs';
 
 import { DEFAULT_BASE_URL, canonicalURL, markdownURL, validateBase } from './urls.mjs';
 export { DEFAULT_BASE_URL, canonicalURL, markdownURL, validateBase } from './urls.mjs';
@@ -299,5 +300,7 @@ export function exportPage({ source, route, title, markdown, baseURL = DEFAULT_B
     }
   }
   body = applyEdits(body, edits);
-  return `# ${title}\n\nCanonical: <${canonicalURL(route, baseURL)}>\n\nAvailability: \`${qualification.availability}\`\n\nVerification status: \`${qualification.status}\`\n\nDocumentation reviewed: ${qualification.reviewedAt}\n\nQualification evidence:\n\n\`\`\`json\n${JSON.stringify(qualification, null, 2)}\n\`\`\`\n\n${body}${body.endsWith('\n') ? '' : '\n'}`;
+  const notice = guideNotice(route, qualification);
+  const status = notice ? `**${notice.title}**\n\n${notice.text} [See compatibility.](${canonicalURL('compatibility', baseURL)})\n\n` : '';
+  return `# ${title}\n\nSource: <${canonicalURL(route, baseURL)}>\n\n${status}${body}${body.endsWith('\n') ? '' : '\n'}`;
 }

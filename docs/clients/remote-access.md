@@ -4,7 +4,7 @@ description: Configure a named MCP-only tunnel with private owner access and sco
 ---
 # Remote access setup
 
-Status: **Not yet verified** for hosted client/account/OAuth combinations. These setup guides are inert configuration instructions. They do not create a tunnel, register an AI client, authenticate an account or publish the archive.
+Use this guide to set up a Cloudflare tunnel manually for a native installation. Remote access is in preview; live-provider and AI-client tests are still pending.
 
 For managed persistent access, use the local **Remote access** wizard and [provider guides](../remote/index.md). The manual MCP-only procedure below is an alternative for a native POSIX executable and a separately supervised helper on the same host. It must replay the same flags each launch, does not enable the managed wizard or remote browser, and is not a Docker host-to-container loopback recipe.
 
@@ -16,7 +16,7 @@ The app manages the local socket and file path. Copy the generated client settin
 
 Remote mode uses authenticated Streamable HTTP at the dedicated `/mcp` listener. Each bearer client gets its own token and chat/date restrictions. Those restrictions are enforced by the server on search, context, listings, status and cached results, not merely included as client filters.
 
-Use only the selected mode's configuration. The renderer rejects mixed local/remote fields, malformed or credential-bearing URLs, and identical bearer/OAuth hostnames. It requires HTTPS and `/mcp`, rejects userinfo, query strings, fragments and literal private/loopback addresses, rejects numeric IPv4 aliases such as `127.1` or `0x7f.0.0.1`, and normalizes hostname case/default port. DNS reachability still needs an actual remote test.
+Use the configuration for your chosen connection type. Remote URLs must use HTTPS and end in `/mcp`, without tokens, query strings, or fragments. Use your public hostname rather than a local IP address.
 
 ## Client access and licensing
 
@@ -36,7 +36,7 @@ bin/wa-indexer serve \
   --mcp-public-url https://wa-mcp.example.com/mcp
 ```
 
-Use your own hostname and preserve your usual `--data-dir` if applicable. These flags must be supplied together; changing a running configuration requires restart. Port **8124** is this example's dedicated MCP port. **Never use the private owner interface or its address as the tunnel origin.** No qualified packaged executable is available; see [desktop availability](../install/desktop.md).
+Use your own hostname and preserve your usual `--data-dir` if applicable. These flags must be supplied together; changing a running configuration requires restart. Port **8124** is this example's dedicated MCP port. **Never use the private owner interface or its address as the tunnel origin.** No packaged executable is available; see [desktop availability](../install/desktop.md).
 
 ### 2. Install cloudflared and create your own named tunnel
 
@@ -53,7 +53,7 @@ Login opens your browser: sign in to your own Cloudflare account and select your
 
 ### 3. Save the tunnel configuration
 
-Copy [the reviewed repository-source example configuration](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/docs/clients/examples/cloudflared.yml) to a new file you control, for example `/Users/YOU/.cloudflared/wa-indexer-mcp.yml`. Replace the UUID, credentials path and hostname; use the dedicated MCP port from step 1:
+Copy [the example configuration](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/docs/clients/examples/cloudflared.yml) to a new file you control, for example `/Users/YOU/.cloudflared/wa-indexer-mcp.yml`. Replace the UUID, credentials path and hostname; use the dedicated MCP port from step 1:
 
 ```yaml
 tunnel: REPLACE_TUNNEL_UUID
@@ -88,30 +88,22 @@ The DNS command creates the public hostname route; the last command keeps the tu
 
 In the private My WhatsApp owner interface, open **AI connections**, create the selected remote connection with explicit chat/date limits and expiry, then use **Reveal remote token → Copy token and close**; copying closes the reveal view automatically. Follow the [Codex](codex.md), [Claude Code](claude-code.md), [Claude connectors](claude-connectors.md), or [Composio](composio.md) guide. Use `https://wa-mcp.example.com/mcp` as the client URL and a separate credential for each client. Tokens do not belong in the tunnel YAML.
 
-This guide configures bearer authentication. OAuth compatibility needs a separately verified runtime flow; this tunnel setup does not establish it. Hosted Claude request-header support also depends on the owner's account capability. Keep those combinations **Not yet verified** until real calls pass.
+This route uses bearer tokens. It does not provide OAuth. Hosted Claude also requires an account with request-header support; see [Claude remote connectors](claude-connectors.md).
 
 ## Credentials and previews
 
 Never place tokens in URLs, argv, logs or copied diagnostic text. Codex bearer mode reads a dedicated environment variable; Claude Code explicitly adds `Bearer ` in its header template. Eligible Claude cloud accounts enter the full literal header value. Composio uses the explicit `Authorization: Bearer {{generic_api_key}}` mapping. Provider/project credentials are separate from My WhatsApp tokens.
 
-Generated guides and setup diagnostics redact raw tokens. Diagnostic JSON omits all endpoint URL fields, including malformed URLs before validation. Native configuration references only the credential file's path, whose contents must remain private. Token creation/persistence, one-time presentation and scoped revocation belong to the credential owner, not this renderer.
+The app keeps tokens out of generated setup previews and diagnostic output. Local configuration contains a private credential-file path; leave the file contents private.
 
-## Acceptance test
+## Check your connection
 
-A successful initializer, tool list, login, JSON parse or SDK test alone is insufficient. The exact intended client/version must verify the exact twelve-tool catalog: `search_messages`, `get_context`, `list_chats`, `get_index_status`, `search_contacts`, `search_groups`, `search_attachments`, `get_attachment`, `send_message`, `send_media`, `send_voice_note`, and `get_send_status`. Use synthetic read fixtures and verify default-denied send calls; authorized fake sending is a separate state-machine check. Use only synthetic sources for isolated development checks. Confirm excluded chats/dates stay absent, narrow the policy and retry a previous context ID, then revoke and repeat every tool using the old connection. Also prove denial of anonymous, wrong and expired credentials. Preserve the same HTTPS URL through reconnect, app restart and container recreation with the same volume. Provider revocation must produce an actionable failure while local keyword search continues.
+1. From the intended client, search for a harmless phrase in a permitted chat and open its context.
+2. Check that excluded chats and dates cannot be read.
+3. Change the connection's scope and confirm an old result cannot reveal newly excluded messages.
+4. Restart the app and tunnel with the same data directory, then confirm the saved endpoint still works.
+5. When retiring the connection, revoke it in My WhatsApp before removing its client configuration.
 
-For OAuth, additionally prove denied identity, expired/invalid signed assertion, access/refresh/client revocation and actual refresh denial as applicable. For hosted routes, verify reachability from the receiving provider, actual credential header/principal handling and a real connector query. Record source/build/client versions, endpoint identity, command, result code, synthetic IDs/counts and body-free evidence.
+New connections are read-only. Grant [sending](outbound-messaging.md) separately when needed, and keep the same request ID when a send result is uncertain.
 
-All generated guides remain **Not yet verified** until those exact client calls pass. OAuth/account/header-beta inputs stay explicit in the release ledger. A successful Codex bundled backend smoke does not establish desktop UI support, and CLI connection listings do not establish actual tool calls.
-
-Client/OAuth sources checked 2026-10-06: [OpenAI MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), [Claude cloud network requirements](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp), [Claude OAuth requirements](https://claude.com/docs/connectors/building/authentication), [Cloudflare Tunnel setup](https://developers.cloudflare.com/tunnel/get-started/), [Access Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/). The tunnel/OAuth references identify implementation gates; no external deployment or flow is claimed here.
-
-Cloudflare named-tunnel, ingress and Host-header instructions checked against the linked official documentation on **2026-10-07**. No installation, login, DNS change or tunnel activation was performed while preparing this guide.
-
-Documentation reviewed 2026-10-12 for public instructions and links; historical installed-version/source checks above retain their original dates. No new client runtime test is claimed. See [compatibility](../compatibility.md) and [remote route choices](../remote/index.md). Repository-source examples may require access while the repository remains private.
-
-The named-tunnel creation, ingress routing and origin-authority instructions were re-reviewed against the linked official Cloudflare documentation on **2026-10-12**. The manual route remains documentation reviewed; no provider installation, login, DNS change or tunnel activation was performed.
-
-## Full application catalog
-
-The combined application advertises twelve tools: eight archive reads, `send_message`, `send_media`, `send_voice_note`, and read-only `get_send_status`. Verify contact/group and attachment scope alongside message/context reads; mutation annotations do not grant sending rights. New connections start read-only. Check default-denied sends with synthetic data; real delivery requires a separately authorized connected account. Preserve request IDs when status is uncertain. See [MCP access](../mcp.md), [attachments](../attachments.md), and [outbound messaging](outbound-messaging.md).
+A successful tunnel login or a client connection indicator is not enough: confirm an actual search result. This setup has not yet been tested through a live provider and AI client. See [compatibility](../compatibility.md).

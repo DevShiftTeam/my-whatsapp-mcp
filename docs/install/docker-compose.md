@@ -4,13 +4,15 @@ description: Start the source-built keyword-search preview with private persiste
 ---
 # Docker Compose
 
-**Source-built preview; combined-source qualification pending.** There is no published versioned image or downloadable release Compose file yet. These commands require an existing authorized source checkout. They need Docker Engine **28+**, Compose **2.20.2+** and a standard POSIX shell; no host Go, Node, Python or RTK is needed. Native AMD64 and real WhatsApp import remain unqualified.
+You need **Git**, Docker Engine **28+**, Compose **2.20.2+**, and a POSIX shell. Docker builds the app from source; you do not need Go, Node.js, or Python on the host. There is no published container image yet. Full installation and real WhatsApp import tests for this setup are still pending; see [compatibility](../compatibility.md).
 
 ## Start and log in
 
-From the source checkout containing `compose.yaml` and `compose.build.yaml`:
+Clone the public repository, then build and start the service:
 
 ```sh
+git clone https://github.com/DevShiftTeam/my-whatsapp-mcp.git
+cd my-whatsapp-mcp
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
 docker compose ps
 docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
@@ -18,7 +20,7 @@ docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-inde
 
 Open the returned private link on this computer. It expires in **30 seconds**; repeat the owner-link command whenever you need a fresh login. The normal browser address is `http://127.0.0.1:8123`. Login is separate from pairing WhatsApp. The service becomes ready before pairing, history synchronization or model setup. Routine logs contain no owner capability.
 
-The source build downloads its pinned build dependencies and compiles inside Docker. Subsequent application startup performs no installation, compilation or model download. Keep the source checkout accessible only to people you trust to operate this archive. A future qualified no-clone release will provide a versioned Compose file and use `docker compose up -d`; that distribution is **not available** today. Do not substitute a floating `latest` tag.
+The source build downloads its pinned build dependencies and compiles inside Docker. Subsequent application startup performs no installation, compilation or model download. Keep the source checkout accessible only to people you trust to operate this archive. Use the source-build command above; a release image is not available to pull.
 
 ## Choose another host port
 
@@ -44,10 +46,10 @@ docker compose down
 
 ## Continue privately
 
-Follow [First run](../first-run.md), then confirm messages actually received and search a known phrase. Connection or a history request does not establish import or completeness. For a local AI client, the generated [Codex](../clients/codex.md#docker-stdio) or [Claude Code](../clients/claude-code.md#docker-stdio) adapter runs through `docker exec -i`; its credentials stay inside the private volume. An actual client call needs separate verification.
+Follow [First run](../first-run.md), then confirm messages actually received and search a known phrase. Connection or a history request does not establish import or completeness. For a local AI client, the generated [Codex](../clients/codex.md#docker-stdio) or [Claude Code](../clients/claude-code.md#docker-stdio) adapter runs through `docker exec -i`; its credentials stay inside the private volume. After connecting, try a harmless search in a permitted chat.
 
-For another device or a hosted client, review [remote access](../remote/index.md). Do not expose the owner port as a substitute for a scoped MCP route. GitHub Pages is only the planned documentation host.
+For another device or a hosted client, review [remote access](../remote/index.md). Do not expose the owner port as a substitute for a scoped MCP route. GitHub Pages hosts these guides; the app runs on your machine.
 
-## Qualification boundary
+## Current limits
 
-Combined-source container qualification is pending. No earlier candidate image or synthetic result establishes these new bytes. See [compatibility](../compatibility.md). Native architectures, exact clients, real WhatsApp and provider journeys require separate checks.
+This setup is in preview. Linux ARM64 and AMD64 installation, actual AI-client calls, and live-provider connections still need full testing. WhatsApp history may be incomplete; check the received messages and date range after pairing.

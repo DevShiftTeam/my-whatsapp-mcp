@@ -1,30 +1,34 @@
 ---
 title: Start here
-description: Choose a local installation and the access goal before pairing.
+description: Choose where to run your archive and how to access it.
 ---
 # Start here
 
-Start with one local archive and keyword search. Native development targets macOS ARM64; Docker has a source-built keyword-search preview whose combined-source native ARM64 and AMD64 qualification is pending. A downloadable app and published versioned image remain planned. Each guide records its qualification: synthetic fixtures do not prove real WhatsApp history, native AI or actual desktop clients.
+Choose where to keep your archive, then follow the installation guide. Start with keyword search; you can add voice transcription, AI clients, and remote access later.
 
-## Pick where the archive lives
+## Choose an installation
 
-Choose [desktop](install/desktop.md) for a Mac you keep running. Choose [Docker Compose](install/docker-compose.md) if your host is an always-on server or NAS and you can manage Docker. Both need private local storage, space for selected media and models, and a browser for onboarding. Native Windows installation and Linux desktop packaging are unqualified.
+Use the [local app](install/desktop.md) on a Mac you keep running, or [Docker Compose](install/docker-compose.md) on an always-on computer, server, or NAS. Both need a browser and enough private disk space for your selected messages and media.
 
-If you already have a built executable, the desktop guide provides the demo and launch commands. Building it is a developer activity described in the repository README development section. End-user use is intended to require no Go, Node, Python, or RTK.
+You currently need to build from source. There is no downloadable desktop app or published container image. Docker builds the app for you and does not need Go, Node.js, or Python installed on the host. Native Windows installation is not supported. See [compatibility](compatibility.md) for platform and testing limits.
 
-## Pick who needs access
+## Choose how to reach it
 
-| Goal | Route |
+| What you want to do | Follow this guide |
 | --- | --- |
-| Search on the archive computer | Private local browser; [first run](first-run.md) |
-| Local Codex or Claude Code | App-managed private stdio adapter; [user guide](user-guide.md#connect-an-ai-client) |
-| Browser on your enrolled phone | Implemented source preview: [private Serve route](remote/tailscale-serve.md) and [separate phone login](remote/phone-access.md) |
-| Hosted AI connector | Public MCP through [Funnel](remote/tailscale-funnel.md), [ngrok](remote/ngrok.md), or [Cloudflare](remote/cloudflare.md) |
+| Search on the archive computer | [First run](first-run.md) |
+| Connect local Codex or Claude Code | [Connect an AI client](user-guide.md#connect-an-ai-client) |
+| Use a browser on your own phone | [Tailscale Serve](remote/tailscale-serve.md), then [Phone access](remote/phone-access.md) |
+| Connect a hosted AI service | [Remote access](remote/index.md) |
 
-A reachable tunnel does not grant permission to read messages. Every AI client still needs its own app credential and chat/date scope. [Managed remote setup](remote/index.md) is an implemented source preview. Optional [phone access](remote/phone-access.md) uses a separate owner password and starts off. Keep the local owner interface and its private bootstrap link on the archive computer; never forward them through a tunnel. The separately supervised [manual option](clients/remote-access.md#tunnel-and-authentication) remains MCP-only. Actual provider, client and physical-phone acceptance remain **NOT_RUN**.
+Remote setup is in preview and has not been tested with every provider, client, or phone. Each AI client needs its own My WhatsApp credential, even when the tunnel is connected. Phone access uses a separate owner password and starts off.
 
-## Pair and check what arrived
+Keep the local owner login link on the archive computer. For remote access, use the app's remote setup rather than forwarding the owner port.
 
-Read [first run](first-run.md) before pairing. Select chats and dates explicitly, then scan the QR code from WhatsApp Linked devices. A connected session or history request is not proof of import. Confirm a received message and a search result before relying on the archive, and record missing history separately.
+## Link WhatsApp and check your messages
 
-[Compatibility](compatibility.md) summarizes what remains unverified. If login, permissions, or import fail, use [troubleshooting](troubleshooting.md) instead of deleting data.
+Follow [First run](first-run.md) to select chats and dates before pairing. Search for a message you recognize and check the received count and date range. A connected session alone does not mean your history has arrived.
+
+## Before changing an existing installation
+
+Read [Backups](maintenance/backups.md) and [Updates](maintenance/updates.md). Keep the same data directory or Docker volume. Changing archive choices can delete saved messages; search filters only change what you see.

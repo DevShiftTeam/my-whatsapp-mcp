@@ -28,5 +28,3 @@ Local processing does not make WhatsApp sync or a remote AI client offline. My W
 The archive's SQLite databases are not encrypted by the app. Linked-device history is limited to what WhatsApp delivers, and generated transcripts can contain errors. See [security](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/SECURITY.md) and [transcription limits](transcription.md#storage-and-resource-limits).
 
 Document retrieval is available today, but document-body text extraction and indexing are planned. Current [attachment search](attachments.md) uses filenames, types, captions and nearby messages, then returns the original; it does not search inside a PDF. See the [roadmap](roadmap.md) for file parsing and future work.
-
-If an accompanying infographic is included, treat it as an illustrated snapshot of this dated table, not a benchmark or a claim that any feature is unique.

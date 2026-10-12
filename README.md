@@ -10,7 +10,7 @@
 
 Link WhatsApp by QR code. Search saved conversations in Hebrew and English, transcribe voice notes locally, and find files with their surrounding messages. Keep the archive on your computer and explore it in a responsive dashboard with light and dark themes.
 
-Connect your AI tools through **MCP with read + send**. Codex, Claude Code, and Composio can search your permitted chats and send text, media, and existing voice recordings to contacts and groups. Each client gets its own chat scope, dates, and expiry. New connections start read-only; you can grant sending to selected chats or all permitted chats from the owner interface.
+Connect your AI tools through **MCP**. Codex, Claude Code, and Composio can search your permitted chats and send text, media, and existing voice recordings to contacts and groups. Each client gets its own chat scope, dates, and expiry. New connections start read-only; you can grant sending to selected chats or all permitted chats from the owner interface.
 
 [**Set up locally**](docs/setup.md) · [Voice transcription](docs/transcription.md) · [Attachments](docs/attachments.md) · [MCP clients](docs/mcp.md) · [Roadmap](docs/roadmap.md) · [Alternatives](docs/alternatives.md)
 
@@ -30,11 +30,11 @@ Connect your AI tools through **MCP with read + send**. Codex, Claude Code, and 
 | Follow import progress | A responsive Stats page with chat, date, and type filters, saved-message counts, and media processing status. |
 | Choose your appearance | Follow your system theme by default, or choose light or dark. Works on desktop and mobile. |
 
-Semantic and hybrid search, image OCR, and image descriptions are **experimental**. They require a separately prepared native bundle; there is no supported one-command installer or selected semantic release profile yet. See [native models](docs/native-models.md).
+Semantic and hybrid search, image OCR, and image descriptions are **experimental**. They require a separately prepared native bundle; there is no supported installer or recommended semantic model setup yet. See [native models](docs/native-models.md).
 
 ## Docker Compose and managed remote access
 
-The additive source preview adds a private persistent Docker setup, generated Docker stdio adapters, optional managed HTTPS providers and a separate password-protected phone interface. Existing features and manual remote-admin setup remain available. Combined-source image, provider and exact-client qualification is pending; there is no published container image.
+Docker Compose keeps your archive in a persistent private volume. Optional remote access connects AI clients or opens a password-protected browser interface on your phone. This setup is in preview: there is no published container image, and full Docker, provider, and AI-client tests are still pending. Build the image from source:
 
 ```sh
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
@@ -54,7 +54,7 @@ cd my-whatsapp-mcp
 ./bin/wa-indexer serve
 ```
 
-The app opens a private owner window at `http://127.0.0.1:64165`. Keep the terminal running. Follow the [setup guide](docs/setup.md) to discover chats, choose what to archive, and verify an import. If the repository is private, cloning requires a GitHub account with access. The executable remains `wa-indexer` for existing installations.
+The app opens a private owner window at `http://127.0.0.1:64165`. Keep the terminal running. Follow the [setup guide](docs/setup.md) to discover chats, choose what to archive, and verify an import. The executable remains `wa-indexer` for existing installations.
 
 Want to look around first? Run `./bin/wa-indexer demo` instead. It uses synthetic Hebrew and English conversations in a separate archive and never connects to WhatsApp. Stop it with Ctrl+C before starting your own archive.
 
@@ -105,7 +105,7 @@ My WhatsApp combines a local archive, optional offline voice transcription, scop
 
 The [roadmap](docs/roadmap.md) prioritizes a tested semantic and hybrid search setup, followed by local document text extraction and OCR for better file search. It also proposes reusable local message presets.
 
-## Guides and development
+## Guides
 
 | Guide | Use it for |
 | --- | --- |

@@ -1,35 +1,37 @@
 ---
 title: Desktop
-description: Use an existing development executable on the current macOS ARM64 target.
+description: Build and run My WhatsApp on a Mac.
 ---
 # Desktop
 
-The current target is **macOS ARM64**. A qualified `.app`, signed download and clean-machine installation have not been produced. Native Windows support, Linux desktop packaging and macOS AMD64 are unqualified. If you need an installable release, check [compatibility](../compatibility.md) before proceeding.
+The local app currently targets **macOS ARM64**. You need to build it from source; there is no signed app download yet. Follow [Local setup](../setup.md) for build tools and commands. Native Windows is not supported; other desktop platforms have no confirmed packaged installation.
 
-## Use a built development executable
+## Try the demo
 
-These examples assume a developer has already built `bin/wa-indexer` in the source checkout. They do not install or download an app. From that checkout, explore a separate synthetic archive:
+After building, run this from the source checkout:
 
 ```sh
 bin/wa-indexer demo
 ```
 
-The private browser session opens automatically. Save choices, then choose **Manage connection → Load synthetic messages**. Search Hebrew and English samples. Demo never pairs a real WhatsApp account; sample extraction text does not establish native AI quality. Stop with Ctrl-C before switching to a real archive.
+The browser opens automatically. Save your archive choices, then choose **Manage connection → Load synthetic messages**. Search the sample Hebrew and English conversations. The demo uses a separate archive and never connects to your WhatsApp account. Its sample transcripts and image text are examples.
 
-Launch the implemented real-account workflow:
+Stop the demo with Ctrl+C before starting your own archive.
+
+## Start your archive
 
 ```sh
 bin/wa-indexer serve
 ```
 
-Continue with [first run](../first-run.md). Real pairing, history coverage and restart behavior remain unverified. Keep the app process running; closing a browser tab does not stop it.
+Follow [First run](../first-run.md) to choose chats and dates, then link your phone. Keep the app process running; closing the browser tab does not stop it. Check [compatibility](../compatibility.md) before depending on the archive as a backup.
 
-## Find your private data
+## Find your data
 
-On macOS the default root is `~/Library/Application Support/My WhatsApp`. A custom `--data-dir` must be an absolute private local directory; reuse the same root on later launches. Keep it outside shared or cloud-synced folders. App data includes the linked session and client material; use disk encryption.
+On macOS, the default directory is `~/Library/Application Support/My WhatsApp`. A custom `--data-dir` must be an absolute path to private local storage. Use the same directory on later launches, keep it outside shared or cloud-synced folders, and protect it with disk encryption.
 
-`--no-open` suppresses automatic browser opening. Open the app-managed private `owner-url` on this computer if needed; never share its contents. The owner listener accepts literal loopback addresses only. Starting the same archive again normally attaches to its existing owner interface.
+Use `--no-open` to skip automatic browser opening. If needed, open the app's private `owner-url` on the same computer. Keep that link private. Starting the same archive again normally opens its existing owner interface.
 
-## Local AI and client limits
+## Add optional features
 
-Keyword search works without downloaded models. No native AI bundle is qualified and the accepted profile allowlist is empty. [Media and models](../everyday/media-and-models.md) explains preview eligibility. Local client configuration is implemented, but exact-client calls need separate verification. A future packaged app is intended to run without a developer toolchain.
+Keyword search works without models. Follow [Voice transcription](../transcription.md) for the optional local speech service, or [Connect an AI client](../mcp.md) for Codex and Claude Code. Semantic search and image processing remain [experimental](../native-models.md).

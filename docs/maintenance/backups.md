@@ -6,7 +6,7 @@ description: Stop every writer and copy the complete private volume with ownersh
 
 Back up the **entire private data root/volume**: archive databases and any WAL/journals, WhatsApp session, originals, models, policies, configuration and client files. Never copy a live SQLite file alone. The archive contains session material and credentials; protect backups with private permissions and disk/backup encryption. No secret is needed in helper command arguments.
 
-The Docker procedure below is intended to preserve bytes, UID/GID and private modes. Combined-source backup/restore qualification is pending; real WhatsApp session reuse, native model eligibility and actual AI-client acceptance remain separate checks.
+The Docker procedure preserves the complete volume, file ownership, and permissions. It has not yet been tested with the current Docker setup and a real WhatsApp account. Keep your original installation until you have checked the restored archive.
 
 ## Docker Compose backup
 
@@ -86,7 +86,7 @@ docker run --rm -i --network=none --read-only --cap-drop ALL \
 
 `docker volume create` can reuse an existing volume: the helper **refuses a nonempty destination before extraction or metadata changes**. If it refuses, choose another unused volume name; do not empty or repair that volume. If extraction fails, retain the partial destination for diagnosis and choose a new empty volume for a retry. The temporary restore helper preserves numeric UID/GID and modes, including the private volume root, instead of recursively repairing a working archive. Do not start other writers during extraction.
 
-Use the recorded local image ID, which must still exist on this Docker host, or its separately retained qualified image artifact on another host:
+Use the recorded local image ID, which must still exist on this Docker host, or the image you saved separately for restoration on another host:
 
 ```sh
 WA_INDEXER_RESTORE_IMAGE=$(cat wa-indexer-backup/image-id.txt)
@@ -106,12 +106,12 @@ docker compose -f compose.yaml -f compose.restore.yaml up -d --no-build
 docker compose -f compose.yaml -f compose.restore.yaml exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
 ```
 
-Keep this overlay and the recorded `.env` settings for subsequent commands; omitting it would select the original volume. Open a fresh 30-second owner link and verify saved choices/counts, a known retained search result, originals/model/config storage and the private client adapter. Restored grants may reintroduce old credentials; revoke or replace them deliberately. A provider may have revoked the linked session after backup, requiring pairing again. Native resources need their own verification; preserved tar metadata is not native model qualification.
+Keep this overlay and the recorded `.env` settings for subsequent commands; omitting it would select the original volume. Open a fresh 30-second owner link and verify saved choices/counts, a known retained search result, originals/model/config storage and the private client adapter. Restored grants may reintroduce old credentials; revoke or replace them deliberately. A provider may have revoked the linked session after backup, requiring pairing again. Verify any native model resources again before enabling them.
 
-These binary-stream examples are for POSIX shells. Do not translate `>` or `<` to older Windows PowerShell: it can decode/re-encode binary tar bytes. Use a supported POSIX environment for these procedures; a Windows backup recipe has not been qualified.
+These binary-stream examples are for POSIX shells. Do not translate `>` or `<` to older Windows PowerShell: it can decode/re-encode binary tar bytes. Use a supported POSIX environment for these procedures; a Windows backup recipe has not been tested.
 
 ## Native data roots
 
 For native development, record the build and explicit `--data-dir`; macOS defaults to `~/Library/Application Support/My WhatsApp`. Stop the app, supervisors and every model/resource writer, confirm they have exited, then use a trusted backup tool to copy the complete root to a new private location preserving ownership, modes and resource metadata. Restore to a separate private root with the recorded build and verify it deliberately.
 
-A copied backup is not a proven restore. Backups cannot recover history WhatsApp never supplied or messages discarded before selection. [Updates](updates.md) explains migration/rollback limits; [compatibility](../compatibility.md) records remaining proof gates.
+Test a restore before depending on a backup. Backups cannot recover history WhatsApp never supplied or messages discarded before selection. [Updates](updates.md) explains migration/rollback limits; [compatibility](../compatibility.md) lists the current limits.

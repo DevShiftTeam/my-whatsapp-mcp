@@ -4,11 +4,11 @@ description: Diagnose common failures without exposing private state or deleting
 ---
 # Troubleshooting
 
-Begin with the observed symptom and your exact build/platform. Keep message bodies, QR content, owner links, tokens and session files out of reports. Current [qualification limits](compatibility.md) explain which flows still need real acceptance.
+Begin with the observed symptom and your exact build/platform. Keep message bodies, QR content, owner links, tokens and session files out of reports. See [compatibility](compatibility.md) for current support and untested setup options.
 
 ## Browser or owner login fails
 
-Keep the app running and use its current private owner link on the archive computer. After restart an old tab/link may be stale; reopen the app-managed link. If automatic browser opening failed, request a fresh private `owner-link` locally. For Compose, run `docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data`; the link expires in 30 seconds and can be repeated. Never paste that capability into an issue or tunnel the owner port. A remote phone login is planned, not established by today's local interface.
+Keep the app running and use its current private owner link on the archive computer. After restart an old tab/link may be stale; reopen the app-managed link. If automatic browser opening failed, request a fresh private `owner-link` locally. For Compose, run `docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data`; the link expires in 30 seconds and can be repeated. Never paste that capability into an issue or tunnel the owner port. For a remote browser, follow [Phone access](remote/phone-access.md) and use its separate owner password.
 
 ## Listener cannot start or an instance already exists
 
@@ -24,7 +24,7 @@ Check saved chat/date policy, whether selective mode has any selected chats, rec
 
 ## Media or AI is unavailable
 
-Check original-media storage usage and available disk space. Lowering the limit does not immediately remove retained originals. Downloading and verifying a pinned resource do not activate AI. Use only eligible offered profiles; the current accepted native allowlist is empty. Keyword fallback remains useful. [Media and models](everyday/media-and-models.md) explains the limits.
+Check original-media storage usage and available disk space. Lowering the limit does not immediately remove retained originals. Downloading and verifying a pinned resource do not activate AI. Use only eligible offered profiles; a supported native bundle is not available yet. Keyword fallback remains useful. [Media and models](everyday/media-and-models.md) explains the limits.
 
 ## Remote client fails
 
@@ -38,4 +38,4 @@ Safe reads may remain blocked until recovery. Keep private state intact and use 
 bin/wa-indexer doctor
 ```
 
-Add your normal `--data-dir` if customized. Share only sanitized codes/status. Doctor is not an installation, native-quality or history-completeness test; do not use **Delete all local data** as a recovery shortcut.
+Add your normal `--data-dir` if customized. Share only sanitized codes/status. Doctor checks the saved archive; it does not confirm history completeness. Do not use **Delete all local data** as a recovery shortcut.

@@ -4,11 +4,11 @@ description: Publish an authenticated MCP route at a saved Tailscale hostname.
 ---
 # Tailscale Funnel
 
-Funnel makes your saved endpoint reachable from the public Internet. Choose it for a client outside your tailnet when your account permits Funnel. This managed source preview embeds Tailscale. Live Funnel, hosted-client and physical-phone acceptance remain **NOT_RUN**.
+Funnel gives your archive a public HTTPS endpoint for clients outside your Tailscale network. Your Tailscale account must allow Funnel. The app includes Tailscale for this setup.
 
 ## Before you start
 
-You need a tailnet with MagicDNS, HTTPS certificates, and a policy granting the archive node Funnel permission. Funnel uses names in your tailnet domain and has provider bandwidth limits. The app uses HTTPS port 443. Check [official requirements](https://tailscale.com/docs/features/tailscale-funnel) and [account eligibility](https://tailscale.com/pricing), reviewed **2026-10-12**. A tailnet administrator may need to approve the permission.
+You need a tailnet with MagicDNS, HTTPS certificates, and a policy granting the archive node Funnel permission. Funnel uses names in your tailnet domain and has provider bandwidth limits. The app uses HTTPS port 443. Check [official requirements](https://tailscale.com/docs/features/tailscale-funnel) and [account eligibility](https://tailscale.com/pricing). A tailnet administrator may need to approve the permission.
 
 ## Save and connect
 
@@ -22,9 +22,9 @@ Funnel and private Tailscale access have different exposure. Verify which provid
 
 ## Verify and retain the identity
 
-From outside the tailnet, execute the [actual-client acceptance checks](../clients/remote-access.md#acceptance-test), including anonymous, incorrect and expired credentials, excluded chats/dates and revocation. A DNS response or provider-online state is insufficient. Browser access needs a separate physical-phone test.
+From outside your Tailscale network, [check your connection](../clients/remote-access.md#check-your-connection). Confirm that your client can search permitted messages and cannot read excluded chats. Use [Phone access](phone-access.md) for a remote browser.
 
-With the same private volume, compare the endpoint after reconnect, app restart and container recreation. Revoke access in a disposable provider account, check the actionable error and local keyword search, then recover the same route. No live result is claimed for these steps.
+Keep the same data directory or Docker volume across restarts so the endpoint stays the same. Live Funnel, AI-client, and phone tests are still pending; see [compatibility](../compatibility.md).
 
 ## Troubleshooting and retirement
 

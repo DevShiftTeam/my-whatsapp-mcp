@@ -55,10 +55,12 @@ test('Cloudflare source and guides share narrow client routes without owner acce
  for(const name of ['docs/clients/remote-access.md','docs/remote/cloudflare.md'])assert.ok(read(name).includes(pattern),name);
  assert.ok(example.includes('service: http_status:404'));
 });
-test('all current setup and maintenance prose keeps integrated qualification pending',()=>{
- for(const name of ['docs/start-here.md','docs/install/docker.md','docs/maintenance/backups.md','docs/maintenance/updates.md']){
-  const text=read(name);assert.match(text,/combined-source[\s\S]*qualification is pending/i);
-  assert.doesNotMatch(text,/local native Linux ARM64 synthetic acceptance|only native Linux ARM64 has local synthetic qualification|procedure below was tested|rebuild\/recreation was tested/);
+test('setup and maintenance records retain preview status without claiming runtime success',()=>{
+ const records=JSON.parse(read('docs/compatibility.json'));
+ for(const route of ['start-here','install/docker','maintenance/backups','maintenance/updates']){
+  assert.equal(records[route].availability,'preview');
+  assert.equal(records[route].status,'documentation_reviewed');
+  assert.deepEqual(records[route].tests,[]);
  }
 });
 test('both native jobs require normal serve while demo benchmark selects visible Archive',()=>{

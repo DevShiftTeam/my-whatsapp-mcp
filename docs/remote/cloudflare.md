@@ -4,11 +4,11 @@ description: Connect a named tunnel to the app's fixed managed origin.
 ---
 # Cloudflare Tunnel
 
-Use Cloudflare when you control a domain with Cloudflare DNS and want a saved public hostname. The managed source preview bundles a pinned helper. Actual account/dashboard routing and client/phone acceptance remain **NOT_RUN**.
+Use Cloudflare when you control a domain with Cloudflare DNS and want a fixed public hostname. The app includes the tunnel helper.
 
 ## Before you start
 
-You need permission to create a remotely managed named tunnel and published application route in your Cloudflare account. Choose a hostname such as `archive.example.com`. Domain registration/renewal and optional paid services are separate costs. Follow [Cloudflare's dashboard tunnel guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/), reviewed **2026-10-12**.
+You need permission to create a remotely managed named tunnel and published application route in your Cloudflare account. Choose a hostname such as `archive.example.com`. Domain registration/renewal and optional paid services are separate costs. Follow [Cloudflare's dashboard tunnel guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/).
 
 ## Create the route and save the token
 
@@ -23,9 +23,9 @@ The bundled helper and app share a container/network namespace. Do not publish t
 
 ## Understand “route unverified”
 
-The app reports **Helper running; connection and hostname unverified** after starting the helper. A living process may still be offline or retrying authentication; it proves neither a Cloudflare connection nor the dashboard hostname route. MCP readiness remains unclaimed. Check connectivity, provider credentials and the saved dashboard route, then test the public endpoint separately. This is separate from archive pairing and each MCP token's authorization.
+The app reports **Helper running; connection and hostname unverified** after starting the helper. The helper may still be offline or retrying authentication. Its running state does not confirm that your hostname is reachable. Check connectivity, provider credentials and the saved dashboard route, then test the public endpoint separately. This is separate from archive pairing and each MCP token's authorization.
 
-Verify externally using the [exact-client acceptance checks](../clients/remote-access.md#acceptance-test). Check Host, path and service settings if requests fail. Do not rewrite Origin headers to work around validation. A Cloudflare Access login policy can add another client authentication requirement; this guide does not establish such client compatibility or supply an OAuth server.
+Verify externally using the [connection checks](../clients/remote-access.md#check-your-connection). Check Host, path and service settings if requests fail. Do not rewrite Origin headers to work around validation. A Cloudflare Access login policy can add another client authentication requirement; that extra authentication is not covered here, and the app does not supply an OAuth server.
 
 ## Restart, recover and retire
 

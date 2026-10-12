@@ -34,8 +34,6 @@ git clone https://github.com/DevShiftTeam/my-whatsapp-mcp.git
 cd my-whatsapp-mcp
 ```
 
-If the repository is private, authenticate with a GitHub account that has access.
-
 Build and start the app:
 
 ```sh
@@ -156,6 +154,39 @@ Use only these two flags. Recovery verifies the existing recording bytes and aut
 Success returns only aggregate `restored` and `skipped` counts. A missing, changed, or invalid individual recording is skipped; ownership or structural failures stop the command. Repairs commit separately for each artifact, so a later failure can leave earlier associations restored. Repeating the command is safe and idempotent after resolving the reported fixed diagnostic.
 
 Restart the archive with its existing data directory and launch arguments. With transcription configured, eligible restored recordings can be processed normally. Check the generated text through search and MCP; cache recovery itself does not transcribe audio, repair missing phone history, or clear coverage gaps.
+
+## View a historical snapshot
+
+Use this advanced mode to read a **separate, stopped copy** of an archive without syncing or changing it. It shows the capture time and partial coverage. It cannot confirm the current state of messages on your phone.
+
+Before starting, check that the copy has the current archive policy and AI-client permissions. A backup must not restore a revoked connection or widen a client's access. Repeat this check before each activation, and stop the snapshot if permissions change. Client expiry and source expiry still use the current time.
+
+Prepare and recover the separate profile before sealing it. Keep the original archive unchanged. If you copied native client configuration, rebind it to the copy before sealing. Snapshot startup requires the expected database schema, safe archive state, and ready client journals; it does not repair or migrate the copy.
+
+Save `archive/historical-snapshot.json` inside the copied data directory. It must be a regular, privately owned file with mode `0600`, one hard link, and at most 2048 bytes. Use these exact field names, replacing the example timestamps with the copy's actual capture time and the time you checked its current permissions:
+
+```json
+{
+  "version": 1,
+  "captured_at": "2026-01-02T03:04:05Z",
+  "authorization_verified_at": "2026-01-02T04:04:05Z",
+  "current_authorization_verified": true
+}
+```
+
+The permission check time must be no earlier than capture and no later than startup. Set the final field to `true` only after checking permissions; the app cannot compare them with another profile for you. Extra fields and mismatched timestamps are rejected.
+
+Launch with the copied directory's absolute path and the **same capture timestamp** as the marker:
+
+```sh
+./bin/wa-indexer serve \
+  --data-dir "/absolute/path/to/private/snapshot" \
+  --historical-snapshot-at "2026-01-02T03:04:05Z"
+```
+
+You can search saved text and existing transcripts, view Stats, and use permitted MCP reads, including contact, group, and attachment metadata. Syncing, sending, original-file downloads, model installation, processing, and archive edits are disabled. Tools that require those actions return `historical_snapshot_read_only`.
+
+Managed remote-provider setup and reconnection are disabled. Existing explicit manual MCP or password-admin listener settings can still be used, with current access checks. The snapshot does not open a WhatsApp session. Demo mode, `--open-existing`, and original-media budget changes are incompatible with this mode. The marker also prevents ordinary serving and mutation commands from opening the copy.
 
 ## Troubleshooting
 

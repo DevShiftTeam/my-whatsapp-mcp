@@ -4,7 +4,7 @@ description: Enable a separate password-protected owner interface at your saved 
 ---
 # Phone access
 
-You can explicitly enable a remote browser interface after setting its own owner password on the archive computer. This is an **implemented source preview**: combined-source HTTPS browser/authentication qualification is pending; an actual phone and live provider route have **not been tested**.
+Open your archive in a phone browser through a saved HTTPS address and a separate owner password. This feature is in preview: a physical phone and live provider route have **not been tested**.
 
 ## Prepare a route and password
 
@@ -18,7 +18,7 @@ Browser access starts off. Do not copy the localhost owner-link/bootstrap fragme
 
 ## Unlock, search and log out
 
-Enter **Owner password**, then **Unlock archive**. Confirm the hostname is the one you saved. Search a known synthetic record when qualifying the route, open its context, then choose **Log out**. Revisit and reload the page: protected archive content must require login again. Check the same behavior after session expiry and from an unenrolled device for private Tailscale.
+Enter **Owner password**, then **Unlock archive**. Confirm the hostname is the one you saved. Search a harmless message you recognize, open its context, then choose **Log out**. Revisit and reload the page: protected archive content must require login again. Check the same behavior after session expiry and from an unenrolled device for private Tailscale.
 
 The owner browser can manage archive choices and other permitted owner operations, including pairing; it is broader access than an AI client's chat/date scope. Provider setup, owner-password changes, token reveal, native attach/bootstrap and archive deletion stay local. Do not use a provider authtoken or scoped MCP token as the owner password. Neither credential type substitutes for the other.
 
@@ -32,4 +32,4 @@ If login is temporarily busy, wait and retry; repeated guesses are limited. If t
 
 From the local owner interface, edit the saved setup, clear **Also open the archive in a remote browser**, and save. **Disable remote access** stops the entire route while preserving its identity. **Remove saved provider** is separate and does not delete the archive or reset the owner password; finish provider-account teardown in the selected guide.
 
-No physical-phone, enrolled/unenrolled-device or live logout acceptance is claimed. The local synthetic browser fixture checks login, secure session behavior, search, logout/expiry denial, secret separation and a 390px layout; a mobile viewport does not prove a device journey. See [compatibility](../compatibility.md).
+Testing on a physical phone through a live provider is still pending. Check [compatibility](../compatibility.md) before depending on remote access.

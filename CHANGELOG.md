@@ -6,8 +6,8 @@
 
 - Add an explicit, operator-attested historical snapshot serving mode with query-only archive access, persistent capture labels, current-time scoped reads, and disabled syncing, sending, original delivery, and processing. Normal serving remains unchanged.
 
-- Additive source-preview Docker/Compose packaging, persistent managed remote access and separate phone-owner login, retaining existing archive, attachment, send, Stats, theme, transcription and manual admin workflows.
-- Strict allowlisted public documentation with HTML/search/Markdown parity and native-architecture container validation workflows; combined-source runtime and provider qualification remains pending.
+- Docker Compose source builds, saved remote-access settings, and a separate password for phone browser access. These setup options are in preview.
+- Searchable documentation on GitHub Pages, with per-page Markdown downloads. Docker CI checks target Linux ARM64 and AMD64; live-provider and client tests are still pending.
 
 - System-default light and dark appearance with a browser-local override on the login screen and across the responsive archive interface.
 - A richer Stats view with UTC weekly rhythm and saved-history highlights, interactive activity charts, and sortable, paginated conversation and sender breakdowns under the same archive filters.
@@ -23,7 +23,6 @@
 - A transcription setup guide covering service configuration, original-media recovery limits, and CPU and disk requirements.
 - An owner action to retry eligible voice downloads and request bounded missing voice-note copies from the primary phone, without resetting completed or evicted recordings.
 - An original generated logo and updated browser interface branding.
-- `AGENTS.md` and `CLAUDE.md` maintainer instructions for documentation, changelog updates, validation, privacy, and repository visibility.
 - Local QR-linked WhatsApp archive with chat and date choices, Hebrew and English keyword search, and conversation context.
 - Scoped, expiring read-only MCP connections for local clients and remote bearer access, with optional password-protected remote administration.
 - Stored-snapshot coverage warnings and sync-gap reporting while readable messages remain accessible.
@@ -31,6 +30,8 @@
 - Markdown setup, MCP, development, security, and contribution guides.
 
 ### Changed
+
+- Rewrote public guides in plain language, replaced the raw verification record with a short setup notice, and added a favicon to the documentation site.
 
 - Styled dropdown options with keyboard access and a compact Appearance control in the mobile header.
 - Removed the proposed official Business Platform adapter from the roadmap; local message presets remain proposed.

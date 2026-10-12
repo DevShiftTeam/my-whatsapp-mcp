@@ -19,7 +19,7 @@ See [setup](setup.md), [voice transcription](transcription.md), [attachments](at
 Turn the existing experimental path into a documented, tested installation with pinned runtimes and model files. Keep keyword search available when models are disabled or processing is behind.
 
 - Test supported macOS and Linux installations from a clean checkout.
-- Compare keyword, semantic, and hybrid results on reviewed multilingual examples, including Hebrew, English, and mixed-language chats.
+- Compare keyword, semantic, and hybrid results on multilingual examples, including Hebrew, English, and mixed-language chats.
 - Publish measured startup time, peak memory, disk use, indexing throughput, and query latency with the hardware and dataset size. Separate transcription and indexing costs from idle app usage.
 - Check result relevance and language behavior with human review before selecting a default model profile.
 - Show model installation, indexing progress, failures, and fallback state clearly in the dashboard.
@@ -49,4 +49,4 @@ These are app conveniences, not Meta-approved WhatsApp Business Platform templat
 
 ## Contributing
 
-Before implementing a roadmap item, propose its scope, resource budget, supported platforms, and validation examples. Use synthetic conversations and documents in tests. Keep the authoritative guide and [changelog](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/CHANGELOG.md#unreleased) current as behavior changes; see [development](development.md) and [contributing](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/CONTRIBUTING.md).
+Before implementing a roadmap item, propose its scope, resource budget, supported platforms, and validation examples. Use synthetic conversations and documents in tests. Keep the relevant guide and [changelog](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/CHANGELOG.md#unreleased) current as behavior changes; see [development](development.md) and [contributing](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/CONTRIBUTING.md).

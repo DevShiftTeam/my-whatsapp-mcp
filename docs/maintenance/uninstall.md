@@ -43,11 +43,11 @@ docker compose down
 docker volume rm "$DATA_VOLUME"
 ```
 
-If any command fails, stop and investigate instead of forcing deletion. Do not run this deletion block when keeping the archive. No user archive was deleted during qualification; only isolated disposable acceptance volumes were removed.
+If any command fails, stop and investigate instead of forcing deletion. Do not run this deletion block when keeping the archive.
 
 ## Native installation and remote access
 
-For a development executable, log out in WhatsApp's **Linked devices** if retiring the session, stop the app gracefully, and remove only its intended executable, client configuration and service/autostart registration. Desktop package instructions await a qualified installer.
+For a development executable, log out in WhatsApp's **Linked devices** if retiring the session, stop the app gracefully, and remove only its intended executable, client configuration and service/autostart registration. There is no packaged desktop installer yet.
 
 Native owner-interface deletion is separately available through **Archive settings → Delete all local data**, typing `DELETE LOCAL DATA`. It removes the local archive/session/models/client material, not WhatsApp messages. Do not use deletion to repair history or reconciliation warnings.
 

@@ -4,11 +4,11 @@ import { readFile } from 'node:fs/promises';
 const route = '/my-whatsapp-mcp/install/docker-compose.html';
 const markdown = '/my-whatsapp-mcp/markdown/install/docker-compose.md';
 
-test('nested built guide exposes exact allowlisted Markdown and qualification', async ({ page, request }) => {
+test('nested built guide exposes the same plain setup notice in HTML and Markdown', async ({ page, request }) => {
   await page.goto(route);
   await expect(page.getByRole('heading', { name: /Docker Compose/, level: 1 })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Guide qualification' })).toContainText('Preview');
-  await expect(page.getByRole('region', { name: 'Guide qualification' })).toContainText('Documentation reviewed');
+  await expect(page.getByRole('region', { name: 'Setup status' })).toContainText('Preview setup');
+  await expect(page.getByRole('region', { name: 'Setup status' })).toContainText('not yet been tested from start to finish');
   await expect(page.getByRole('link', { name: 'View Markdown', exact: true })).toHaveAttribute('href', markdown);
   const download = page.getByRole('link', { name: 'Download Markdown', exact: true });
   await expect(download).toHaveAttribute('href', markdown);
@@ -16,13 +16,12 @@ test('nested built guide exposes exact allowlisted Markdown and qualification', 
   const response = await request.get(markdown);
   expect(response.ok()).toBeTruthy();
   const exported = await response.text();
-  expect(exported).toContain('Verification status: `documentation_reviewed`');
-  await page.getByText('Qualification record', { exact: true }).click();
-  const visibleRecord = JSON.parse(await page.getByRole('region', { name: 'Guide qualification' }).locator('code').innerText());
-  const exportedRecord = JSON.parse(exported.match(/```json\n([\s\S]*?)\n```/)![1]);
-  expect(visibleRecord).toEqual(exportedRecord);
-  expect(visibleRecord.availability).toBe('preview');
-  expect(visibleRecord.tests).toEqual([]);
+  const notice = await page.getByRole('region', { name: 'Setup status' }).innerText();
+  expect(exported).toContain('**Preview setup**');
+  expect(exported).toContain('These instructions have been reviewed, but the setup has not yet been tested from start to finish.');
+  expect(notice).toContain('These instructions have been reviewed, but the setup has not yet been tested from start to finish.');
+  expect(exported).not.toMatch(/documentation_reviewed|reviewedAt|Qualification record|"tests"/);
+  await expect(page.getByText('Qualification record', { exact: true })).toHaveCount(0);
   const downloaded = page.waitForEvent('download');
   await download.click();
   const artifact = await downloaded;
@@ -94,7 +93,7 @@ test('phone guide remains unverified, readable and exactly copyable on mobile', 
  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async(value:string)=>{(window as any).__phoneMarkdown=value;}},configurable:true}));
  await page.goto('/my-whatsapp-mcp/remote/phone-access.html');
  await expect(page.getByRole('heading',{name:'Phone access',level:1})).toBeVisible();
- await expect(page.getByRole('region',{name:'Guide qualification'})).toContainText('Documentation reviewed');
+ await expect(page.getByRole('region',{name:'Setup status'})).toContainText('not yet been tested from start to finish');
  await expect(page.locator('.vp-doc')).toContainText('not been tested');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
  const copy=page.getByRole('button',{name:'Copy page as Markdown'});await copy.focus();await page.keyboard.press('Enter');

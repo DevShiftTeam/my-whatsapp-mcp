@@ -19,15 +19,9 @@ The current outbound tools send text, attachments, and existing voice recordings
 
 See [outbound messaging](clients/outbound-messaging.md) for permissions, payload limits, and durable retry behavior. These tools do not create, approve, list, or send official Business Platform templates.
 
-## What an official adapter would need
+## Official Business Platform templates
 
-Meta's Cloud API setup uses a business portfolio, a WhatsApp Business Account, a registered business phone number, and an access token with the necessary permissions. A future adapter would need a separate setup flow for these identities and credentials. Store those credentials privately, outside the checkout; this project does not define Cloud API environment variables yet. Meta's [official Cloud API collection](https://www.postman.com/meta/whatsapp-business-platform/collection/wlk6lh4/whatsapp-cloud-api) documents the account and API setup.
-
-Template sends identify an approved template, language/locale, and the parameters of its supported components. A proposed adapter should expose the template's current approval status and category, validate the selected locale and parameters, and support the permitted media and button components. See Meta's [interactive template example](https://www.postman.com/meta/whatsapp-business-platform/request/lwtlz1k/send-message-template-interactive).
-
-Business-initiated messages require approved templates. Within the customer-service window of 24 hours after the user's last message, the platform permits replies without a template. Recipient opt-in, opt-out, and other policy requirements still apply. Verify the current [WhatsApp Business Messaging Policy](https://whatsappbusiness.com/policy/) before implementing or operating this path; a template approval alone does not authorize every recipient or use case.
-
-The adapter would also need owner authorization, bounded client scopes, durable send IDs, and authenticated status webhooks. Server acceptance, delivery, and read status must remain distinct. Existing archive read permissions must not silently grant a new business account permission to send.
+My WhatsApp has no WhatsApp Business Platform integration. If you need Meta-approved templates, use the Business Platform separately and follow [Meta's setup guide](https://www.postman.com/meta/whatsapp-business-platform/collection/wlk6lh4/whatsapp-cloud-api) and [messaging policy](https://whatsappbusiness.com/policy/). Business Platform credentials are separate from this app's QR-linked session.
 
 ## Can the same number keep using the Business app?
 
