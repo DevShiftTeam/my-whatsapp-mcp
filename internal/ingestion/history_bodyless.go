@@ -26,6 +26,11 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		return historyBodylessFailure(web, "record_safety_metadata")
 	}
 	kind := web.GetMessageStubType()
+	// A bodyless pin notice is display metadata only. Explicit control fields
+	// retain their presence semantics even when their values are zero or false.
+	if kind == waWeb.WebMessageInfo_PINNED_MESSAGE_IN_CHAT && (web.PinInChat != nil || web.RevokeMessageTimestamp != nil || web.ClearMedia != nil) {
+		return historyBodylessFailure(web, "record_safety_metadata")
+	}
 	if kind != waWeb.WebMessageInfo_REVOKE && kind != waWeb.WebMessageInfo_ADMIN_REVOKE && kind != waWeb.WebMessageInfo_CIPHERTEXT && !benignHistoryStub(kind) {
 		return historyBodyMissing(web)
 	}
@@ -320,6 +325,7 @@ func benignHistoryStub(kind waWeb.WebMessageInfo_StubType) bool {
 		waWeb.WebMessageInfo_SUGGESTED_SUBGROUP_ANNOUNCE,
 		waWeb.WebMessageInfo_COMMUNITY_OWNER_UPDATED,
 		waWeb.WebMessageInfo_GROUP_MEMBER_LINK_MODE,
+		waWeb.WebMessageInfo_PINNED_MESSAGE_IN_CHAT,
 		waWeb.WebMessageInfo_CHANGE_USERNAME,
 		waWeb.WebMessageInfo_E2E_IDENTITY_CHANGED,
 		waWeb.WebMessageInfo_E2E_ENCRYPTED,

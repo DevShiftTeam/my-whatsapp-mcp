@@ -513,6 +513,7 @@ func TestPinnedHistoryNoticeTaxonomyExhaustive(t *testing.T) {
 		172: true,
 		173: true,
 		176: true,
+		177: true,
 		182: true,
 		183: true,
 		185: true,

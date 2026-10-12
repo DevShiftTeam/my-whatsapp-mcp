@@ -24,6 +24,15 @@ func AcceptedPartialHistoryDiagnosticAllowed(diagnostic ClassifiedHistoryDiagnos
 	return diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 229, StubPresent: true, StubKnown: false, Presence: 155})
 }
 
+// AcceptedPartialHistoryEvidenceAllowed binds each owner-accepted stop to its
+// reviewed producer. Known177 is an unresolved semantic gap, not a benign notice.
+func AcceptedPartialHistoryEvidenceAllowed(diagnostic ClassifiedHistoryDiagnostic, buildSHA string) bool {
+	if AcceptedPartialHistoryDiagnosticAllowed(diagnostic) && AcceptedPartialHistoryProducerSupported(buildSHA) {
+		return true
+	}
+	return buildSHA == "30954642f78a33171d4ba1de7ae987af0b42d159" && diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 177, StubPresent: true, StubKnown: true, Presence: 411})
+}
+
 // ClassifiedHistoryDiagnosticFor retains the original diagnostic constructors.
 // Authorization uses ClassifiedHistoryDiagnosticAllowed for exact membership.
 func ClassifiedHistoryDiagnosticFor(classification string) (ClassifiedHistoryDiagnostic, bool) {
@@ -169,7 +178,7 @@ func canonicalClassifiedHistoryWitness(w ClassifiedHistoryWitness) (string, stri
 }
 
 func canonicalAcceptedPartialHistoryWitness(w ClassifiedHistoryWitness) (string, string, error) {
-	if !w.AcceptUnknownHistoryGaps || w.Classification != AcceptedPartialHistoryGap || !AcceptedPartialHistoryDiagnosticAllowed(w.Diagnostic) || !AcceptedPartialHistoryProducerSupported(w.RuntimeBuildSHA) || w.SourceRevisionConflicts > 32 {
+	if !w.AcceptUnknownHistoryGaps || w.Classification != AcceptedPartialHistoryGap || !AcceptedPartialHistoryEvidenceAllowed(w.Diagnostic, w.RuntimeBuildSHA) || w.SourceRevisionConflicts > 32 {
 		return "", "", ErrInvalidEvent
 	}
 	return canonicalSnapshotHistoryWitness(w)

@@ -54,6 +54,8 @@
 
 ### Fixed
 
+- Handle validated bodyless pinned-message notices without stopping history; retain strict control-field checks. Add separately audited owner-accepted partial recovery for an eligible older pinned-notice stop without treating its incomplete diagnostic as proof that control fields were absent.
+
 - Keep long selected chat names within mobile filters so they cannot widen the page or clip settings dialogs.
 - Retry timed-out cleanup of expired derived data without treating the maintenance deadline as a WhatsApp source failure; keep actual expiry, credential checks, and authoritative source-safety fences enforced.
 - Report a busy transcription service separately and leave jobs pending without claiming work or consuming retries while health checks report it occupied.

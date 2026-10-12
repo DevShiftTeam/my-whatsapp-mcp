@@ -161,6 +161,15 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 	if err != nil {
 		return receipt, err
 	}
+	if sourceVersion >= 17 {
+		accepted, _, err := acceptedPinnedHistoryGaps(ctx, src, o.ExpectedAccount)
+		if err != nil {
+			return receipt, err
+		}
+		if accepted != 0 {
+			return receipt, ErrSchemaChanged
+		}
+	}
 	if sourceVersion == 18 {
 		var evidence int
 		if err = src.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM rebuild_history_selection)+(SELECT count(*) FROM rebuild_history_selection_audit)+(SELECT count(*) FROM rebuild_history_bodies)+(SELECT count(*) FROM rebuild_history_pages)+(SELECT count(*) FROM rebuild_history_frontiers)").Scan(&evidence); err != nil {

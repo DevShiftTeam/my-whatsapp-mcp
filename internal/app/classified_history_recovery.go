@@ -137,7 +137,7 @@ func readClassifiedHistoryEvidenceMode(cfg ClassifiedHistoryRecoveryConfig, acce
 		return e, ErrClassifiedHistoryRecovery
 	}
 	if acceptUnknown {
-		if w.Classification != archive.AcceptedPartialHistoryGap || !w.AcceptUnknownHistoryGaps || !archive.AcceptedPartialHistoryDiagnosticAllowed(w.Diagnostic) || !archive.AcceptedPartialHistoryProducerSupported(w.RuntimeBuildSHA) || w.SourceRevisionConflicts > 32 {
+		if w.Classification != archive.AcceptedPartialHistoryGap || !w.AcceptUnknownHistoryGaps || !archive.AcceptedPartialHistoryEvidenceAllowed(w.Diagnostic, w.RuntimeBuildSHA) || w.SourceRevisionConflicts > 32 {
 			return e, ErrClassifiedHistoryRecovery
 		}
 	} else if w.AcceptUnknownHistoryGaps || !archive.ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) || w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != archive.ClassifiedHistoryChangeUsername || !archive.ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {

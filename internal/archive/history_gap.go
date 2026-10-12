@@ -20,9 +20,10 @@ type UnknownHistoryGapCount struct {
 
 // UnknownHistoryGapDiagnostics is owner-only metadata, never a scoped read DTO.
 type UnknownHistoryGapDiagnostics struct {
-	CoverageEpoch     uint64                   `json:"coverage_epoch"`
-	TotalObservations uint64                   `json:"total_observations"`
-	Codes             []UnknownHistoryGapCount `json:"codes"`
+	OwnerAcceptedShapeGaps uint64                   `json:"owner_accepted_shape_gaps,omitempty"`
+	CoverageEpoch          uint64                   `json:"coverage_epoch"`
+	TotalObservations      uint64                   `json:"total_observations"`
+	Codes                  []UnknownHistoryGapCount `json:"codes"`
 }
 
 type unknownHistoryGapCommand struct {
@@ -117,8 +118,15 @@ func unknownHistoryGapSnapshot(ctx context.Context, q sqlQuerier, account string
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return readError(ctx, err)
 	}
-	snapshot.CoverageEpoch = epoch
-	snapshot.UnknownHistoryGap = epoch != 0
+	_, acceptedEpoch, err := acceptedPinnedHistoryGaps(ctx, q, account)
+	if err != nil {
+		return err
+	}
+	if acceptedEpoch > math.MaxUint64-epoch {
+		return ErrReconciliationRequired
+	}
+	snapshot.CoverageEpoch = epoch + acceptedEpoch
+	snapshot.UnknownHistoryGap = epoch != 0 || acceptedEpoch != 0
 	if version == 18 {
 		var strategy uint64
 		err = q.QueryRowContext(ctx, "SELECT epoch FROM rebuild_history_selection WHERE account=?", account).Scan(&strategy)
@@ -153,7 +161,11 @@ func (s *Store) UnknownHistoryGapDiagnostics(ctx context.Context, account string
 	if !snapshot.UnknownHistoryGap {
 		return out, nil
 	}
-	if err = tx.QueryRowContext(bounded, "SELECT total_observations FROM unknown_history_coverage WHERE account=?", account).Scan(&out.TotalObservations); err != nil {
+	out.OwnerAcceptedShapeGaps, _, err = acceptedPinnedHistoryGaps(bounded, tx, account)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.QueryRowContext(bounded, "SELECT total_observations FROM unknown_history_coverage WHERE account=?", account).Scan(&out.TotalObservations); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, readError(bounded, err)
 	}
 	rows, err := tx.QueryContext(bounded, "SELECT raw_stub,count,first_seen,last_seen FROM unknown_history_codes WHERE account=? ORDER BY raw_stub LIMIT ?", account, MaxUnknownHistoryGapCodes+1)

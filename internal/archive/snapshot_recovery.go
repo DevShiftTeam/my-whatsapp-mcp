@@ -297,7 +297,7 @@ func (s *Store) snapshotRecoveryEligibility(ctx context.Context, requested strin
 		return a, false, bindingErr
 	}
 	if witness != nil && witness.Classification == AcceptedPartialHistoryGap && a.epoch == witness.RecoveryEpoch+1 {
-		if gapErr := requireAcceptedPartialHistoryGap(ctx, s.writeDB, a.account); gapErr != nil {
+		if gapErr := requireAcceptedPartialWitnessGap(ctx, s.writeDB, a.account, *witness); gapErr != nil {
 			return a, false, gapErr
 		}
 	}
@@ -421,7 +421,7 @@ func (s *Store) prepareSnapshotRecovery(ctx context.Context, a snapshotRecoveryA
 			// The explicit witness accepts a committed partial snapshot, not a
 			// benign classification. Record global uncertainty atomically with
 			// prepare; identical prepared retries never enter this transaction.
-			if err := recordUnknownHistoryGapTx(ctx, tx, a.account, 229, s.now()); err != nil {
+			if err := recordAcceptedPartialHistoryGap(ctx, tx, a, s); err != nil {
 				return err
 			}
 		}
@@ -494,7 +494,11 @@ func (s *Store) completeSnapshotRecovery(ctx context.Context, a snapshotRecovery
 	defer tx.Rollback()
 	err = func() error {
 		if a.classification == AcceptedPartialHistoryGap {
-			if err := requireAcceptedPartialHistoryGap(ctx, tx, a.account); err != nil {
+			w, err := acceptedPartialAuditWitness(a.witnessJSON)
+			if err != nil {
+				return err
+			}
+			if err := requireAcceptedPartialWitnessGap(ctx, tx, a.account, w); err != nil {
 				return err
 			}
 		}
