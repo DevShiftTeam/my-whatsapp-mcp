@@ -10,6 +10,9 @@ import (
 var _ localui.DocumentRetryApplication = (*Application)(nil)
 
 func (a *Application) RetryDocumentDownloads(ctx context.Context, ids []archive.MessageID) (localui.DocumentRetrySnapshot, error) {
+	if a.snapshot != nil {
+		return localui.DocumentRetrySnapshot{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if !localui.ValidDocumentRetryIDs(ids) {
 		return localui.DocumentRetrySnapshot{}, localui.ErrDocumentRetryUnavailable
 	}

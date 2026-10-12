@@ -4,6 +4,8 @@
 
 ### Added
 
+- Add an explicit, operator-attested historical snapshot serving mode with query-only archive access, persistent capture labels, current-time scoped reads, and disabled syncing, sending, original delivery, and processing. Normal serving remains unchanged.
+
 - Additive source-preview Docker/Compose packaging, persistent managed remote access and separate phone-owner login, retaining existing archive, attachment, send, Stats, theme, transcription and manual admin workflows.
 - Strict allowlisted public documentation with HTML/search/Markdown parity and native-architecture container validation workflows; combined-source runtime and provider qualification remains pending.
 

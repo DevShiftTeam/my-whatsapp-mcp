@@ -388,3 +388,12 @@ select.select-native { position: absolute !important; width: 1px !important; hei
 
 /* Remote setup follows the archive palette and compact owner dialogs. */
 #remote-access-dialog{max-width:620px}#remote-access-dialog .stacked-label input,#remote-access-dialog .stacked-label select{width:100%;max-width:none}.remote-summary{padding:16px;background:var(--wash);border-inline-start:3px solid var(--emerald)}.remote-summary>strong{font-size:18px}.remote-form{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}.remote-browser-choice{display:flex;align-items:flex-start;gap:9px;margin-top:22px;font-size:14px}.remote-browser-choice input{margin-top:2px}.remote-saved-actions{display:flex;flex-direction:column;gap:13px;margin-top:24px;padding-top:19px;border-top:1px solid var(--line)}#remote-signin-link{overflow-wrap:anywhere}#remote-endpoint{font-size:13px}#remote-provider-guide{display:inline-block;margin-top:10px}#remote-access-dialog button,#remote-access-dialog input,#remote-access-dialog select{min-height:44px}#remote-access-dialog input[type=checkbox]{min-height:18px}@media(max-width:540px){#remote-access-dialog{width:calc(100% - 20px);padding:20px}#remote-access-dialog .dialog-actions>*{flex:1 1 130px}.remote-summary{padding:12px}}
+
+
+/* An immutable historical mode warning survives login, logout and view changes. */
+#historical-snapshot-banner { position: sticky; top: 0; z-index: 100; padding: 12px 20px; background: #fff3cd; color: #493900; border-bottom: 1px solid #c7ad5b; text-align: center; font-weight: 600; }
+html[data-historical-snapshot="true"] :is(#connection-open,#pause-toggle,#policy-save,#connection-create,#voice-retry,#documents-retry,#local-ai-save,#original-budget-save) { display: none !important; }
+
+html[data-historical-snapshot="true"] :is(#import-panel,#client-create-panel,#client-send-editor,#client-list .model-actions,#model-list .model-actions,#voice-retry-button,#documents-retry-button,#delete-open,#policy-save,#pairing-start,#disconnect,#original-budget-form,#local-ai-form) { display: none !important; }
+
+html[data-historical-snapshot="true"] #remote-access-open { display: none !important; }

@@ -31,6 +31,7 @@ const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir 
        wa-indexer serve --container [--listen 0.0.0.0:8123] [--browser-origin http://127.0.0.1:8123] [--docker-container-name NAME]
        wa-indexer owner-link [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
        wa-indexer health [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
+       wa-indexer serve --data-dir ABSOLUTE_PRIVATE_SNAPSHOT --historical-snapshot-at RFC3339
        wa-indexer demo [--data-dir DIRECTORY] [--no-open]
        wa-indexer doctor [--data-dir DIRECTORY]
        wa-indexer recover-snapshot --data-dir ABSOLUTE_PRIVATE_PROFILE
@@ -165,6 +166,9 @@ func startupErrorMessage(err error) string {
 
 func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result error) {
 	if opts.openExisting {
+		if opts.historicalSnapshotAt != "" {
+			return errArguments
+		}
 		if opts.container {
 			return errStartup
 		}
@@ -195,7 +199,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.historicalSnapshotAt != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -239,7 +243,15 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 			return errStartup
 		}
 	}
-	cfg.Native, cfg.Media, _ = app.LoadBundledAI(executable)
+	if opts.historicalSnapshotAt != "" {
+		at, parseErr := time.Parse(time.RFC3339, opts.historicalSnapshotAt)
+		if parseErr != nil {
+			return errArguments
+		}
+		cfg.Snapshot = &app.SnapshotConfig{CapturedAt: at}
+	} else {
+		cfg.Native, cfg.Media, _ = app.LoadBundledAI(executable)
+	}
 	application, err := app.New(serveCtx, cfg)
 	if err != nil {
 		if closeErr := app.CloseBundledAI(cfg.Native, cfg.Media); closeErr != nil {
@@ -250,7 +262,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.historicalSnapshotAt != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -308,7 +320,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err := application.WriteOwnerURL(server.AttachURL()); err != nil {
 		return errStartup
 	}
-	if opts.mcpListen == "" {
+	if opts.mcpListen == "" && cfg.Snapshot == nil {
 		_, remoteErr := application.NewDefaultRemoteAccessManager(func(ctx context.Context, _ remoteaccess.Intent, origin string, generation uint64) (http.Handler, error) {
 			if adminConfig != nil && origin == adminConfig.Origin {
 				return nil, errAdminConfig

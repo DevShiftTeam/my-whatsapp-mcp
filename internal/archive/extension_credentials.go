@@ -222,6 +222,9 @@ func (s *Store) ListCredentials(ctx context.Context, request CredentialListReque
 	if request.Limit > maxCredentialPage {
 		return CredentialMetadataPage{}, ErrLimitExceeded
 	}
+	if s.historicalSnapshot {
+		return s.listCredentials(ctx, request)
+	}
 	bytes := int64(128 + len(request.Account) + len(request.Principal) + len(request.After))
 	value, err := s.submitExtension(ctx, listCredentialsCommand{request}, bytes)
 	if err != nil {
@@ -253,7 +256,11 @@ func (s *Store) listCredentials(ctx context.Context, request CredentialListReque
 	args = append(args, request.Limit+1)
 	// The existing writer owns this SELECT solely to preserve Create ordering.
 	// It reads metadata, never authority or bodies, even when source/auth is denied.
-	rows, err := s.writeDB.QueryContext(bounded, query, args...)
+	db := s.writeDB
+	if s.historicalSnapshot {
+		db = s.readDB
+	}
+	rows, err := db.QueryContext(bounded, query, args...)
 	if err != nil {
 		return CredentialMetadataPage{}, readError(bounded, err)
 	}
@@ -785,6 +792,9 @@ func initializeCredentialFence(s *Store) error {
 			s.credentialFence.denied[id] = true
 		}
 	}
+	if s.historicalSnapshot {
+		return nil
+	}
 	// Allocate the final marker before any credential can be issued. A later
 	// disk-full failure can still truncate this existing inode to a durable,
 	// corrupt marker which denies authentication on restart without new blocks.
@@ -804,6 +814,9 @@ func initializeCredentialFence(s *Store) error {
 }
 
 func (s *Store) truncateCredentialFence() {
+	if s.historicalSnapshot {
+		return
+	}
 	path := filepath.Join(s.privateDir, credentialFenceMarker)
 	if err := checkPrivateFile(path); err != nil {
 		return
@@ -820,6 +833,9 @@ func (s *Store) truncateCredentialFence() {
 // denyCredentialImmediate is called only for an uncertain accepted auth
 // mutation. Failed read-only operations never call this function.
 func (s *Store) denyCredentialImmediate(id CredentialID) error {
+	if s.historicalSnapshot {
+		return ErrHistoricalSnapshotReadOnly
+	}
 	s.safetyMu.Lock()
 	defer s.safetyMu.Unlock()
 	s.credentialFence.mu.Lock()

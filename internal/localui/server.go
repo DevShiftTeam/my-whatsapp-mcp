@@ -394,6 +394,9 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, "interface_unavailable")
 		return
 	}
+	if name == "assets/index.html" {
+		data = historicalSnapshotHTML(data, s.app)
+	}
 	w.Header().Set("Content-Type", contentType)
 	_, _ = w.Write(data)
 }
@@ -581,6 +584,10 @@ func uniqueJSONValue(decoder *json.Decoder, depth int) bool {
 }
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
+	if !historicalSnapshotTime(s.app).IsZero() && !historicalSnapshotRead(r.Method, r.URL.Path) {
+		fail(w, http.StatusForbidden, "historical_snapshot_read_only")
+		return
+	}
 	if nativeOnlyRoute(r.URL.Path) && s.realm != realmNative || s.remote != nil && !remoteProtected[r.URL.Path] {
 		fail(w, http.StatusNotFound, "route_unavailable")
 		return
@@ -845,6 +852,10 @@ func respond(w http.ResponseWriter, value any) {
 }
 
 func publicError(w http.ResponseWriter, err error) {
+	if errors.Is(err, archive.ErrHistoricalSnapshotReadOnly) {
+		fail(w, 403, "historical_snapshot_read_only")
+		return
+	}
 	var code archive.Error
 	if errors.As(err, &code) {
 		switch code {

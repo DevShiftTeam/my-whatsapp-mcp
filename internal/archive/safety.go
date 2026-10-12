@@ -29,6 +29,9 @@ func syncDir(path string) error {
 	return nil
 }
 func (s *Store) writeMarker(name, content string, exclusive bool) error {
+	if s.historicalSnapshot {
+		return ErrHistoricalSnapshotReadOnly
+	}
 	path := filepath.Join(s.privateDir, name)
 	if e := checkPrivateFile(path); e != nil {
 		return e
@@ -51,6 +54,9 @@ func (s *Store) writeMarker(name, content string, exclusive bool) error {
 	return syncDir(s.privateDir)
 }
 func (s *Store) denyImmediate(account string, reason UnsafeReason) error {
+	if s.historicalSnapshot {
+		return ErrHistoricalSnapshotReadOnly
+	}
 	s.safetyMu.Lock()
 	if account == "" {
 		s.unclean = true

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
@@ -24,6 +25,7 @@ var (
 )
 
 type options struct {
+	historicalSnapshotAt string
 	container            bool
 	browserOrigin        string
 	dockerContainerName  string
@@ -116,6 +118,7 @@ func parseArgs(args []string) (options, error) {
 		}
 	}
 	if opts.command == "serve" {
+		flags.StringVar(&opts.historicalSnapshotAt, "historical-snapshot-at", "", "")
 		flags.BoolVar(&opts.demoAcceptance, "demo-acceptance-fixtures", false, "")
 		flags.StringVar(&opts.mcpListen, "mcp-listen", "", "")
 		flags.StringVar(&opts.adminListen, "admin-listen", "", "")
@@ -218,6 +221,18 @@ func parseArgs(args []string) (options, error) {
 	}
 	if opts.openExisting && (opts.container || adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
 		return options{}, errArguments
+	}
+	snapshotExplicit := false
+	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "historical-snapshot-at" {
+			snapshotExplicit = true
+		}
+	})
+	if snapshotExplicit {
+		at, err := time.Parse(time.RFC3339, opts.historicalSnapshotAt)
+		if err != nil || at.IsZero() || at.After(time.Now()) || !filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir || opts.demo || opts.openExisting || opts.originalBudget != nil {
+			return options{}, errArguments
+		}
 	}
 	return opts, nil
 }

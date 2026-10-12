@@ -12,6 +12,9 @@ type outboundRuntime interface {
 }
 
 func (a *Application) Send(ctx context.Context, g archive.CredentialGrant, request outbound.Request) (outbound.Receipt, error) {
+	if a.snapshot != nil {
+		return outbound.Receipt{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if !a.data.TryRLock() {
 		return outbound.Receipt{}, outbound.ErrUnavailable
 	}
@@ -65,12 +68,18 @@ func (a *Application) CheckSendResponse(ctx context.Context, g archive.Credentia
 
 // SetSendPermission is owner-only; MCP cannot grant itself outbound authority.
 func (a *Application) SetSendPermission(ctx context.Context, id string, revision uint64, chats []archive.ChatID) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	return a.setSendPermission(ctx, id, revision, func(g archive.CredentialGrant) error {
 		return a.store.SetSendPermission(ctx, g, chats)
 	})
 }
 
 func (a *Application) SetSendPermissionMode(ctx context.Context, id string, revision uint64, permission archive.SendPermission, expected uint64) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	return a.setSendPermission(ctx, id, revision, func(g archive.CredentialGrant) error {
 		return a.store.SetSendPermissionMode(ctx, g, permission, expected)
 	})

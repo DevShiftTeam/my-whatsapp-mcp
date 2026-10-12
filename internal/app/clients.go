@@ -68,6 +68,9 @@ func validNativeLabel(label string) bool {
 // never selects a path: a fresh server-generated basename is journaled first.
 // The endpoint must already belong to the application's native listener.
 func (a *Application) IssueNativeClientConfig(ctx context.Context, request archive.CredentialCreate, _ string, endpoint string) (archive.CredentialID, string, error) {
+	if a.snapshot != nil {
+		return "", "", archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.ops.Lock()
 	defer a.ops.Unlock()
 	a.data.Lock()
@@ -140,6 +143,7 @@ func (a *Application) MCPHandler(cfg mcpserver.Config) (http.Handler, error) {
 	if a.closed || a.nativeRecoveryPending || a.authState.NativeInvalid {
 		return nil, errNativeRecovery
 	}
+	cfg.HistoricalSnapshot = a.snapshotMetadata()
 	cfg.NativeClients = &a.nativeRegistry
 	cfg.LocalCredentialID = ""
 	return mcpserver.NewHandler(cfg, a.resources.retrieval, a.store)
@@ -342,6 +346,9 @@ func (a *Application) reconcileNativeClients(ctx context.Context) error {
 // Only the server clock supplies now; the separate internal entry supports
 // the clock-revival regression without sleeping or caller expiry authority.
 func (a *Application) reconcileNativeClientsAt(ctx context.Context, now time.Time) error {
+	if a.snapshot != nil {
+		return a.publishHistoricalClients(ctx, true)
+	}
 	a.nativeRegistry.replace(nil)
 	a.nativeRecoveryPending = true
 	if a.authState.NativeInvalid {

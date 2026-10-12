@@ -30,6 +30,9 @@ func (a *Application) OriginalBudget(ctx context.Context) (localui.OriginalBudge
 }
 
 func (a *Application) SetOriginalBudget(ctx context.Context, request localui.OriginalBudgetRequest) (localui.OriginalBudgetSnapshot, error) {
+	if a.snapshot != nil {
+		return localui.OriginalBudgetSnapshot{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if request.MaximumBytes < archive.MinimumOriginalBudgetBytes || request.MaximumBytes > archive.MaximumOriginalBudgetBytes || request.ExpectedRevision == 0 {
 		return localui.OriginalBudgetSnapshot{}, localui.ErrOriginalBudgetUnavailable
 	}

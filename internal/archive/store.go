@@ -32,6 +32,7 @@ type Options struct {
 // Store owns one serialized writer and a separate limited query-only read pool.
 // SQLite handles and protected paths never cross the public interfaces.
 type Store struct {
+	historicalSnapshot      bool
 	lockFile                *os.File
 	writeDB, readDB         *sql.DB
 	privateDir              string
@@ -92,6 +93,9 @@ func normalizedOptions(o Options) (Options, error) {
 // Open requires the application instance lease to be held by the caller
 // for the entire Store lifetime. internal/appdata owns that process boundary.
 func Open(ctx context.Context, privateDir string, options Options) (*Store, error) {
+	if err := RefuseHistoricalSnapshot(privateDir); err != nil {
+		return nil, err
+	}
 	if err := sqlitelex.Register(); err != nil {
 		return nil, ErrArchiveUnavailable
 	}
@@ -255,6 +259,14 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.historicalSnapshot {
+		s.lifeMu.Unlock()
+		e1, e2 := s.readDB.Close(), s.lockFile.Close()
+		if e1 != nil || e2 != nil {
+			return ErrArchiveUnavailable
+		}
+		return nil
+	}
 	close(s.stop)
 	s.lifeMu.Unlock()
 	<-s.done

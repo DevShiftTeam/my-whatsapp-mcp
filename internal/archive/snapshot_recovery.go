@@ -39,6 +39,9 @@ type snapshotMarker struct {
 // adds its archive lifetime lock, excludes admissions, and serializes both
 // recovery transactions with the writer. Ordinary startup never calls it.
 func (s *Store) RestoreCommittedSnapshot(ctx context.Context, account string) (receipt SnapshotRecoveryReceipt, returnErr error) {
+	if s.historicalSnapshot {
+		return receipt, ErrHistoricalSnapshotReadOnly
+	}
 	if account != "" && !validString(account, 512) {
 		return SnapshotRecoveryReceipt{}, ErrInvalidEvent
 	}

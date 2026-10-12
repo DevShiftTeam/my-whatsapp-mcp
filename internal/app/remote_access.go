@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/remoteaccess"
 )
@@ -71,6 +72,9 @@ func (a *Application) NewRemoteAccessManager(adapters map[remoteaccess.Provider]
 	}, owner)
 }
 func (a *Application) installRemoteAccess(factory remoteAdapterFactory, owner RemoteOwnerFactory) (*remoteaccess.Manager, error) {
+	if a.snapshot != nil {
+		return nil, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if err := a.beginRemoteOperation(false); err != nil {
 		return nil, err
 	}
@@ -101,6 +105,9 @@ func (a *Application) installRemoteAccess(factory remoteAdapterFactory, owner Re
 // Caller holds only lifecycle admission. The ready gate is opened after that
 // admission ends so restart Prepare cannot contend with its own constructor.
 func (a *Application) constructRemoteAccess(factory remoteAdapterFactory, owner RemoteOwnerFactory) (*remoteaccess.Manager, func(), error) {
+	if a.snapshot != nil {
+		return nil, nil, archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.data.RLock()
 	closed := a.closed
 	manual := a.mcpConfig.Remote != nil && !a.mcpConfig.Remote.Managed
@@ -197,6 +204,9 @@ func (a *Application) withRemoteManager(ctx context.Context, action func(*remote
 	return action(manager)
 }
 func (a *Application) currentRemoteManager(ctx context.Context) (*remoteaccess.Manager, error) {
+	if a.snapshot != nil {
+		return nil, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if ctx.Err() != nil {
 		return nil, remoteaccess.ErrTransient
 	}
@@ -275,6 +285,9 @@ func (a *Application) RemoteAccessStatus(ctx context.Context) (localui.RemoteAcc
 	return result, e
 }
 func (a *Application) ConfigureRemoteAccess(ctx context.Context, v localui.RemoteAccessSubmission) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	if e := localui.ValidateRemoteSubmission(v); e != nil {
 		return e
 	}

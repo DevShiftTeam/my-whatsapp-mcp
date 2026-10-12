@@ -42,6 +42,9 @@ func inactiveRemoteRecord(record remoteClientRecord, metadata []archive.Credenti
 // Recovery is called only by the app-owned mutation/startup lane. It uses the
 // archive's ordered metadata capability and never accepts a request principal.
 func (a *Application) reconcileRemoteClients(ctx context.Context) error {
+	if a.snapshot != nil {
+		return a.publishHistoricalClients(ctx, false)
+	}
 	a.remoteRegistry.replace(nil)
 	a.remoteRecoveryPending = true
 	if a.authState.RemoteInvalid {

@@ -104,6 +104,13 @@ func ExistingPaths(root string) (Paths, error) {
 // Prepare claims only a new/empty directory or one with this exact private marker.
 // An explicit custom root does not imply that filesystem synchronization is absent.
 func Prepare(root string) (Paths, error) {
+	checkRoot, checkErr := resolveRoot(root)
+	if checkErr != nil {
+		return Paths{}, checkErr
+	}
+	if _, err := os.Lstat(filepath.Join(checkRoot, "archive", "historical-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
+		return Paths{}, ErrUnsafeDataPath
+	}
 	if !platformSupported() {
 		return Paths{}, ErrUnsupportedPlatform
 	}
@@ -515,6 +522,9 @@ func (lease *InstanceLock) Close() error {
 // and closed all databases. The root, ownership marker, and held lock survive.
 // Unrelated root entries are deliberately preserved.
 func ResetOwned(paths Paths, lease *InstanceLock) error {
+	if _, err := os.Lstat(filepath.Join(paths.ArchiveDir, "historical-snapshot.json")); !errors.Is(err, os.ErrNotExist) {
+		return ErrUnsafeDataPath
+	}
 	if lease == nil {
 		return ErrLockRequired
 	}

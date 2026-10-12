@@ -38,6 +38,8 @@ type nativeOwner interface {
 	Unload(context.Context) error
 }
 type resources struct {
+	snapshotTranscriptionReady bool
+
 	instanceGuard         *appdata.InstanceLock
 	paths                 appdata.Paths
 	namespace             executableNamespace

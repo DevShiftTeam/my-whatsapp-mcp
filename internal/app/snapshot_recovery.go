@@ -27,6 +27,9 @@ func RecoverCommittedSnapshot(ctx context.Context, dataDir string) (receipt arch
 	if err != nil {
 		return receipt, err
 	}
+	if err := archive.RefuseHistoricalSnapshot(paths.ArchiveDir); err != nil {
+		return receipt, err
+	}
 	lease, err := appdata.Acquire(paths)
 	if err != nil {
 		return receipt, err

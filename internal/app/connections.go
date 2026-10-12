@@ -166,6 +166,9 @@ func (a *Application) Connections(ctx context.Context) (localui.ConnectionSnapsh
 	return a.connectionSnapshot(ctx)
 }
 func (a *Application) CreateConnection(ctx context.Context, request localui.ConnectionRequest) (localui.Connection, error) {
+	if a.snapshot != nil {
+		return localui.Connection{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if err := validateConnectionRequest(request, time.Now()); err != nil {
 		return localui.Connection{}, err
 	}
@@ -248,6 +251,9 @@ func (a *Application) CreateConnection(ctx context.Context, request localui.Conn
 	return localui.Connection{}, localui.ErrConnectionRecovery
 }
 func (a *Application) ConnectionGuide(ctx context.Context, request localui.ConnectionGuideRequest) (clientsetup.Guide, error) {
+	if a.snapshot != nil {
+		return clientsetup.Guide{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if !validConnectionClient(request.Client) || request.ID == "" {
 		return clientsetup.Guide{}, localui.ErrConnectionInvalid
 	}
@@ -306,6 +312,9 @@ func (a *Application) ConnectionGuide(ctx context.Context, request localui.Conne
 	return clientsetup.Guide{}, localui.ErrConnectionNotFound
 }
 func (a *Application) RevokeConnection(ctx context.Context, request localui.ConnectionRevokeRequest) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	if request.ID == "" || request.Revision == 0 {
 		return localui.ErrConnectionInvalid
 	}

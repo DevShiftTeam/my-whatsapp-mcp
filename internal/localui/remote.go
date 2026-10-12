@@ -348,7 +348,7 @@ func (s *RemoteServer) static(w http.ResponseWriter, r *http.Request) {
 		remoteFail(w, 503, "interface_unavailable")
 		return
 	}
-	page := string(data)
+	page := string(historicalSnapshotHTML(data, s.dispatch.app))
 	if strings.Count(page, "<html ") != 1 {
 		remoteFail(w, 503, "interface_unavailable")
 		return

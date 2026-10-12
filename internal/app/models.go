@@ -23,6 +23,9 @@ func (a *Application) Models(ctx context.Context) ([]modelstore.Profile, error) 
 	return catalog.Profiles, nil
 }
 func (a *Application) InstallModel(ctx context.Context, id string) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed || a.resources == nil || a.resources.models == nil {
@@ -33,6 +36,9 @@ func (a *Application) InstallModel(ctx context.Context, id string) error {
 	return a.resources.models.Install(operation, id, nil)
 }
 func (a *Application) VerifyModel(ctx context.Context, id string) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed || a.resources == nil || a.resources.models == nil {
@@ -44,6 +50,9 @@ func (a *Application) VerifyModel(ctx context.Context, id string) error {
 	return err
 }
 func (a *Application) RemoveModel(ctx context.Context, id string) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed || a.resources == nil || a.resources.models == nil {

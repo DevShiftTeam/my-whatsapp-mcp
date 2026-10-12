@@ -182,7 +182,7 @@ func (a *Application) startLocalMCP(ctx context.Context) error {
 		return err
 	}
 	if !m.localStarted {
-		cfg := mcpserver.Config{Outbound: a, Attachments: m.attachments, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
+		cfg := mcpserver.Config{HistoricalSnapshot: a.snapshotMetadata(), Outbound: a, Attachments: m.attachments, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
 		handler, err := mcpserver.NewHandler(cfg, a.resources.retrieval, a.store)
 		if err != nil {
 			return errMCPListener
@@ -227,6 +227,7 @@ func (a *Application) startRemoteMCP(ctx context.Context) error {
 			return errMCPListener
 		}
 		cfg := remote.Server
+		cfg.HistoricalSnapshot = a.snapshotMetadata()
 		cfg.Outbound = a
 		cfg.Attachments = m.attachments
 		cfg.NativeClients = &a.nativeRegistry
@@ -290,7 +291,7 @@ func (a *Application) closeMCP(ctx context.Context) error {
 // Requests borrow the same service through local and remote MCP transports.
 func (a *Application) startAttachments() error {
 	m, store, r := a.mcp, a.store, a.resources
-	if m == nil || store == nil || r == nil || r.media == nil || m.root == nil || m.root.Err() != nil {
+	if m == nil || store == nil || r == nil || (r.media == nil && a.snapshot == nil) || m.root == nil || m.root.Err() != nil {
 		return errMCPListener
 	}
 	root := m.root
@@ -308,6 +309,9 @@ func (a *Application) startAttachments() error {
 		return !a.closed && a.mcp == m && m.attachments == service && a.store == store && a.resources == r && r.media == originals && root.Err() == nil
 	}
 	queue := func(ctx context.Context, grant archive.CredentialGrant, id archive.MessageID) (bool, error) {
+		if a.snapshot != nil {
+			return false, archive.ErrHistoricalSnapshotReadOnly
+		}
 		result, err := store.RetryCredentialDocumentDownloads(ctx, grant, []archive.MessageID{id})
 		if err != nil {
 			return false, err
@@ -321,7 +325,7 @@ func (a *Application) startAttachments() error {
 		return result.Queued > 0, nil
 	}
 	var err error
-	service, err = newAttachmentService(attachmentServiceConfig{root: root, archive: store, originals: newAttachmentOriginals(originals), publicURL: publicURL, nativeClients: &a.nativeRegistry, remoteClients: &a.remoteRegistry, current: current, queue: queue})
+	service, err = newAttachmentService(attachmentServiceConfig{historicalSnapshot: a.snapshot != nil, root: root, archive: store, originals: newAttachmentOriginals(originals), publicURL: publicURL, nativeClients: &a.nativeRegistry, remoteClients: &a.remoteRegistry, current: current, queue: queue})
 	if err != nil {
 		return errMCPListener
 	}

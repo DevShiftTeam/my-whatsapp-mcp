@@ -10,6 +10,9 @@ import (
 var _ localui.VoiceRetryApplication = (*Application)(nil)
 
 func (a *Application) RetryVoiceDownloads(ctx context.Context) (localui.VoiceRetrySnapshot, error) {
+	if a.snapshot != nil {
+		return localui.VoiceRetrySnapshot{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.ops.Lock()
 	defer a.ops.Unlock()
 	a.data.RLock()

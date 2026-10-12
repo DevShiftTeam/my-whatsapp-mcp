@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/diskspace"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/modelstore"
@@ -72,6 +73,9 @@ func (a *Application) ModelState(ctx context.Context) (localui.ModelStateSnapsho
 	return result, nil
 }
 func (a *Application) StartModelOperation(ctx context.Context, request localui.ModelOperationRequest) (localui.ModelOperation, error) {
+	if a.snapshot != nil {
+		return localui.ModelOperation{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if err := ctx.Err(); err != nil {
 		return localui.ModelOperation{}, err
 	}
@@ -142,6 +146,9 @@ func (a *Application) StartModelOperation(ctx context.Context, request localui.M
 	return operation, nil
 }
 func (a *Application) CancelModelOperation(ctx context.Context, id string) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}

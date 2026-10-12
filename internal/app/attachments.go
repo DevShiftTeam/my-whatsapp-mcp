@@ -63,6 +63,8 @@ func (o attachmentOriginals) Open(ctx context.Context, scope archive.ReadScope, 
 }
 
 type attachmentServiceConfig struct {
+	historicalSnapshot bool
+
 	root          context.Context
 	archive       attachmentArchive
 	originals     attachmentOriginalOpener
@@ -85,6 +87,8 @@ type attachmentTicket struct {
 // Each service belongs to one captured archive/resource lifetime. Tickets retain
 // the original grant and source guard; redemption cannot refresh their authority.
 type attachmentService struct {
+	historicalSnapshot bool
+
 	root          context.Context
 	archive       attachmentArchive
 	originals     attachmentOriginalOpener
@@ -104,13 +108,13 @@ type attachmentService struct {
 var _ mcpserver.Attachments = (*attachmentService)(nil)
 
 func newAttachmentService(c attachmentServiceConfig) (*attachmentService, error) {
-	if c.root == nil || attachmentNil(c.archive) || attachmentNil(c.originals) || c.current == nil {
+	if c.root == nil || attachmentNil(c.archive) || (attachmentNil(c.originals) && !c.historicalSnapshot) || c.current == nil {
 		return nil, mcpserver.ErrConfiguration
 	}
 	if !validAttachmentPublicURL(c.publicURL) {
 		return nil, mcpserver.ErrConfiguration
 	}
-	return &attachmentService{root: c.root, archive: c.archive, originals: c.originals, publicURL: c.publicURL, nativeClients: c.nativeClients, remoteClients: c.remoteClients, current: c.current, queue: c.queue, slots: make(chan struct{}, 2), tickets: make(map[string]attachmentTicket), now: time.Now, random: rand.Reader}, nil
+	return &attachmentService{historicalSnapshot: c.historicalSnapshot, root: c.root, archive: c.archive, originals: c.originals, publicURL: c.publicURL, nativeClients: c.nativeClients, remoteClients: c.remoteClients, current: c.current, queue: c.queue, slots: make(chan struct{}, 2), tickets: make(map[string]attachmentTicket), now: time.Now, random: rand.Reader}, nil
 }
 
 func validAttachmentPublicURL(value string) bool {
@@ -244,6 +248,14 @@ func (s *attachmentService) Prepare(ctx context.Context, grant archive.Credentia
 		return fail(mcpserver.ErrUnavailable)
 	}
 	delivery := mcpserver.AttachmentDelivery{Attachment: view, Snapshot: view.Snapshot, Status: "not_retained"}
+	if s.historicalSnapshot {
+		if err = s.checkAttachment(ctx, grant, guard, view.Snapshot); err != nil {
+			return fail(err)
+		}
+		delivery.Status = "unavailable"
+		delivery.Code = "historical_snapshot_read_only"
+		return delivery, guard, nil
+	}
 	artifact, retained := view.OriginalArtifact()
 	if !retained {
 		if err = s.checkAttachment(ctx, grant, guard, view.Snapshot); err != nil {

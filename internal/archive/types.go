@@ -245,7 +245,14 @@ type ConnectionDiagnostic struct {
 	OnConnect                                              bool // meaningful only for logged_out
 }
 
+type HistoricalSnapshot struct {
+	CapturedAt time.Time `json:"captured_at"`
+	ReadOnly   bool      `json:"read_only"`
+	PhoneState string    `json:"current_phone_state"`
+}
+
 type StatusSnapshot struct {
+	HistoricalSnapshot             *HistoricalSnapshot `json:"historical_snapshot,omitempty"`
 	Connection                     ConnectionState
 	Paused, ReconciliationRequired bool
 	Coverage                       CoverageState

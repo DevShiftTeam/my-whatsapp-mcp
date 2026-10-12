@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
-	"github.com/Bodokh/my-whatsapp-mcp/internal/localauth"
 	"sync"
+
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localauth"
 )
 
 type ownerPasswordLifetime struct {
@@ -15,6 +17,9 @@ type ownerPasswordLifetime struct {
 // remote access does not touch optional remote files or allocate hash workers.
 // Factories capture this shared authenticator and their own generation context.
 func (a *Application) RemoteOwnerAuthenticator() (*localauth.Authenticator, error) {
+	if a.snapshot != nil {
+		return nil, archive.ErrHistoricalSnapshotReadOnly
+	}
 	a.ownerAuth.mu.Lock()
 	defer a.ownerAuth.mu.Unlock()
 	if a.remoteShutdownPending() {

@@ -586,6 +586,7 @@
       const hasMessageGap = !unsafe && (status.Codes || []).some(code => ["undecryptable_message", "source_revision_conflict"].includes(code));
       const hasUnresolvedDeletion = !unsafe && (status.Codes || []).includes("unresolved_deletion");
       const hasRestoredSnapshot = !unsafe && status.Snapshot?.RecoveryCode === "owner_restored_snapshot";
+      const historicalSnapshot = document.documentElement?.dataset?.historicalSnapshot === "true";
       $("messages-count").textContent = unsafe ? "—" : count.toLocaleString();
       $("coverage-status").textContent = unsafe ? "Archive checks required" : hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
       $("history-detail").textContent = unsafe ? "Message counts are unavailable while this archive is paused." : count ? "Only the history delivered by WhatsApp is included." : "Messages appear here after WhatsApp sends them.";
@@ -599,6 +600,14 @@
       $("pause-toggle").hidden = unsafe || !setup?.configured;
       $("connection-open").textContent = unsafe ? "View import problem" : connectionView.busy || connectionView.ended || ["connected","pairing","discovery","importing"].includes(status.Connection) ? "Connection details" : pairingSnapshot?.has_session === true ? "Reconnect WhatsApp" : "Link WhatsApp";
       renderImportState();
+      if (historicalSnapshot) {
+        $("connection-status").textContent = "Historical snapshot";
+        $("coverage-status").textContent = "Historical snapshot · partial coverage";
+        $("history-detail").textContent = "Current phone state unknown. Newer messages excluded.";
+        $("pause-toggle").hidden = true;
+        $("connection-open").hidden = true;
+        $("keyword-detail").textContent = "Search your saved historical message text.";
+      }
       const notices = [];
       if (hasRestoredSnapshot) notices.push("You restored this stored archive after an interrupted import. Messages, edits, or deletions during the interruption may be missing. Current WhatsApp state is unverified; known unavailable sources remain withheld.");
       if (hasStateSyncGap) notices.push(stateSyncGapText(status));
@@ -916,11 +925,13 @@
     if (!status) return;
     const policy = setup?.Policy || setup?.policy;
     const view = importPresentation(status, policy, setup?.configured, chats.length, pairingSnapshot);
+    const historical = status.Connection === "historical_snapshot";
     const connected = ["connected", "discovery", "importing"].includes(status.Connection);
-    $("stats-connection-state").textContent = status.Paused ? "Import paused" : $("connection-status").textContent;
+    $("stats-connection-state").textContent = historical ? "Historical snapshot" : status.Paused ? "Import paused" : $("connection-status").textContent;
     $("stats-connection-dot").dataset.state = status.Connection || "setup_required";
-    $("stats-connection-description").textContent = statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !status.Paused && Number(status.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
-    $("stats-connection-action").textContent = !setup?.configured ? "Set up your archive" : status.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
+    $("stats-connection-description").textContent = historical ? "Read-only. Newer messages excluded. Sending and syncing disabled." : statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !status.Paused && Number(status.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
+    $("stats-connection-action").disabled = historical;
+    $("stats-connection-action").textContent = historical ? "Syncing disabled" : !setup?.configured ? "Set up your archive" : status.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
     const notice = $("status-notice");
     $("stats-notice").textContent = notice.textContent;
     $("stats-notice").hidden = notice.hidden;
@@ -1866,12 +1877,12 @@
       const title=document.createElement("h3"); title.append(bdi(item.label)); title.tabIndex=-1; title.dataset.connectionId=item.id; title.dataset.action="heading";
       const permission=connectionSendPermission(item);
       const badge=document.createElement("span"); badge.className="client-permission-badge"; badge.dataset.mode=permission?.mode||"none";
-      badge.textContent=permission?.mode==="all"?"Send to all permitted chats":permission?.mode==="selected"?"Send to "+permission.chats.length+" chat"+(permission.chats.length===1?"":"s"):"Read-only";
+      badge.textContent=document.documentElement?.dataset?.historicalSnapshot === "true" ? "Read-only snapshot" : permission?.mode==="all"?"Send to all permitted chats":permission?.mode==="selected"?"Send to "+permission.chats.length+" chat"+(permission.chats.length===1?"":"s"):"Read-only";
       heading.append(title,badge); card.append(heading);
       const states={ready:"Grant ready; client call not yet verified", revoked:"Access revoked", expired:"Access expired", recovery_pending:"Recovery needed; access blocked"};
       modelParagraph(card,(clientNames[item.client]||"AI client")+" · "+(item.mode==="local"?"Local":item.mode==="remote"?"Remote":"Mode unavailable"));
       modelParagraph(card,states[item.state]||states.recovery_pending,"model-state");
-      modelParagraph(card,item.scope?.all_chats?"All archived chats, current and future":Number(item.scope?.chat_count||0).toLocaleString()+" selected chats");
+      modelParagraph(card,item.scope?.all_chats?(document.documentElement?.dataset?.historicalSnapshot === "true" ? "All permitted chats in this snapshot" : "All archived chats, current and future"):Number(item.scope?.chat_count||0).toLocaleString()+" selected chats");
       modelParagraph(card,"From "+(item.scope?.start_date?dateText(item.scope.start_date):"all kept dates")+" · Before "+(item.scope?.end_date?dateText(item.scope.end_date):"no additional end date")+" · Expires "+dateText(item.expires_at));
       const actions=document.createElement("div"); actions.className="model-actions";
       function action(kind,text) {
@@ -2389,7 +2400,7 @@
   for (const mode of ["bars", "line"]) $("stats-chart-" + mode).addEventListener("click", () => setStatsChartMode(mode));
   $("stats-models-open").addEventListener("click", () => $("models-open").click());
   $("stats-connection-action").addEventListener("click", async () => {
-    if (authExpired) return;
+    if (authExpired || status?.Connection === "historical_snapshot") return;
     if (!setup?.configured) await openSettings();
     else if (status?.Paused && !statsUnavailable()) await command($("stats-connection-action"), "/api/resume", "stats-feedback", "Import resumed.");
     else $("connection-open").click();
@@ -2582,7 +2593,7 @@
     if(v.manual)$("remote-access-form").hidden=true;
   }
   async function refreshRemoteStatus() {
-    if(remoteMode||remoteAdmin||wizardBusy||!$("remote-access-dialog").open)return;
+    if(remoteMode||remoteAdmin||status?.Connection === "historical_snapshot"||wizardBusy||!$("remote-access-dialog").open)return;
     const version=wizardVersion;
     try{const v=await api("/api/remote/status");if(version===wizardVersion&&!wizardBusy)renderRemoteStatus(v);}catch(error){if(version===wizardVersion)feedback("remote-access-feedback",error.message,true);}
   }
@@ -2613,7 +2624,7 @@
     catch(error){if(version===wizardVersion)feedback("remote-access-feedback",error.message,true);}
     finally{if(version===wizardVersion){wizardBusy=false;for(const el of $("remote-access-dialog").querySelectorAll("button,input,select"))el.disabled=false;$("remote-goal").disabled=$("remote-provider").disabled=Boolean(wizardSnapshot?.provider);refreshAllSelects();await refreshRemoteStatus();if(accepted&&$("remote-access-form").hidden){$("remote-access-state").focus({preventScroll:true});$("remote-access-dialog").scrollTop=0;}}}
   }
-  $("remote-access-open").addEventListener("click",async()=>{if(remoteMode||remoteAdmin)return;clearRemoteWizard();$("remote-access-dialog").showModal();refreshAllSelects();$("remote-access-dialog").scrollTop=0;await refreshRemoteStatus();if($("remote-access-dialog").open)wizardTimer=setInterval(refreshRemoteStatus,3000);});
+  $("remote-access-open").addEventListener("click",async()=>{if(remoteMode||remoteAdmin||status?.Connection === "historical_snapshot")return;clearRemoteWizard();$("remote-access-dialog").showModal();refreshAllSelects();$("remote-access-dialog").scrollTop=0;await refreshRemoteStatus();if($("remote-access-dialog").open)wizardTimer=setInterval(refreshRemoteStatus,3000);});
   $("remote-access-close").addEventListener("click",()=>{if(!wizardBusy){$("remote-access-dialog").close();clearRemoteWizard();}});
   $("remote-access-dialog").addEventListener("cancel",event=>{if(wizardBusy)event.preventDefault();else clearRemoteWizard();});
   $("remote-access-dialog").addEventListener("close",clearRemoteWizard);

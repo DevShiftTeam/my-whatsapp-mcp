@@ -2,6 +2,10 @@ package app
 
 // Deferred recovery retains immutable trusted composition, never caller slices.
 func copyApplicationConfig(cfg Config) Config {
+	if cfg.Snapshot != nil {
+		v := *cfg.Snapshot
+		cfg.Snapshot = &v
+	}
 	cfg.ReservedRemoteOrigins = append([]string(nil), cfg.ReservedRemoteOrigins...)
 	if cfg.Transcription != nil {
 		value := *cfg.Transcription

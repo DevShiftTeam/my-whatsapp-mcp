@@ -55,6 +55,9 @@ func addOutboundTools(s *mcp.Server, c Config, credentials Credentials) {
 			if err != nil {
 				return sendToolFailure(err), nil
 			}
+			if c.HistoricalSnapshot != nil && name != "get_send_status" {
+				return sendToolFailure(archive.ErrHistoricalSnapshotReadOnly), nil
+			}
 			receipt, err := runSend(ctx, c.Outbound, grant, name, r.Params.Arguments)
 			if err != nil {
 				return sendToolFailure(err), nil
@@ -138,7 +141,7 @@ func runSend(ctx context.Context, b Outbound, g archive.CredentialGrant, name st
 	return b.Send(ctx, g, r)
 }
 func sendCode(err error) string {
-	for _, e := range []error{outbound.ErrInvalid, outbound.ErrUnavailable, archive.ErrSendForbidden, archive.ErrSendConflict, archive.ErrSendNotFound, ErrUnauthorized, archive.ErrUnauthorized, archive.ErrPolicyChanged, archive.ErrReconciliationRequired} {
+	for _, e := range []error{archive.ErrHistoricalSnapshotReadOnly, outbound.ErrInvalid, outbound.ErrUnavailable, archive.ErrSendForbidden, archive.ErrSendConflict, archive.ErrSendNotFound, ErrUnauthorized, archive.ErrUnauthorized, archive.ErrPolicyChanged, archive.ErrReconciliationRequired} {
 		if errors.Is(err, e) {
 			return e.Error()
 		}
@@ -160,6 +163,10 @@ func serveSendAPI(w http.ResponseWriter, r *http.Request, c Config, credentials 
 	grant, err := state.principal.resolve(r.Context(), credentials)
 	if err != nil {
 		fixedHTTP(w, 401, "mcp_unauthorized")
+		return
+	}
+	if c.HistoricalSnapshot != nil && r.URL.Path != "/api/send/status" {
+		fixedHTTP(w, 403, "historical_snapshot_read_only")
 		return
 	}
 	raw, err := io.ReadAll(r.Body)

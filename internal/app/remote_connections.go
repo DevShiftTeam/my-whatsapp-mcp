@@ -94,6 +94,9 @@ func (a *Application) remoteConnectionGuide(ctx context.Context, request localui
 }
 
 func (a *Application) RevealRemoteCredential(ctx context.Context, request localui.ConnectionRevealRequest) (localui.RemoteCredentialSecret, error) {
+	if a.snapshot != nil {
+		return localui.RemoteCredentialSecret{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if request.ID == "" || request.Revision == 0 {
 		return localui.RemoteCredentialSecret{}, localui.ErrConnectionInvalid
 	}

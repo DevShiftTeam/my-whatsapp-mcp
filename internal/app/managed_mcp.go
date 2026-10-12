@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/remoteaccess"
 )
@@ -38,6 +39,9 @@ func (a *Application) ConfigureManagedMCP(ctx context.Context, cfg *ManagedMCPCo
 	return a.configureManagedMCP(ctx, cfg)
 }
 func (a *Application) configureManagedMCP(ctx context.Context, cfg *ManagedMCPConfig) error {
+	if a.snapshot != nil {
+		return archive.ErrHistoricalSnapshotReadOnly
+	}
 	if cfg == nil || cfg.Generation == 0 || !strings.HasSuffix(cfg.PublicURL, "/mcp") {
 		return remoteaccess.ErrInvalidOrigin
 	}

@@ -39,6 +39,9 @@ func RecoverOriginalCache(ctx context.Context, dataDir, backupDir string) (recei
 	if err != nil {
 		return receipt, err
 	}
+	if err := archive.RefuseHistoricalSnapshot(current.ArchiveDir); err != nil {
+		return receipt, err
+	}
 	ordered := []appdata.Paths{current, backup}
 	for _, paths := range ordered {
 		// Acquire normally creates a missing lease file. Explicit recovery uses

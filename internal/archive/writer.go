@@ -63,6 +63,9 @@ type namesCommand struct{ names SourceNames }
 type expiryCommand struct{}
 
 func (s *Store) submit(ctx context.Context, payload any, account string, control bool, n int64) (any, error) {
+	if s.historicalSnapshot {
+		return nil, ErrHistoricalSnapshotReadOnly
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

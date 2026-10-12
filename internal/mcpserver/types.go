@@ -50,6 +50,7 @@ type RemoteClientRegistry interface {
 }
 
 type Config struct {
+	HistoricalSnapshot *archive.HistoricalSnapshot
 	// Optional app-owned sender. Nil preserves the read-only surface.
 	Outbound Outbound
 	// Optional app-owned attachment service. It receives only resolved grants

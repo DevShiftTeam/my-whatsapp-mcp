@@ -28,9 +28,10 @@ type Application interface {
 }
 
 type SetupState struct {
-	Configured bool                  `json:"configured"`
-	Policy     archive.ArchivePolicy `json:"policy"`
-	Demo       bool                  `json:"demo"`
+	HistoricalSnapshot *archive.HistoricalSnapshot `json:"historical_snapshot,omitempty"`
+	Configured         bool                        `json:"configured"`
+	Policy             archive.ArchivePolicy       `json:"policy"`
+	Demo               bool                        `json:"demo"`
 }
 
 // PairingState contains no QR contents, raw source IDs or local filenames.

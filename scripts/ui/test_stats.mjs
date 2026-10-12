@@ -140,6 +140,17 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const cases = [];
 async function check(name,body) { await body(); cases.push(name); }
 
+await check('historical snapshot disables connection action without changing normal resume',async()=>{
+  const h=harness(); const action=h.nodes.get('stats-connection-action');
+  h.api.setStatus({Connection:'historical_snapshot',Paused:true,Codes:[]}); h.api.renderStatsStatus();
+  assert.equal(action.disabled,true); assert.equal(action.textContent,'Syncing disabled');
+  assert.equal(h.nodes.get('stats-connection-state').textContent,'Historical snapshot');
+  assert.match(h.nodes.get('stats-connection-description').textContent,/Read-only.*Newer messages excluded.*Sending and syncing disabled/);
+  action.click(); action.dispatch('click'); await flush(); assert.equal(h.requests.length,0);
+  h.api.setStatus({Connection:'disconnected',Paused:true,Codes:[]}); h.api.renderStatsStatus();
+  assert.equal(action.disabled,false); assert.equal(action.textContent,'Resume import');
+  action.click(); assert.equal(h.requests.length,1); assert.equal(h.requests[0].path,'/api/resume');
+});
 await check('filter payload uses scoped IDs, type and inclusive dates',async()=>{
   const h=harness(); const paging={breakdown:'chats',page:1,page_size:10,sort:'messages'}; assert.deepEqual(JSON.parse(JSON.stringify(h.api.statsFilter())),paging);
   h.nodes.get('stats-range').value='custom'; h.nodes.get('stats-from').value='2026-10-05'; h.nodes.get('stats-until').value='2026-10-11'; h.nodes.get('stats-chat').value='synthetic-chat'; h.nodes.get('stats-kind').value='voice';

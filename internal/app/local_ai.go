@@ -53,6 +53,9 @@ func (a *Application) LocalAIState(ctx context.Context) (localui.LocalAISnapshot
 }
 
 func (a *Application) SetLocalAI(ctx context.Context, update localui.LocalAIUpdate) (localui.LocalAISnapshot, error) {
+	if a.snapshot != nil {
+		return localui.LocalAISnapshot{}, archive.ErrHistoricalSnapshotReadOnly
+	}
 	if !validLocalAIChoice(update.Choice) || !knownLocalAIChoice(update.Choice) || update.ExpectedRevision == 0 {
 		return localui.LocalAISnapshot{}, localui.ErrLocalAIInvalid
 	}

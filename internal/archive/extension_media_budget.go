@@ -85,6 +85,16 @@ func extensionLoadOriginalBudget(ctx context.Context, q sqlQuerier) (OriginalBud
 }
 
 func (s *Store) GetOriginalBudget(ctx context.Context) (OriginalBudget, error) {
+	if s.historicalSnapshot {
+		bounded, cancel := s.readContext(ctx)
+		defer cancel()
+		tx, err := s.readDB.BeginTx(bounded, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			return OriginalBudget{}, fixedSQLError(err)
+		}
+		defer tx.Rollback()
+		return extensionLoadOriginalBudget(bounded, tx)
+	}
 	value, err := s.submitExtension(ctx, extensionOriginalBudgetCommand{}, 0)
 	if err != nil {
 		return OriginalBudget{}, err

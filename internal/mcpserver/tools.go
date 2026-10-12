@@ -156,6 +156,7 @@ type progressDTO struct {
 	Code     string                `json:"code,omitempty"`
 }
 type statusDTO struct {
+	HistoricalSnapshot *archive.HistoricalSnapshot `json:"historical_snapshot,omitempty"`
 	contentLabel
 	Connection             archive.ConnectionState `json:"connection"`
 	Paused                 bool                    `json:"paused"`
@@ -176,7 +177,11 @@ const chatSearchSchema = `{"type":"object","additionalProperties":false,"require
 const emptySchema = `{"type":"object","additionalProperties":false}`
 
 func newToolServer(c Config, reader guardedReader, credentials Credentials) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "wa-indexer", Version: "1.0.0"}, quietServerOptions())
+	opts := quietServerOptions()
+	if c.HistoricalSnapshot != nil {
+		opts.Instructions = "Historical snapshot — captured " + c.HistoricalSnapshot.CapturedAt.Format(time.RFC3339) + ". Read-only. Newer messages excluded. Sending and syncing disabled. Current phone state unknown; coverage partial. Source and credential expiry use current server time."
+	}
+	s := mcp.NewServer(&mcp.Implementation{Name: "wa-indexer", Version: "1.0.0"}, opts)
 	open := false
 	add := func(name, description, schema string, run func(context.Context, archive.CredentialGrant, json.RawMessage) (any, archive.ResponseGuard, error)) {
 		s.AddTool(&mcp.Tool{Name: name, Description: description, InputSchema: json.RawMessage(schema), Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &open}}, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -327,7 +332,15 @@ func newToolServer(c Config, reader guardedReader, credentials Credentials) *mcp
 		if err != nil {
 			return nil, g, err
 		}
-		return statusDTO{sourceLabel(p.Snapshot), p.Connection, p.Paused, p.ReconciliationRequired, p.Coverage, chatDTOs(p.Chats), p.Messages, progress(p.Keyword), progress(p.Semantic), progress(p.Media), p.Codes}, g, nil
+		if c.HistoricalSnapshot != nil {
+			p.Connection = "historical_snapshot"
+			p.Paused = true
+			p.Coverage = "partial"
+			p.Keyword.Pending = 0
+			p.Semantic = archive.Progress{State: "unavailable", Code: "historical_snapshot_read_only"}
+			p.Media = archive.Progress{State: "unavailable", Code: "historical_snapshot_read_only"}
+		}
+		return statusDTO{c.HistoricalSnapshot, sourceLabel(p.Snapshot), p.Connection, p.Paused, p.ReconciliationRequired, p.Coverage, chatDTOs(p.Chats), p.Messages, progress(p.Keyword), progress(p.Semantic), progress(p.Media), p.Codes}, g, nil
 	})
 	addAttachmentTools(c, add)
 	if c.Outbound != nil {
