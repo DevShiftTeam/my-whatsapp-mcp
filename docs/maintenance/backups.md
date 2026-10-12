@@ -6,7 +6,7 @@ description: Stop every writer and copy the complete private volume with ownersh
 
 Back up the **entire private data root/volume**: archive databases and any WAL/journals, WhatsApp session, originals, models, policies, configuration and client files. Never copy a live SQLite file alone. The archive contains session material and credentials; protect backups with private permissions and disk/backup encryption. No secret is needed in helper command arguments.
 
-The Docker procedure below was tested with an isolated synthetic archive on native Linux ARM64. It preserves bytes, UID/GID and private modes; real WhatsApp session reuse, native model eligibility and actual AI-client acceptance remain separate checks.
+The Docker procedure below is intended to preserve bytes, UID/GID and private modes. Combined-source backup/restore qualification is pending; real WhatsApp session reuse, native model eligibility and actual AI-client acceptance remain separate checks.
 
 ## Docker Compose backup
 

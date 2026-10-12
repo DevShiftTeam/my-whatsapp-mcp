@@ -130,7 +130,7 @@ jobs:
         run: |
           export WA_DOCKER_HELPER_IMAGE=$(docker image inspect wa-ci-helper:qualified --format '{{.Id}}')
           node scripts/docker/acceptance.mjs --image "$IMAGE" > "$DIR/acceptance.jsonl"
-          node scripts/docker/benchmark.mjs --image "$IMAGE" --comparison wa-ci-slim:qualified --samples 5 > "$DIR/benchmark.jsonl"
+          node scripts/docker/benchmark.mjs --image "$IMAGE" --comparison wa-ci-slim:qualified --samples 5 --mode serve > "$DIR/benchmark.jsonl"
           node scripts/docker/ci.mjs record "$DIR"
       - name: Upload only successful candidate and secret-free evidence
         id: upload

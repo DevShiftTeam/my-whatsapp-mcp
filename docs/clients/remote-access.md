@@ -60,7 +60,7 @@ tunnel: REPLACE_TUNNEL_UUID
 credentials-file: '/Users/YOU/.cloudflared/REPLACE_TUNNEL_UUID.json'
 ingress:
   - hostname: wa-mcp.example.com
-    path: '^/mcp$'
+    path: '^(/mcp(/attachments/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048])?|/api/send/(message|media|voice|status))$'
     service: http://127.0.0.1:8124
     originRequest:
       httpHostHeader: wa-mcp.example.com
@@ -69,7 +69,7 @@ ingress:
 
 `httpHostHeader` must be the exact public authority configured in My WhatsApp, normally `wa-mcp.example.com` for HTTPS port 443. It sets the Host header sent to the local MCP service. Keep client Origin headers unchanged; do not rewrite them to bypass validation. [Cloudflare origin parameters](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/origin-parameters/).
 
-The anchored path rule publishes `/mcp`; the final rule returns 404 for other paths/hostnames. Cloudflare forwards the matching path intact. Keep the example's literal `127.0.0.1` service; no owner/pairing/admin route belongs here. [Cloudflare ingress configuration](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/).
+The anchored path rule publishes `/mcp`, canonical `/mcp/attachments/<ticket>` downloads and exactly `/api/send/message`, `/api/send/media`, `/api/send/voice` and `/api/send/status`. These JSON routes retain client bearer and separate sending permission checks; owner cookies grant no authority. The final rule returns 404 for other paths/hostnames. Cloudflare forwards the matching path intact. Keep the example's literal `127.0.0.1` service; no owner/pairing/admin route belongs here. [Cloudflare ingress configuration](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/).
 
 ### 4. Validate, route and run
 

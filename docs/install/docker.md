@@ -4,7 +4,7 @@ description: Run the locally built preview manually with the same private contai
 ---
 # Docker
 
-Prefer [Docker Compose](docker-compose.md) to keep settings together. The manual option below uses the same **locally source-built preview**, not a registry release. First build the `wa-indexer:development` image using the Compose guide, then stop that installation before starting another archive instance. Docker Engine **28+** is required; only native Linux ARM64 has local synthetic qualification.
+Prefer [Docker Compose](docker-compose.md) to keep settings together. The manual option below uses the same **locally source-built preview**, not a registry release. First build the `wa-indexer:development` image using the Compose guide, then stop that installation before starting another archive instance. Docker Engine **28+** is required; combined-source native Linux ARM64 and AMD64 qualification is pending.
 
 ## Run the built image
 

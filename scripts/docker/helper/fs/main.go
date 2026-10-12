@@ -207,32 +207,6 @@ func run() error {
 			}
 		}
 		switch os.Args[1] {
-		case "attachment-download":
-			if len(os.Args) != 3 {
-				return fs.ErrInvalid
-			}
-			target, err := url.Parse(os.Args[2])
-			if err != nil || target.Scheme != "https" || target.Host != "docker-synthetic.invalid" || !strings.HasPrefix(target.Path, "/mcp/attachments/") || target.RawQuery != "" || target.Fragment != "" {
-				return fs.ErrInvalid
-			}
-			req, err := http.NewRequest("GET", "http://127.0.0.1:6968"+target.EscapedPath(), nil)
-			if err != nil {
-				return err
-			}
-			req.Host = target.Host
-			client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			response, err := client.Do(req)
-			if err != nil {
-				return err
-			}
-			defer response.Body.Close()
-			body, err := io.ReadAll(io.LimitReader(response.Body, 1024))
-			if err != nil {
-				return err
-			}
-			sum := sha256.Sum256(body)
-			return json.NewEncoder(os.Stdout).Encode(map[string]any{"status": response.StatusCode, "sha256": hex.EncodeToString(sum[:]), "bytes": len(body)})
-
 		case "bad-owner":
 			return os.Chown(root, 12345, 12345)
 		case "bad-nonempty":

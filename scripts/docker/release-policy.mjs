@@ -14,8 +14,20 @@ export function validateEnvironment(env,policies,version) {
   check(policies.branch_policies.every(p=>p.type==='tag'&&(p.name==='v*'||p.name===version)),'release_tag_policy_unapproved');
   return {environmentID:env.id,environment:env.name,version,configuredReview:'PASS',actualRunApproval:'NOT_VERIFIED'};
 }
+const normalServeChecks=['offlineStartup','offlineNoHelper','defaultRemoteOff','defaultNoHelper','sameVolumeRecreation'];
+function validateNormalServeProof(proof) {
+  check(proof&&normalServeChecks.every(key=>proof[key]==='PASS'),'normal_serve_proof_missing');
+}
+export function validateNormalServeBenchmark(rows) {
+  const summary=rows.at(-1);check(summary?.benchmark==='PASS'&&summary.mode==='serve','normal_serve_benchmark_required');
+  const measurements=rows.filter(row=>row.identity);
+  check(measurements.length===2&&measurements.every(row=>row.mode==='serve'),'normal_serve_measurements_required');
+  for(const row of measurements)validateNormalServeProof(row.normalServe);
+  return {benchmarkMode:'serve',normalServe:Object.fromEntries(normalServeChecks.map(key=>[key,'PASS']))};
+}
 export function validateEvidence(e,ctx) {
   check(e.schema===1&&e.acceptance==='PASS'&&e.benchmark==='PASS'&&e.native===true,'unqualified_evidence');
+  check(e.benchmarkMode==='serve','normal_serve_evidence_required');validateNormalServeProof(e.normalServe);
   for(const key of ['sourceRevision','runID','runAttempt','platform'])check(e[key]===ctx[key],'evidence_'+key+'_mismatch');
   check(e.harnessRevision===ctx.sourceRevision,'evidence_harness_mismatch');
 }

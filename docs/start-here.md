@@ -4,7 +4,7 @@ description: Choose a local installation and the access goal before pairing.
 ---
 # Start here
 
-Start with one local archive and keyword search. Native development targets macOS ARM64; Docker has a source-built keyword-search preview with local native Linux ARM64 synthetic acceptance. A downloadable app and published versioned image remain planned. Each guide records its qualification: synthetic fixtures do not prove real WhatsApp history, native AI or actual desktop clients.
+Start with one local archive and keyword search. Native development targets macOS ARM64; Docker has a source-built keyword-search preview whose combined-source native ARM64 and AMD64 qualification is pending. A downloadable app and published versioned image remain planned. Each guide records its qualification: synthetic fixtures do not prove real WhatsApp history, native AI or actual desktop clients.
 
 ## Pick where the archive lives
 

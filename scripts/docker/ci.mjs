@@ -5,7 +5,7 @@ import {pathToFileURL} from 'node:url';
 import {docker,run,check,imageIdentity} from './lib.mjs';
 import {inspectArchive,digest} from './oci.mjs';
 import {pins,skopeo,verifyPublisher} from './oci-tools.mjs';
-import {validateEvidence,checkReleaseEnvironment,checkCurrentRunApproval} from './release-policy.mjs';
+import {validateEvidence,validateNormalServeBenchmark,checkReleaseEnvironment,checkCurrentRunApproval} from './release-policy.mjs';
 
 const read=p=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p,value)=>writeFileSync(p,JSON.stringify(value,null,2)+'\n',{mode:0o600});
@@ -52,7 +52,7 @@ export function record(dir,{published=false}={}) {
   check(accepted.identity.sourceRevision===ctx.sourceRevision&&accepted.identity.harnessRevision===ctx.sourceRevision&&accepted.identity.platform===ctx.platform,'acceptance_identity_mismatch');
   if(published){check(accepted.identity.imageID===process.env.EXPECTED_CONFIG,'published_config_mismatch');save(join(dir,'verification.json'),{...ctx,acceptance:'PASS',imageID:accepted.identity.imageID,releaseReference:process.env.RELEASE_REFERENCE,anonymousPull:'PASS'});return;}
   const graph=inspectArchive(join(dir,'candidate.tar'),{...ctx,imageID:accepted.identity.imageID});
-  const benchmark=jsonLines(join(dir,'benchmark.jsonl'));check(benchmark.at(-1)?.benchmark==='PASS','benchmark_summary_missing');
+  const benchmark=jsonLines(join(dir,'benchmark.jsonl'));const normalServe=validateNormalServeBenchmark(benchmark);
   const measurements=benchmark.filter(r=>r.identity);
   check(measurements.length===2&&measurements[0].identity.imageID===accepted.identity.imageID&&measurements.every(r=>r.identity.sourceRevision===ctx.sourceRevision&&r.identity.harnessRevision===ctx.sourceRevision&&r.identity.platform===ctx.platform&&r.fresh.httpMs.samples.length>=5&&r.reusedSynthetic.httpMs.samples.length>=5),'benchmark_identity_mismatch');
   const build=read(join(dir,'build.json'));
@@ -61,7 +61,7 @@ export function record(dir,{published=false}={}) {
   // comes from its verified runnable descriptor and the actually tested image.
   const buildxVersion=readFileSync(join(dir,'buildx.txt'),'utf8').trim();
   check(buildxVersion.includes(' '+pins.ci.buildx+' '),'buildx_pin_mismatch');
-  const evidence={schema:1,...ctx,acceptance:'PASS',benchmark:'PASS',performanceBaseline:pins.ci.performanceBaseline,graph,
+  const evidence={schema:1,...ctx,acceptance:'PASS',benchmark:'PASS',...normalServe,performanceBaseline:pins.ci.performanceBaseline,graph,
     acceptanceSHA256:digest(readFileSync(join(dir,'acceptance.jsonl'))),benchmarkSHA256:digest(readFileSync(join(dir,'benchmark.jsonl'))),
     build:{metadata:build,buildxVersion,builder:readFileSync(join(dir,'builder.txt'),'utf8').trim(),helperImage:process.env.WA_DOCKER_HELPER_IMAGE,pins}};
   validateEvidence(evidence,ctx);save(join(dir,'evidence.json'),evidence);
@@ -74,7 +74,7 @@ export function verifyBundle(dir,arch) {
   check(digest(readFileSync(join(dir,'acceptance.jsonl')))===e.acceptanceSHA256&&digest(readFileSync(join(dir,'benchmark.jsonl')))===e.benchmarkSHA256,'transferred_evidence_checksum');
   const acceptance=jsonLines(join(dir,'acceptance.jsonl')).at(-1);
   check(acceptance?.acceptance==='PASS'&&acceptance.identity.imageID===graph.platforms[0].configDigest&&acceptance.identity.harnessRevision===e.harnessRevision,'transferred_acceptance_mismatch');
-  check(jsonLines(join(dir,'benchmark.jsonl')).at(-1)?.benchmark==='PASS','transferred_benchmark_missing');
+  validateNormalServeBenchmark(jsonLines(join(dir,'benchmark.jsonl')));
   return e;
 }
 

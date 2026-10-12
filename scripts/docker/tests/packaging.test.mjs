@@ -45,3 +45,30 @@ test('retained synthetic document fixture uses exact metadata lookup with guarde
  for(const code of ['retained_document_out_of_scope','retained_document_metadata','retained_original_download','expired_original_denied','revoked_original_denied'])assert.ok(file.includes(code),code);
  assert.ok(file.includes('download.bytes===83'));
 });
+
+test('Cloudflare source and guides share narrow client routes without owner access',()=>{
+ const example=read('docs/clients/examples/cloudflared.yml');
+ const pattern=example.match(/path: '([^']+)'/)[1];const allowed=new RegExp(pattern);
+ const ticket=Buffer.alloc(32,1).toString('base64url');
+ for(const path of ['/mcp','/mcp/attachments/'+ticket,'/api/send/message','/api/send/media','/api/send/voice','/api/send/status'])assert.equal(allowed.test(path),true,path);
+ for(const path of ['/','/api/setup','/api/policy','/api/connections','/api/send/other','/api/send/message/','/mcp/attachments/short','/mcp/attachments/'+ticket+'x','/mcp/attachments/'+'B'.repeat(43),'/mcp/attachments/'+ticket+'/extra','/bootstrap','/healthz','/api/remote/provider','/mcp/stdio'])assert.equal(allowed.test(path),false,path);
+ for(const name of ['docs/clients/remote-access.md','docs/remote/cloudflare.md'])assert.ok(read(name).includes(pattern),name);
+ assert.ok(example.includes('service: http_status:404'));
+});
+test('all current setup and maintenance prose keeps integrated qualification pending',()=>{
+ for(const name of ['docs/start-here.md','docs/install/docker.md','docs/maintenance/backups.md','docs/maintenance/updates.md']){
+  const text=read(name);assert.match(text,/combined-source[\s\S]*qualification is pending/i);
+  assert.doesNotMatch(text,/local native Linux ARM64 synthetic acceptance|only native Linux ARM64 has local synthetic qualification|procedure below was tested|rebuild\/recreation was tested/);
+ }
+});
+test('both native jobs require normal serve while demo benchmark selects visible Archive',()=>{
+ assert.match(read('.github/workflows/docker-native.yml'),/benchmark\.mjs[^\n]+--mode serve/);
+ const file=read('scripts/docker/benchmark.mjs');
+ assert.match(file,/getByRole\('button',\{name:'Archive',exact:true\}\)\.click\(\);await page\.locator\('#search-query'\)/);
+ assert.match(file,/normalServe:mode==='serve'/);
+});
+test('filesystem helper has one reachable downloader plus all foreign-volume fixtures',()=>{
+ const file=read('scripts/docker/helper/fs/main.go');
+ assert.equal((file.match(/case "attachment-download":/g)||[]).length,1);
+ for(const name of ['bad-owner','bad-nonempty','bad-symlink'])assert.ok(file.includes('case "'+name+'":'));
+});

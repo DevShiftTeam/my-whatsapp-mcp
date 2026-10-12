@@ -4,7 +4,7 @@ tunnel: REPLACE_TUNNEL_UUID
 credentials-file: '/Users/YOU/.cloudflared/REPLACE_TUNNEL_UUID.json'
 ingress:
   - hostname: wa-mcp.example.com
-    path: '^/mcp$'
+    path: '^(/mcp(/attachments/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048])?|/api/send/(message|media|voice|status))$'
     service: http://127.0.0.1:8124
     originRequest:
       httpHostHeader: wa-mcp.example.com

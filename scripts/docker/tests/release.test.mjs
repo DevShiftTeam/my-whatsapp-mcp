@@ -5,11 +5,12 @@ import {mkdtempSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {digest, inspectLayout,verifyMergedPlatforms,readArchive} from '../oci.mjs';
-import {releaseVersion, validateEnvironment, validateEvidence,checkReleaseEnvironment} from '../release-policy.mjs';
+import {releaseVersion, validateEnvironment, validateEvidence,validateNormalServeBenchmark,checkReleaseEnvironment} from '../release-policy.mjs';
 import {helperWithOptions} from '../lib.mjs';
 import {releaseCompose} from '../release-compose.mjs';
 import {record,verifyBundle} from '../ci.mjs';
 
+const normalServe={offlineStartup:'PASS',offlineNoHelper:'PASS',defaultRemoteOff:'PASS',defaultNoHelper:'PASS',sameVolumeRecreation:'PASS'};
 const revision='a'.repeat(40), imageSource='https://github.com/DevShiftTeam/my-whatsapp-mcp';
 function fixture({provenanceRevision=revision,subjectDigest,arch='arm64'}={}) {
   const files=new Map();
@@ -73,10 +74,10 @@ test('strict release tags and protected environment policy fail closed',()=>{
   assert.throws(()=>validateEnvironment(env,{total_count:2,branch_policies:policies.branch_policies},'v1.2.3'));
 });
 test('release evidence cannot be reused from another run/platform/source or missing benchmark',()=>{
-  const e={schema:1,sourceRevision:revision,harnessRevision:revision,runID:'10',runAttempt:'2',platform:'linux/arm64',acceptance:'PASS',benchmark:'PASS',native:true};
+  const e={schema:1,sourceRevision:revision,harnessRevision:revision,runID:'10',runAttempt:'2',platform:'linux/arm64',acceptance:'PASS',benchmark:'PASS',benchmarkMode:'serve',normalServe,native:true};
   const ctx={sourceRevision:revision,runID:'10',runAttempt:'2',platform:'linux/arm64'};
   validateEvidence(e,ctx);
-  for(const patch of [{runID:'9'},{runAttempt:'1'},{platform:'linux/amd64'},{sourceRevision:'b'.repeat(40)},{acceptance:'FAIL'},{benchmark:'NOT_RUN'},{native:false}])assert.throws(()=>validateEvidence({...e,...patch},ctx));
+  for(const patch of [{runID:'9'},{runAttempt:'1'},{platform:'linux/amd64'},{sourceRevision:'b'.repeat(40)},{acceptance:'FAIL'},{benchmark:'NOT_RUN'},{benchmarkMode:'demo'},{normalServe:undefined},{native:false}])assert.throws(()=>validateEvidence({...e,...patch},ctx));
 });
 test('environment preflight rejects unavailable APIs before scheduling publisher',async()=>{
   for(const status of [403,404,500])await assert.rejects(checkReleaseEnvironment({token:'fixture',repository:'DevShiftTeam/my-whatsapp-mcp',ref:'refs/tags/v1.2.3',request:async()=>({status})}),new RegExp('release_policy_http_'+status));
@@ -115,8 +116,8 @@ test('record and publisher verification bind exact archive, PASS summaries and c
     writeFileSync(join(dir,'candidate.tar'),tar(f.files));write('context.json',ctx);
     const identity={imageID:f.config.digest,sourceRevision:revision,harnessRevision:revision,platform:'linux/arm64'};
     write('acceptance.jsonl',{identity,acceptance:'PASS'});
-    const measurement={identity,fresh:{httpMs:{samples:[1,2,3,4,5]}},reusedSynthetic:{httpMs:{samples:[1,2,3,4,5]}}};
-    writeFileSync(join(dir,'benchmark.jsonl'),[measurement,measurement,{benchmark:'PASS'}].map(x=>JSON.stringify(x)).join('\n')+'\n');
+    const measurement={identity,mode:'serve',normalServe,fresh:{httpMs:{samples:[1,2,3,4,5]}},reusedSynthetic:{httpMs:{samples:[1,2,3,4,5]}}};
+    writeFileSync(join(dir,'benchmark.jsonl'),[measurement,measurement,{benchmark:'PASS',mode:'serve'}].map(x=>JSON.stringify(x)).join('\n')+'\n');
     // Attested BuildKit OCI output reports the root digest, not a config digest.
     write('build.json',{'containerimage.digest':f.root.digest});
     writeFileSync(join(dir,'buildx.txt'),'github.com/docker/buildx v0.38.0 fixture');writeFileSync(join(dir,'builder.txt'),'fixture');
@@ -126,4 +127,18 @@ test('record and publisher verification bind exact archive, PASS summaries and c
     write('acceptance.jsonl',{identity,acceptance:'PASS'});
     const original=readFileSync(join(dir,'candidate.tar'));original[600]^=1;writeFileSync(join(dir,'candidate.tar'),original);assert.throws(()=>verifyBundle(dir,'arm64'));
   }finally{keys.forEach((k,i)=>{if(old[i]===undefined)delete process.env[k];else process.env[k]=old[i];});rmSync(dir,{recursive:true,force:true});}
+});
+
+test('native evidence rejects demo-only benchmarks and every missing normal-serve gate',()=>{
+ const measurement={identity:{imageID:'synthetic'},mode:'serve',normalServe};
+ const summary={benchmark:'PASS',mode:'serve'};
+ assert.deepEqual(validateNormalServeBenchmark([measurement,measurement,summary]),{benchmarkMode:'serve',normalServe});
+ assert.throws(()=>validateNormalServeBenchmark([measurement,measurement,{...summary,mode:'demo'}]),/normal_serve/);
+ assert.throws(()=>validateNormalServeBenchmark([{...measurement,mode:'demo'},measurement,summary]),/normal_serve/);
+ for(const key of Object.keys(normalServe)){
+  const incomplete={...normalServe};delete incomplete[key];
+  assert.throws(()=>validateNormalServeBenchmark([{...measurement,normalServe:incomplete},measurement,summary]),/normal_serve/);
+  const e={schema:1,sourceRevision:revision,harnessRevision:revision,runID:'10',runAttempt:'2',platform:'linux/arm64',acceptance:'PASS',benchmark:'PASS',benchmarkMode:'serve',normalServe:incomplete,native:true};
+  assert.throws(()=>validateEvidence(e,e),/normal_serve/);
+ }
 });

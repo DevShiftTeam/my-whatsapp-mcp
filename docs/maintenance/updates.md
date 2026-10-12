@@ -16,7 +16,7 @@ docker compose ps
 docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
 ```
 
-The build replaces the app image; the named volume persists. A same-source rebuild/recreation was tested with synthetic policy, archive, session files, client grants/private configurations and inert model storage. That test does not prove compatibility of a future migration or a real WhatsApp session. Never delete storage, prune volumes or narrow archive policy to perform an update.
+The build replaces the app image; the named volume persists. Combined-source rebuild/recreation and persistence qualification is pending. Verify synthetic policy, archive, session files, client grants/private configurations and model storage before relying on a new image. Such tests do not prove compatibility of a future migration or a real WhatsApp session. Never delete storage, prune volumes or narrow archive policy to perform an update.
 
 When a qualified versioned release becomes available, back up first, select its exact image in the release Compose file, run `docker compose pull`, then `docker compose up -d`. There is no public release image to pull today. Retain the same project/volume and do not use `latest`.
 
