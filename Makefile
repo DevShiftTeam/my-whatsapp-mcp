@@ -1,7 +1,7 @@
 GO ?= go
 GOFMT ?= gofmt
 PYTHON ?= python3
-TAGS := fts5,sqlite_fts5
+TAGS := fts5,sqlite_fts5,ts_omit_logtail
 ARGS ?=
 
 .PHONY: build run demo test vet formatcheck script-test ui-test

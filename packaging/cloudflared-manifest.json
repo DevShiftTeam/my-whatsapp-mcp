@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "version": "2026.10.0",
+  "source_revision": "18cdfe0a6fc7b72a0702d255a1f984e776ce0498",
+  "license": "Apache-2.0",
+  "upstream_tag_signed": false,
+  "upstream_vcs_modified": true,
+  "assets": [
+    {
+      "platform": "linux/amd64",
+      "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-amd64",
+      "archive_format": "executable",
+      "archive_size": 40129756,
+      "archive_sha256": "d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db",
+      "executable_size": 40129756,
+      "executable_sha256": "d33ff2d14475178d2012c2c56beba87389ac5ded27649519f198a7d3134a99db"
+    },
+    {
+      "platform": "linux/arm64",
+      "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-linux-arm64",
+      "archive_format": "executable",
+      "archive_size": 37687584,
+      "archive_sha256": "e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08",
+      "executable_size": 37687584,
+      "executable_sha256": "e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d72a80b5ac08"
+    },
+    {
+      "platform": "darwin/arm64",
+      "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-darwin-arm64.tgz",
+      "archive_format": "tgz",
+      "archive_size": 19809074,
+      "archive_sha256": "a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70",
+      "executable_size": 39364384,
+      "executable_sha256": "72edfd3eea463aef4d5cb89e2e209cecb048cc756c2b01915de2e0ad7cb39830"
+    }
+  ]
+}

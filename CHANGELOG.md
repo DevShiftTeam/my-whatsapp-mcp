@@ -4,6 +4,9 @@
 
 ### Added
 
+- Additive source-preview Docker/Compose packaging, persistent managed remote access and separate phone-owner login, retaining existing archive, attachment, send, Stats, theme, transcription and manual admin workflows.
+- Strict allowlisted public documentation with HTML/search/Markdown parity and native-architecture container validation workflows; combined-source runtime and provider qualification remains pending.
+
 - System-default light and dark appearance with a browser-local override on the login screen and across the responsive archive interface.
 - A richer Stats view with UTC weekly rhythm and saved-history highlights, interactive activity charts, and sortable, paginated conversation and sender breakdowns under the same archive filters.
 - A refreshed GitHub overview with product illustrations, current feature limits, and linked guides; a prioritized roadmap for easier semantic setup, document text extraction, and local message presets.

@@ -1,0 +1,30 @@
+name: Docker native validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+  DOCKER_BUILD_SUMMARY: 'false'
+
+jobs:
+  amd64:
+    uses: ./.github/workflows/docker-native.yml
+    permissions:
+      contents: read
+    with:
+      arch: amd64
+      runner: ubuntu-24.04
+  arm64:
+    uses: ./.github/workflows/docker-native.yml
+    permissions:
+      contents: read
+    with:
+      arch: arm64
+      runner: ubuntu-24.04-arm

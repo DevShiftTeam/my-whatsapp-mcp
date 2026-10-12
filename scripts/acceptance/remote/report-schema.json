@@ -1,0 +1,727 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bounded body-free remote acceptance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "fixture": {
+      "const": "remote-synthetic-v1"
+    },
+    "testedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "provider": {
+      "enum": [
+        "tailscale_serve",
+        "tailscale_funnel",
+        "ngrok",
+        "cloudflare"
+      ]
+    },
+    "browser": {
+      "type": "boolean"
+    },
+    "outcome": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_RUN"
+      ]
+    },
+    "identity": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "artifactDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "helperDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "harnessDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "endpointDigest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "buildSha": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{40}$"
+            },
+            "platform": {
+              "enum": [
+                "darwin",
+                "linux"
+              ]
+            },
+            "architecture": {
+              "enum": [
+                "arm64",
+                "amd64"
+              ]
+            },
+            "tailscale": {
+              "const": "1.104.1"
+            },
+            "ngrok": {
+              "const": "2.2.0"
+            },
+            "cloudflared": {
+              "const": "2026.10.0"
+            },
+            "harnessVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._+()/-]*$"
+            },
+            "client": {
+              "enum": [
+                "codex",
+                "claude_code",
+                "claude_connector",
+                "composio"
+              ]
+            },
+            "clientVersion": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._+()/-]*$"
+            }
+          },
+          "required": [
+            "artifactDigest",
+            "helperDigest",
+            "harnessDigest",
+            "endpointDigest",
+            "buildSha",
+            "platform",
+            "architecture",
+            "tailscale",
+            "ngrok",
+            "cloudflared",
+            "harnessVersion",
+            "client",
+            "clientVersion"
+          ]
+        }
+      ]
+    },
+    "missing": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 14,
+      "items": {
+        "enum": [
+          "missing_build",
+          "missing_account",
+          "missing_domain",
+          "missing_permission",
+          "missing_harness",
+          "missing_client",
+          "missing_enrolled_device",
+          "missing_unenrolled_device",
+          "missing_external_device",
+          "missing_phone",
+          "missing_runner",
+          "missing_provider_credential",
+          "missing_mcp_credential",
+          "missing_owner_credential"
+        ]
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reconnect_same_url": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "restart_same_url": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "recreate_same_url": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "upgrade_same_url": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "provider_revocation_actionable": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "local_search_during_outage": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "provider_recovery_same_url": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "search_then_context_returned_id": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "list_chats": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "get_index_status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "anonymous_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "wrong_token_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "expired_token_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "excluded_chat_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "excluded_date_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "previous_id_after_scope_narrowing_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "all_tools_after_revocation_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "provider_owner_mcp_credentials_separate": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "enabled_provider_shutdown": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "enrolled_device_allowed": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "unenrolled_device_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "external_reachability": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "phone_login": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "phone_synthetic_search": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "phone_logout_denied": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "phone_mcp_credential_rejected": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "ngrok_html_interstitial_observed": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "fixture",
+    "testedAt",
+    "provider",
+    "browser",
+    "outcome",
+    "identity",
+    "missing",
+    "checks"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "artifactDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "helperDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "harnessDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "endpointDigest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "buildSha": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "platform": {
+                "enum": [
+                  "darwin",
+                  "linux"
+                ]
+              },
+              "architecture": {
+                "enum": [
+                  "arm64",
+                  "amd64"
+                ]
+              },
+              "tailscale": {
+                "const": "1.104.1"
+              },
+              "ngrok": {
+                "const": "2.2.0"
+              },
+              "cloudflared": {
+                "const": "2026.10.0"
+              },
+              "harnessVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._+()/-]*$"
+              },
+              "client": {
+                "enum": [
+                  "codex",
+                  "claude_code",
+                  "claude_connector",
+                  "composio"
+                ]
+              },
+              "clientVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._+()/-]*$"
+              }
+            },
+            "required": [
+              "artifactDigest",
+              "helperDigest",
+              "harnessDigest",
+              "endpointDigest",
+              "buildSha",
+              "platform",
+              "architecture",
+              "tailscale",
+              "ngrok",
+              "cloudflared",
+              "harnessVersion",
+              "client",
+              "clientVersion"
+            ]
+          },
+          "missing": {
+            "maxItems": 0
+          },
+          "checks": {
+            "required": [
+              "reconnect_same_url",
+              "restart_same_url",
+              "recreate_same_url",
+              "upgrade_same_url",
+              "provider_revocation_actionable",
+              "local_search_during_outage",
+              "provider_recovery_same_url",
+              "search_then_context_returned_id",
+              "list_chats",
+              "get_index_status",
+              "anonymous_denied",
+              "wrong_token_denied",
+              "expired_token_denied",
+              "excluded_chat_denied",
+              "excluded_date_denied",
+              "previous_id_after_scope_narrowing_denied",
+              "all_tools_after_revocation_denied",
+              "provider_owner_mcp_credentials_separate",
+              "enabled_provider_shutdown"
+            ],
+            "properties": {
+              "reconnect_same_url": {
+                "const": "PASS"
+              },
+              "restart_same_url": {
+                "const": "PASS"
+              },
+              "recreate_same_url": {
+                "const": "PASS"
+              },
+              "upgrade_same_url": {
+                "const": "PASS"
+              },
+              "provider_revocation_actionable": {
+                "const": "PASS"
+              },
+              "local_search_during_outage": {
+                "const": "PASS"
+              },
+              "provider_recovery_same_url": {
+                "const": "PASS"
+              },
+              "search_then_context_returned_id": {
+                "const": "PASS"
+              },
+              "list_chats": {
+                "const": "PASS"
+              },
+              "get_index_status": {
+                "const": "PASS"
+              },
+              "anonymous_denied": {
+                "const": "PASS"
+              },
+              "wrong_token_denied": {
+                "const": "PASS"
+              },
+              "expired_token_denied": {
+                "const": "PASS"
+              },
+              "excluded_chat_denied": {
+                "const": "PASS"
+              },
+              "excluded_date_denied": {
+                "const": "PASS"
+              },
+              "previous_id_after_scope_narrowing_denied": {
+                "const": "PASS"
+              },
+              "all_tools_after_revocation_denied": {
+                "const": "PASS"
+              },
+              "provider_owner_mcp_credentials_separate": {
+                "const": "PASS"
+              },
+              "enabled_provider_shutdown": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          },
+          "provider": {
+            "const": "tailscale_serve"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "required": [
+              "enrolled_device_allowed",
+              "unenrolled_device_denied"
+            ],
+            "properties": {
+              "enrolled_device_allowed": {
+                "const": "PASS"
+              },
+              "unenrolled_device_denied": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          },
+          "provider": {
+            "const": "tailscale_funnel"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "required": [
+              "external_reachability"
+            ],
+            "properties": {
+              "external_reachability": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          },
+          "provider": {
+            "const": "ngrok"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "required": [
+              "external_reachability"
+            ],
+            "properties": {
+              "external_reachability": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          },
+          "provider": {
+            "const": "cloudflare"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "required": [
+              "external_reachability"
+            ],
+            "properties": {
+              "external_reachability": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          },
+          "browser": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "required": [
+              "phone_login",
+              "phone_synthetic_search",
+              "phone_logout_denied",
+              "phone_mcp_credential_rejected"
+            ],
+            "properties": {
+              "phone_login": {
+                "const": "PASS"
+              },
+              "phone_synthetic_search": {
+                "const": "PASS"
+              },
+              "phone_logout_denied": {
+                "const": "PASS"
+              },
+              "phone_mcp_credential_rejected": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "PASS"
+          },
+          "browser": {
+            "const": true
+          },
+          "provider": {
+            "const": "ngrok"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "checks": {
+            "required": [
+              "ngrok_html_interstitial_observed"
+            ],
+            "properties": {
+              "ngrok_html_interstitial_observed": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "NOT_RUN"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "missing": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

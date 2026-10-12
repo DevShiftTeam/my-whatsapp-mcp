@@ -54,7 +54,7 @@ For an MCP-only tunnel, route `/mcp` and canonical `/mcp/attachments/<ticket>` r
 
 Returning a URL does not establish that the AI host consumed the file. Test a known, non-sensitive attachment and confirm the client can download and read it before relying on this workflow.
 
-See the [attachment qualification record](evidence/2026-10-11-attachments.md) for a tested remote MCP and Composio transfer, a separate local PDF text check, and their limits.
+Combined-source attachment download and exact-client qualification is pending. Reading a downloaded PDF depends on the client and remains separate from the archive’s metadata search; no document-body indexing is claimed.
 
 ## Documents imported before attachment support
 

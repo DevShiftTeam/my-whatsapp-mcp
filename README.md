@@ -30,9 +30,20 @@ Connect your AI tools through **MCP with read + send**. Codex, Claude Code, and 
 
 Semantic and hybrid search, image OCR, and image descriptions are **experimental**. They require a separately prepared native bundle; there is no supported one-command installer or selected semantic release profile yet. See [native models](docs/native-models.md).
 
+## Docker Compose and managed remote access
+
+The additive source preview adds a private persistent Docker setup, generated Docker stdio adapters, optional managed HTTPS providers and a separate password-protected phone interface. Existing features and manual remote-admin setup remain available. Combined-source image, provider and exact-client qualification is pending; there is no published container image.
+
+```sh
+docker compose -f compose.yaml -f compose.build.yaml up -d --build
+docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
+```
+
+Open the returned short-lived private link. Continue with [Docker Compose](docs/install/docker-compose.md), [remote access](docs/remote/index.md) and [compatibility](docs/compatibility.md). Public documentation is prepared for GitHub Pages under `/my-whatsapp-mcp/`; Pages does not run your archive.
+
 ## Start locally
 
-You need **Go 1.27.1, a C compiler, and a browser** on macOS 14 or newer, or Linux. The basic app needs no Docker, Node.js, Python, model download, or paid API. Windows is unsupported.
+You need **Go 1.27.1, a C compiler, and a browser** on macOS 14 or newer, or Linux. The running basic app needs no Docker, Node.js, Python, model download, or paid API. The source build uses Python 3 to verify and bundle the optional Cloudflare helper on supported platforms. Windows is unsupported.
 
 ```sh
 git clone https://github.com/DevShiftTeam/my-whatsapp-mcp.git

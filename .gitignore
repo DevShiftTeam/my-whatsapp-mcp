@@ -29,3 +29,12 @@ bin/
 .superpowers/
 .codex/
 .claude/
+
+# Private integration evidence and generated documentation
+docs/.vitepress/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+docs/.vitepress/.generated/
+docs/.vitepress/test-results/
+docs/.vitepress/playwright-report/
+docs/.vitepress/.content/

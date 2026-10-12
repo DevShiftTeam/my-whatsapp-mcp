@@ -8,7 +8,7 @@ There are two different features to consider:
 
 | Feature | How it works | Project status |
 | --- | --- | --- |
-| Local message preset | Save reusable text, fill variables, preview it, and authorize an ordinary send through the linked account. | Proposed in the [roadmap](roadmap.md#3-reusable-local-message-presets). |
+| Local message preset | Save reusable text, fill variables, preview it, and authorize an ordinary send through the linked account. | Proposed in the [roadmap](roadmap.md). |
 | Official business template | Send a Meta-approved template with its locale and component parameters through the Business Platform API. | Reference only; no adapter in this app. |
 
 A local preset does not become an approved business template. Linking a WhatsApp Business app with a QR code does not create Cloud API credentials or qualify a business for API template messaging.

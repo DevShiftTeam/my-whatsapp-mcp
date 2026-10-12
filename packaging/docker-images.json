@@ -1,0 +1,93 @@
+{
+  "status": "source-build-preview",
+  "toolchain": "go1.27.1",
+  "bases": {
+    "builder": {
+      "reference": "golang:1.27.1-trixie@sha256:8f58fd67ea075142d947a60e0caa4317746a55118d312f027793d382c7741734",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ]
+    },
+    "minimal": {
+      "reference": "gcr.io/distroless/base-nossl-debian13:nonroot@sha256:8c563c1fb5e120606f0d85733049775faed6192e2bd2223ef283a5393eec22b9",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ]
+    },
+    "slim": {
+      "reference": "debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ]
+    }
+  },
+  "qualification": {
+    "linux/amd64": "NOT_RUN",
+    "linux/arm64": "requires local acceptance; not a published release"
+  },
+  "native_ai": "not bundled or qualified",
+  "ci": {
+    "status": "prepared; native hosted runners and GHCR NOT_RUN",
+    "buildx": "v0.38.0",
+    "buildkit": "moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c",
+    "sbomGenerator": "docker/buildkit-syft-scanner:stable-1@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9",
+    "publisher": "quay.io/skopeo/stable:v1.22.3@sha256:e5d5d2815b94d74767d40be7111647c3e9cdc84406a638ffe1c7ea1f286f52a3",
+    "publisherVersion": "skopeo version 1.22.3 commit: 92397d5ba399784c6e2f9f229a4244b724743dba",
+    "localProofRegistry": "registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8",
+    "node": "24.21.0",
+    "releaseEnvironment": "docker-release",
+    "image": "ghcr.io/devshiftteam/my-whatsapp-mcp",
+    "licenses": "GPL-3.0-only",
+    "performanceBaseline": "UNQUALIFIED: no comparable native hosted-runner baseline",
+    "pinAuditDate": "2026-10-12",
+    "pinSources": [
+      "https://github.com/docker/buildx/releases/tag/v0.38.0",
+      "https://hub.docker.com/r/moby/buildkit",
+      "https://hub.docker.com/r/docker/buildkit-syft-scanner",
+      "https://quay.io/repository/skopeo/stable",
+      "https://github.com/podman-container-tools/image_build/blob/b86020d8c306c4724780adfb6fc492d0a2d9cc48/skopeo/README.md"
+    ],
+    "buildxChecksums": {
+      "linux/amd64": "4fe4cc38adf48169132749b6ca22a990928db0118e3407584ee553723115d287",
+      "linux/arm64": "38e890e1a162bfdbf32fbe91404991dc4fc28e55b0de901b34374a061bab4d2c",
+      "darwin/arm64": "85989b895add5f119c1ccf8eada2f6892fc33ccf16bd8917638eae404ef26344"
+    },
+    "actions": {
+      "actions/checkout": {
+        "version": "v5",
+        "sha": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
+      },
+      "actions/setup-node": {
+        "version": "v5",
+        "sha": "a0853c24544627f65ddf259abe73b1d18a591444"
+      },
+      "actions/setup-go": {
+        "version": "v7.0.0",
+        "sha": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+      },
+      "actions/upload-artifact": {
+        "version": "v7.0.2",
+        "sha": "cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+      },
+      "actions/download-artifact": {
+        "version": "v8.0.2",
+        "sha": "9000827ccba6bdab643e8b6fd33ac0654aef8333"
+      },
+      "docker/setup-buildx-action": {
+        "version": "v4.4.1",
+        "sha": "f87e5991a6d7451dcb8d9637bfbc97413f497069"
+      },
+      "docker/build-push-action": {
+        "version": "v7.4.0",
+        "sha": "c3c9e263c25d99ce0380d002d59b67737d91b0dc"
+      },
+      "docker/login-action": {
+        "version": "v4.6.0",
+        "sha": "dbcb813823bdd20940b903addbd779551569679f"
+      }
+    }
+  }
+}

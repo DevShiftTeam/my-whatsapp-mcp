@@ -1,0 +1,7 @@
+services:
+  wa-indexer:
+    build:
+      context: .
+      target: runtime
+      args:
+        SOURCE_REVISION: ${WA_INDEXER_SOURCE_REVISION:-unknown}

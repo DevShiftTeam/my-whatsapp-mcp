@@ -129,4 +129,4 @@ With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request
 
 Manually check keyboard access, dialogs, narrow screens, and Hebrew/English text when changing the browser interface. There is no npm install step.
 
-Optional native tests use separate build tags and verified artifacts. A passing ordinary test suite does not establish inference quality, memory use on target hardware, or clean-machine bundle startup. See [native models](native-models.md) and [macOS packaging](../packaging/macos/README.md).
+Optional native tests use separate build tags and verified artifacts. A passing ordinary test suite does not establish inference quality, memory use on target hardware, or clean-machine bundle startup. See [native models](native-models.md) and [macOS packaging](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/packaging/macos/README.md).

@@ -1,0 +1,21 @@
+# Opt-in only; provision the private runtime/token before selecting this file.
+services:
+  wa-indexer:
+    command: ["serve", "--container", "--browser-origin", "http://127.0.0.1:${WA_INDEXER_PORT:-8123}", "--docker-container-name", "${WA_INDEXER_CONTAINER_NAME:-wa-indexer}", "--data-dir", "/var/lib/wa-indexer/data", "--transcription-env-file", "/var/lib/transcription/runtime/transcription.env"]
+    volumes: ["wa_transcription:/var/lib/transcription:ro"]
+  transcription:
+    image: my-whatsapp-transcription:local
+    profiles: [transcription]
+    network_mode: service:wa-indexer
+    volumes: ["wa_transcription:/var/lib/transcription"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m,mode=1777"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+volumes:
+  wa_transcription:
+    external: true
+    name: wa-indexer-transcription

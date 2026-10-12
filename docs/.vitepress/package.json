@@ -1,0 +1,28 @@
+{
+  "name": "wa-indexer-public-docs",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check:output": "node scripts/check-output.mjs",
+    "check:dependencies": "node scripts/check-dependencies.mjs",
+    "preview": "node scripts/preview.mjs",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "acorn": "8.19.0",
+    "gray-matter": "4.0.3",
+    "markdown-it": "14.3.2",
+    "parse5": "8.0.1",
+    "postcss-value-parser": "4.2.0",
+    "vitepress": "1.6.4",
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}

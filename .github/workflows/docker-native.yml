@@ -1,0 +1,147 @@
+name: Native Docker qualification
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        required: true
+      runner:
+        type: string
+        required: true
+    outputs:
+      artifact-id:
+        value: ${{ jobs.native.outputs.artifact-id }}
+      artifact-digest:
+        value: ${{ jobs.native.outputs.artifact-digest }}
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: go1.27.1
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+  DOCKER_BUILD_SUMMARY: 'false'
+
+jobs:
+  native:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: docs/.vitepress/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+          check-latest: false
+          cache: true
+      - name: Verify native runner and immutable checkout
+        id: prepare
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: node scripts/docker/ci.mjs prepare "$ARCH"
+      - name: Install locked browser dependencies and native SDK helper
+        run: |
+          npm ci --prefix docs/.vitepress
+          node docs/.vitepress/node_modules/@playwright/test/cli.js install --with-deps chromium
+          go build -o "$WA_DOCKER_SDK_HELPER" ./scripts/docker/helper/sdk
+          node --test scripts/docker/tests/*.test.mjs
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        id: builder
+        with:
+          version: ${{ steps.prepare.outputs.buildx }}
+          driver-opts: image=${{ steps.prepare.outputs.buildkit }}
+      - name: Start separate candidate build measurement
+        env:
+          DIR: ${{ steps.prepare.outputs.dir }}
+        run: node --input-type=module -e 'import {writeFileSync} from "node:fs"; writeFileSync(process.env.DIR+"/build-start.txt", String(Date.now()))'
+      - name: Build attested candidate once
+        id: candidate
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          tags: wa-ci-runtime:qualified
+          platforms: ${{ steps.prepare.outputs.platform }}
+          build-args: |
+            SOURCE_REVISION=${{ steps.prepare.outputs.source }}
+            BUILD_CACHE_SCOPE=ci-${{ inputs.arch }}-go1.27.1
+          labels: |
+            org.opencontainers.image.source=https://github.com/DevShiftTeam/my-whatsapp-mcp
+            org.opencontainers.image.licenses=GPL-3.0-only
+          provenance: mode=max
+          sbom: generator=${{ steps.prepare.outputs.sbom }}
+          outputs: type=oci,dest=${{ steps.prepare.outputs.dir }}/candidate.tar,compression=gzip
+          cache-from: type=gha,scope=runtime-${{ inputs.arch }}-go1.27.1,version=2
+          cache-to: type=gha,scope=runtime-${{ inputs.arch }}-go1.27.1,version=2,mode=max
+      - name: Save secret-free build identity and load runnable candidate
+        id: load
+        env:
+          DIR: ${{ steps.prepare.outputs.dir }}
+          ARCH: ${{ inputs.arch }}
+          BUILDER: ${{ steps.builder.outputs.name }}
+          BUILD_METADATA: ${{ steps.candidate.outputs.metadata }}
+        run: |
+          node --input-type=module -e 'import {writeFileSync,readFileSync} from "node:fs"; const m=JSON.parse(process.env.BUILD_METADATA); m["wa.candidateBuildMs"]=Date.now()-Number(readFileSync(process.env.DIR+"/build-start.txt","utf8")); m["wa.acquisitionAndCache"]="cache-eligible solve; no separate cold acquisition or clean-build claim"; writeFileSync(process.env.DIR+"/build.json", JSON.stringify(m))'
+          docker buildx version > "$DIR/buildx.txt"
+          docker buildx inspect "$BUILDER" > "$DIR/builder.txt"
+          node scripts/docker/ci.mjs load "$DIR" "$ARCH"
+      - name: Build isolated filesystem helper
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: harness
+          platforms: ${{ steps.prepare.outputs.platform }}
+          load: true
+          tags: wa-ci-helper:qualified
+          provenance: false
+          build-args: BUILD_CACHE_SCOPE=ci-${{ inputs.arch }}-go1.27.1
+          cache-from: type=gha,scope=helper-${{ inputs.arch }}-go1.27.1,version=2
+          cache-to: type=gha,scope=helper-${{ inputs.arch }}-go1.27.1,version=2,mode=max
+      - name: Build same-source slim comparison
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: slim
+          platforms: ${{ steps.prepare.outputs.platform }}
+          load: true
+          tags: wa-ci-slim:qualified
+          provenance: false
+          build-args: |
+            SOURCE_REVISION=${{ steps.prepare.outputs.source }}
+            BUILD_CACHE_SCOPE=ci-${{ inputs.arch }}-go1.27.1
+          cache-from: type=gha,scope=slim-${{ inputs.arch }}-go1.27.1,version=2
+          cache-to: type=gha,scope=slim-${{ inputs.arch }}-go1.27.1,version=2,mode=max
+      - name: Qualify exact config on fresh synthetic volumes
+        env:
+          DIR: ${{ steps.prepare.outputs.dir }}
+          IMAGE: ${{ steps.load.outputs.image }}
+        run: |
+          export WA_DOCKER_HELPER_IMAGE=$(docker image inspect wa-ci-helper:qualified --format '{{.Id}}')
+          node scripts/docker/acceptance.mjs --image "$IMAGE" > "$DIR/acceptance.jsonl"
+          node scripts/docker/benchmark.mjs --image "$IMAGE" --comparison wa-ci-slim:qualified --samples 5 > "$DIR/benchmark.jsonl"
+          node scripts/docker/ci.mjs record "$DIR"
+      - name: Upload only successful candidate and secret-free evidence
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-${{ inputs.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.prepare.outputs.dir }}/candidate.tar
+            ${{ steps.prepare.outputs.dir }}/evidence.json
+            ${{ steps.prepare.outputs.dir }}/acceptance.jsonl
+            ${{ steps.prepare.outputs.dir }}/benchmark.jsonl
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

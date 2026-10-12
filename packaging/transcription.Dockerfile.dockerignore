@@ -1,0 +1,6 @@
+**
+!services/
+!services/transcription/
+!services/transcription/*.py
+!services/transcription/*.json
+!services/transcription/requirements.txt

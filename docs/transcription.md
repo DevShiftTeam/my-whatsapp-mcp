@@ -146,3 +146,28 @@ Fresh copies must pass the same source, policy, expiry, deletion, conflict, and 
 Phone requests also check the saved WhatsApp identity and message direction against the archive. If the identities disagree, the request is skipped. A successful request acknowledgement still does not establish that the recording arrived.
 
 For read-only AI access, see [MCP setup](mcp.md). For native image and semantic previews, see [native models](native-models.md).
+
+## Optional Docker service
+
+The native setup above remains supported. The default archive Compose file has no transcription service or model dependency. This optional container recipe is a source preview awaiting architecture, memory and recording-quality qualification. Its image is separate from the minimal archive image. Dependency/model acquisition happens during explicit provisioning, not ordinary archive startup.
+
+Build the optional Python 3.11 provisioning image, then install the runtime and model into a separate private volume. Use the image's Linux environment rather than copying a macOS virtual environment:
+
+```sh
+docker build -f packaging/transcription.Dockerfile -t my-whatsapp-transcription:local .
+docker volume create wa-indexer-transcription
+docker run --rm --mount source=wa-indexer-transcription,target=/var/lib/transcription \
+  my-whatsapp-transcription:local python3.11 /opt/transcription/setup.py \
+  --data-dir /var/lib/transcription/runtime --python python3.11
+```
+
+Provisioning downloads dependencies and the verified model and creates a mode-0600 private env file inside mode-0700 directories owned by UID/GID 10001. That file includes both `WA_TRANSCRIPTION_TOKEN` and matching `WA_INDEXER_TRANSCRIPTION_TOKEN`; do not print it or put it in the checkout. Keep the generated URL/listen pair `http://127.0.0.1:6971` and `127.0.0.1:6971`. Select a reviewed digest through `TRANSCRIPTION_BASE` before distributing this optional image.
+
+```sh
+docker compose -f compose.yaml -f compose.build.yaml -f compose.transcription.yaml \
+  --profile transcription up -d --build
+```
+
+The optional service uses `network_mode: service:wa-indexer`, so both processes share literal loopback. It publishes no transcription port. The archive mounts the same token file read-only; the service mounts its private runtime read/write. A separate network hostname such as `http://transcription:6971` is incompatible with the existing loopback-only adapter. No `depends_on` makes transcription a default boot requirement. When using this override, start the optional service deliberately, wait for processing, then compare an actual recording to the generated text. HTTP readiness alone does not qualify transcription.
+
+If the archive container is recreated, recreate the transcription service too so it joins the new network namespace. Stop both before backing up the transcription volume. Its model/runtime/token volume is separate from the archive volume and should remain private. To return to text-only startup, use only `compose.yaml` and `compose.build.yaml`; retain both volumes unless you explicitly intend to remove them.

@@ -32,4 +32,4 @@ The permitted range is 64 MiB to 1 TiB. Omitting the argument preserves the save
 
 ## Working on native support
 
-See [development](development.md) and [macOS packaging](../packaging/macos/README.md). The manifests under `packaging/` are inputs and provenance records, not complete release artifacts. Preserve upstream notices and review the licenses for the exact binaries and weights you distribute.
+See [development](development.md) and [macOS packaging](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/packaging/macos/README.md). The manifests under `packaging/` are inputs and provenance records, not complete release artifacts. Preserve upstream notices and review the licenses for the exact binaries and weights you distribute.

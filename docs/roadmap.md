@@ -49,4 +49,4 @@ These are app conveniences, not Meta-approved WhatsApp Business Platform templat
 
 ## Contributing
 
-Before implementing a roadmap item, propose its scope, resource budget, supported platforms, and validation examples. Use synthetic conversations and documents in tests. Keep the authoritative guide and [changelog](../CHANGELOG.md#unreleased) current as behavior changes; see [development](development.md) and [contributing](../CONTRIBUTING.md).
+Before implementing a roadmap item, propose its scope, resource budget, supported platforms, and validation examples. Use synthetic conversations and documents in tests. Keep the authoritative guide and [changelog](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/CHANGELOG.md#unreleased) current as behavior changes; see [development](development.md) and [contributing](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/CONTRIBUTING.md).

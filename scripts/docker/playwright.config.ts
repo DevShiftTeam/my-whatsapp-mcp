@@ -1,0 +1,2 @@
+import {defineConfig} from '../../docs/.vitepress/node_modules/@playwright/test/index.mjs';
+export default defineConfig({testDir:'./tests',testMatch:'docker.spec.ts',workers:1,retries:0,timeout:180000,reporter:[['./safe-reporter.cjs']],outputDir:'../../.superpowers/sdd/2026-10-12-docker-deployment/browser-output',use:{actionTimeout:10000,browserName:'chromium',headless:true,trace:'off',screenshot:'off',video:'off',timezoneId:'UTC'},preserveOutput:'never'});

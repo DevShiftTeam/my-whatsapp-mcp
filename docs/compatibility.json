@@ -1,0 +1,218 @@
+{
+  "index": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "start-here": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "install/docker-compose": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "install/docker": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "install/desktop": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "first-run": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "remote/index": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "remote/tailscale-serve": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "remote/tailscale-funnel": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "remote/ngrok": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "remote/cloudflare": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "remote/phone-access": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "everyday/search": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "everyday/media-and-models": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "maintenance/updates": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "maintenance/backups": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "maintenance/uninstall": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "troubleshooting": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "compatibility": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "user-guide": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "clients/codex": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "clients/claude-code": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "clients/claude-connectors": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "clients/composio": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "clients/remote-access": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "setup": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "mcp": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "attachments": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "clients/outbound-messaging": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "stats": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "transcription": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "native-models": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "business-messaging": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "roadmap": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "alternatives": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  },
+  "development": {
+    "availability": "preview",
+    "status": "documentation_reviewed",
+    "reviewedAt": "2026-10-12",
+    "tests": []
+  }
+}

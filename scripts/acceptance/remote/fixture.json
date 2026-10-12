@@ -1,0 +1,75 @@
+{
+  "id": "remote-synthetic-v1",
+  "personalArchiveAllowed": false,
+  "whatsappProvisioningAllowed": false,
+  "chats": [
+    {
+      "id": "acceptance-allowed",
+      "messages": [
+        {
+          "id": "allowed-en",
+          "date": "2026-01-15",
+          "text": "Synthetic Project Atlas blue notebook"
+        },
+        {
+          "id": "allowed-he",
+          "date": "2026-01-16",
+          "text": "בדיקת ארכיון סינתטי בלבד"
+        }
+      ]
+    },
+    {
+      "id": "acceptance-excluded",
+      "messages": [
+        {
+          "id": "excluded-chat",
+          "date": "2026-01-15",
+          "text": "Synthetic excluded chat"
+        }
+      ]
+    }
+  ],
+  "allowedDates": {
+    "from": "2026-01-15",
+    "to": "2026-01-16"
+  },
+  "outsideDate": {
+    "id": "excluded-date",
+    "date": "2025-01-01",
+    "text": "Synthetic excluded date"
+  },
+  "checks": [
+    "reconnect_same_url",
+    "restart_same_url",
+    "recreate_same_url",
+    "upgrade_same_url",
+    "provider_revocation_actionable",
+    "local_search_during_outage",
+    "provider_recovery_same_url",
+    "search_then_context_returned_id",
+    "list_chats",
+    "get_index_status",
+    "anonymous_denied",
+    "wrong_token_denied",
+    "expired_token_denied",
+    "excluded_chat_denied",
+    "excluded_date_denied",
+    "previous_id_after_scope_narrowing_denied",
+    "all_tools_after_revocation_denied",
+    "provider_owner_mcp_credentials_separate",
+    "enabled_provider_shutdown"
+  ],
+  "privateChecks": [
+    "enrolled_device_allowed",
+    "unenrolled_device_denied"
+  ],
+  "publicChecks": [
+    "external_reachability"
+  ],
+  "phoneChecks": [
+    "phone_login",
+    "phone_synthetic_search",
+    "phone_logout_denied",
+    "phone_mcp_credential_rejected"
+  ]
+}

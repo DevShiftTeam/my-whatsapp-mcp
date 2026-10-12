@@ -1,0 +1,26 @@
+# Source-built keyword-search preview. Requires Engine 28+ and Compose 2.20.2+.
+# Build with: docker compose -f compose.yaml -f compose.build.yaml up --build -d
+name: wa-indexer
+services:
+  wa-indexer:
+    image: wa-indexer:development
+    container_name: ${WA_INDEXER_CONTAINER_NAME:-wa-indexer}
+    command: ["serve", "--container", "--browser-origin", "http://127.0.0.1:${WA_INDEXER_PORT:-8123}", "--docker-container-name", "${WA_INDEXER_CONTAINER_NAME:-wa-indexer}", "--data-dir", "/var/lib/wa-indexer/data"]
+    ports: ["127.0.0.1:${WA_INDEXER_PORT:-8123}:8123"]
+    volumes: ["wa_data:/var/lib/wa-indexer"]
+    restart: unless-stopped
+    stop_grace_period: 10s
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,mode=1777"]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/wa-indexer", "health", "--data-dir", "/var/lib/wa-indexer/data", "--connect", "127.0.0.1:8123"]
+      # Failure grace only: the first successful probe marks healthy immediately.
+      start_period: 30s
+      start_interval: 1s
+      interval: 30s
+      timeout: 3s
+      retries: 3
+volumes:
+  wa_data:

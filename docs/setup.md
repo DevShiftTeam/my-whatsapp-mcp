@@ -2,7 +2,7 @@
 
 ## 1. Install the build tools
 
-You need macOS 14 or newer, or Linux, plus Go 1.27.1, a C compiler, and a browser. Git is needed if you clone the source. Building downloads the Go dependencies listed in `go.mod`; running text search does not download models.
+You need macOS 14 or newer, or Linux, plus Go 1.27.1, a C compiler, Python 3 for build-time helper verification, and a browser. Git is needed if you clone the source. Building downloads the Go dependencies listed in `go.mod`; running text search does not download models.
 
 Install Go using the [official instructions](https://go.dev/doc/install), then check:
 
@@ -104,10 +104,10 @@ Selected mode permits up to 100 chats. All mode includes current and future chat
 
 | OS | Default data directory |
 | --- | --- |
-| macOS | `~/Library/Application Support/WA Indexer` |
-| Linux | `$XDG_CONFIG_HOME/WA Indexer`, or `~/.config/WA Indexer` when unset |
+| macOS | `~/Library/Application Support/My WhatsApp` |
+| Linux | `$XDG_CONFIG_HOME/My WhatsApp`, or `~/.config/My WhatsApp` when unset |
 
-The data directory keeps its original `WA Indexer` name so existing archives remain usable. The app keeps the archive, WhatsApp session, model files, media, and client credentials outside the source checkout. Directories use mode `0700`; ordinary private files use `0600`. The app rejects symlinks and unsafe permissions. Choose a new, empty local directory if using `--data-dir`; do not point it at your home directory or a folder of unrelated files.
+The data directory keeps its original `My WhatsApp` name so existing archives remain usable. The app keeps the archive, WhatsApp session, model files, media, and client credentials outside the source checkout. Directories use mode `0700`; ordinary private files use `0600`. The app rejects symlinks and unsafe permissions. Choose a new, empty local directory if using `--data-dir`; do not point it at your home directory or a folder of unrelated files.
 
 The databases are unencrypted. Enable OS disk encryption. Stop the app before copying the entire data directory for a backup, preserve its private permissions, and keep it out of public or shared folders. Do not open or modify its SQLite files while the app is running.
 

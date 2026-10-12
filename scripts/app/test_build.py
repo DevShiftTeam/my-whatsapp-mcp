@@ -22,10 +22,18 @@ class BuildTests(unittest.TestCase):
         self.scripts.mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.scripts / "build.sh")
         self.record = self.root / "compiler.json"
+        (self.root / "LICENSE").write_text("synthetic license")
+        (self.root / "THIRD_PARTY_NOTICES").write_text("synthetic notices")
+        helper_notices = self.root / "packaging/cloudflared-notices"
+        helper_notices.mkdir(parents=True)
+        (helper_notices / "LICENSE").write_text("synthetic helper license")
+        (self.root / "packaging/cloudflared-manifest.json").write_text("{}")
+        self.executable("python3", "#!" + sys.executable + "\nimport pathlib,sys\npathlib.Path(sys.argv[4]).write_text('synthetic helper')\n")
         self.executable("uname", '#!/bin/sh\nprintf "%s\\n" "$TEST_PLATFORM"\n')
         self.executable("rtk", "#!/bin/sh\nexit 99\n")
         self.executable("go", "#!" + sys.executable + "\n"
                         "import json,os,pathlib,sys\n"
+                        "if sys.argv[1:2]==['env']: print({'GOOS':'linux','GOARCH':'arm64'}[sys.argv[2]]); sys.exit(0)\n"
                         "pathlib.Path(os.environ['TEST_RECORD']).write_text(json.dumps({"
                         "'args':sys.argv[1:],'cwd':os.getcwd(),'env':dict(os.environ)}))\n")
         self.env = {"PATH": str(self.tools) + ":/usr/bin:/bin",
@@ -46,7 +54,7 @@ class BuildTests(unittest.TestCase):
         result = self.invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
         record = json.loads(self.record.read_text())
-        self.assertEqual(record["args"], ["build", "-tags", "fts5,sqlite_fts5",
+        self.assertEqual(record["args"], ["build", "-tags", "fts5,sqlite_fts5,ts_omit_logtail",
                                          "-trimpath", "-o", "bin/wa-indexer",
                                          "./cmd/wa-indexer"])
         self.assertEqual(record["cwd"], str(self.root.resolve()))
