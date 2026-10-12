@@ -628,13 +628,16 @@ func (s *Store) DiscoveryChats(ctx context.Context, request ChatListRequest) (Di
 		return page, e
 	}
 	page.Snapshot.PolicyGeneration = p.Generation
-	if e = tx.QueryRowContext(ctx, "SELECT archive_revision,index_generation FROM archive_meta WHERE id=1").Scan(&page.Snapshot.ArchiveRevision, &page.Snapshot.IndexGeneration); e != nil {
+	if e = tx.QueryRowContext(ctx, "SELECT archive_revision,index_generation,recovery_epoch,recovery_code FROM archive_meta WHERE id=1").Scan(&page.Snapshot.ArchiveRevision, &page.Snapshot.IndexGeneration, &page.Snapshot.RecoveryEpoch, &page.Snapshot.RecoveryCode); e != nil {
 		return page, fixedSQLError(e)
 	}
 	var account string
 	e = tx.QueryRowContext(ctx, "SELECT account FROM accounts LIMIT 1").Scan(&account)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return page, fixedSQLError(e)
+	}
+	if e = unknownHistoryGapSnapshot(ctx, tx, account, &page.Snapshot); e != nil {
+		return page, e
 	}
 	identity := cursorIdentity("owner_discovery", ReadScope{Account: account, Principal: "local_owner", PolicyGeneration: p.Generation, AllChats: true}, ChatListRequest{Limit: limit}, page.Snapshot, time.Time{}, time.Time{}, time.Time{})
 	offset := 0
@@ -659,6 +662,10 @@ func (s *Store) DiscoveryChats(ctx context.Context, request ChatListRequest) (Di
 		v.ObservedOldest = fromMillis(oldest)
 		v.ObservedLatest = fromMillis(latest)
 		v.Coverage = "unknown"
+		if page.Snapshot.UnknownHistoryGap {
+			v.Coverage = "partial"
+			v.GapCodes = append(v.GapCodes, UnknownHistoryGapCode)
+		}
 		v.Selected = p.Generation > 0 && p.ChatMode == ChatsAll
 		for _, id := range p.IncludedChats {
 			if id == v.ID {
@@ -741,6 +748,13 @@ func (s *Store) DiagnosticStatus(ctx context.Context) (StatusSnapshot, error) {
 	if e = s.readDB.QueryRowContext(ctx, "SELECT archive_revision,index_generation,recovery_epoch,recovery_code FROM archive_meta WHERE id=1").Scan(&status.Snapshot.ArchiveRevision, &status.Snapshot.IndexGeneration, &status.Snapshot.RecoveryEpoch, &status.Snapshot.RecoveryCode); e != nil {
 		return status, fixedSQLError(e)
 	}
+	if e = unknownHistoryGapSnapshot(ctx, s.readDB, account, &status.Snapshot); e != nil {
+		return status, e
+	}
+	if status.Snapshot.UnknownHistoryGap {
+		status.Coverage = "partial"
+		status.Codes = append(status.Codes, UnknownHistoryGapCode)
+	}
 	s.safetyMu.RLock()
 	unsafe := s.unclean
 	for _, v := range s.unsafe {
@@ -750,7 +764,7 @@ func (s *Store) DiagnosticStatus(ctx context.Context) (StatusSnapshot, error) {
 	if unsafe {
 		status.Connection = "reconciliation_required"
 		status.ReconciliationRequired = true
-		status.Codes = []string{"reconciliation_required"}
+		status.Codes = append(status.Codes, "reconciliation_required")
 		// The archive has one bound account. Read only its durable failure reason;
 		// unsafe diagnostics must never authorize message or chat reads.
 		var reason string

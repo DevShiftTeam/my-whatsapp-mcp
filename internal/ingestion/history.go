@@ -365,6 +365,7 @@ func (r *Runtime) projectHistory(ctx context.Context, raw []byte) (err error) {
 	if err != nil {
 		return historyStage(err, "mapping", "no_stub")
 	}
+	partialContext := r.config.UnknownHistoryPolicy == UnknownHistoryPartial && partialHistoryWire(ctx, raw, partialHistoryEnvelope)
 	err = walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -375,7 +376,7 @@ func (r *Runtime) projectHistory(ctx context.Context, raw []byte) (err error) {
 		if typ != protowire.BytesType {
 			return errHistoryCorrupt
 		}
-		return r.projectConversation(ctx, value)
+		return r.projectConversationContext(ctx, value, partialContext)
 	})
 	if err != nil {
 		return historyStage(err, "record_decode", "no_stub")
@@ -383,6 +384,11 @@ func (r *Runtime) projectHistory(ctx context.Context, raw []byte) (err error) {
 	return historyStage(r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: r.SourceAccount(), CoverageUnknown: true}), "record_projection", "no_stub")
 }
 func (r *Runtime) projectConversation(ctx context.Context, raw []byte) error {
+	// A standalone conversation lacks an authenticated complete history context.
+	return r.projectConversationContext(ctx, raw, false)
+}
+func (r *Runtime) projectConversationContext(ctx context.Context, raw []byte, partialContext bool) error {
+	partialContext = partialContext && partialHistoryWire(ctx, raw, partialHistoryConversation)
 	var chat, name, displayName string
 	if err := walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
 		if err := ctx.Err(); err != nil {
@@ -438,11 +444,17 @@ func (r *Runtime) projectConversation(ctx context.Context, raw []byte) error {
 			return historyStage(errLimitExceeded, "record_decode", "no_stub")
 		}
 		var wrapper waHistorySync.HistorySyncMsg
-		if err := (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(value, &wrapper); err != nil {
+		if err := (proto.UnmarshalOptions{RecursionLimit: 32}).Unmarshal(value, &wrapper); err != nil {
 			return historyStage(errHistoryCorrupt, "record_decode", "no_stub")
 		}
 		if wrapper.GetMessage() == nil {
 			return historyBodyMissing(wrapper.GetMessage())
+		}
+		if r.config.UnknownHistoryPolicy == UnknownHistoryPartial && undeclaredHistoryStub(wrapper.GetMessage()) {
+			if !partialContext || !partialHistoryWire(ctx, value, partialHistoryRecord) {
+				return historyBodylessFailure(wrapper.GetMessage(), "record_safety_metadata")
+			}
+			return r.projectUnknownHistoryGap(ctx, jid, wrapper.GetMessage())
 		}
 		// ParseWebMessage accepts a supplied chat over a claimed key. Verify both.
 		if claimed := wrapper.GetMessage().GetKey().GetRemoteJID(); claimed != "" {

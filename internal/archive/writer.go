@@ -192,6 +192,8 @@ func (s *Store) writerLoop() {
 				v, e = s.applyEvent(c.ctx, x.event, x.expected)
 			case aliasCommand:
 				e = s.applyAlias(c.ctx, x.alias)
+			case unknownHistoryGapCommand:
+				e = s.recordUnknownHistoryGap(c.ctx, x.account, x.rawStub)
 			case syncCommand:
 				e = s.setSync(c.ctx, x.update)
 			case unsafeCommand:
@@ -386,7 +388,7 @@ func validConnection(s ConnectionState) bool {
 }
 func validGap(s string) bool {
 	switch s {
-	case "", "backfill_requested_coverage_unknown", "backfill_request_failed", "mutation_metadata_missing", "source_revision_conflict", "history_limit_exceeded", "history_corrupt", "queue_limit_exceeded", "coverage_unknown", "offline_gap", "identity_alias_conflict", "control_admission_failed", "unsafe_mutation_projection", "drain_failed", "owner_restored_snapshot":
+	case UnknownHistoryGapCode, "", "backfill_requested_coverage_unknown", "backfill_request_failed", "mutation_metadata_missing", "source_revision_conflict", "history_limit_exceeded", "history_corrupt", "queue_limit_exceeded", "coverage_unknown", "offline_gap", "identity_alias_conflict", "control_admission_failed", "unsafe_mutation_projection", "drain_failed", "owner_restored_snapshot":
 		return true
 	case "app_state_sync_error", "undecryptable_message", "ambiguous_message_structure", "ambiguous_edit_structure", "unresolved_deletion":
 		return true

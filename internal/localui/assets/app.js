@@ -191,6 +191,11 @@
       error.status = response.status;
       throw error;
     }
+    if (value?.Snapshot?.UnknownHistoryGap === true || value?.unknown_history_gap === true) {
+      const notice = $("unknown-history-notice");
+      notice.textContent = "Partial history: unsupported records may leave edits, deletions, or retention changes unreflected. Current phone state is unknown. Known controls and current permissions remain enforced.";
+      notice.hidden = false;
+    }
     return value;
   }
 

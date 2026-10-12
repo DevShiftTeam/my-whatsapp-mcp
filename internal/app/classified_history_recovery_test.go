@@ -44,7 +44,7 @@ func syntheticClassifiedEvidence(t *testing.T) (ClassifiedHistoryRecoveryConfig,
 	}
 	w.RuntimeBinarySHA256 = artifacts["binary"].SHA256
 	w.LaunchEvidenceSHA256 = write(e.LaunchEvidencePath, ClassifiedHistoryLaunchEvidence{Artifacts: artifacts, Version: 1, DataDir: cfg.DataDir, ReadySHA256: e.ReadySHA256, RuntimeBuildSHA: w.RuntimeBuildSHA, RuntimeBinarySHA256: w.RuntimeBinarySHA256, RuntimePID: w.RuntimePID, LaunchEvidenceKind: w.LaunchEvidenceKind, LaunchActionRecordedAt: w.LaunchActionRecordedAt.Format(time.RFC3339Nano), ProcessObservedAt: w.ProcessObservedAt.Format(time.RFC3339Nano), StoppedAt: w.StoppedAt.Format(time.RFC3339Nano), ProcessReadReceiptPath: readPath, JoinedExitReceiptPath: exitPath})
-	w.OperatorReceiptSHA256 = write(e.OperatorReceiptPath, ClassifiedHistoryOperatorReceipt{1, true, true, w.LaunchEvidenceSHA256, w.DiagnosticLogSHA256, w.OriginalArchiveSHA256, w.RebuildGeneration, w.UnsafeEpoch, w.ArchiveRevision, w.RecoveryEpoch})
+	w.OperatorReceiptSHA256 = write(e.OperatorReceiptPath, ClassifiedHistoryOperatorReceipt{1, true, true, w.LaunchEvidenceSHA256, w.DiagnosticLogSHA256, w.OriginalArchiveSHA256, w.RebuildGeneration, w.UnsafeEpoch, w.ArchiveRevision, w.RecoveryEpoch, w.AcceptUnknownHistoryGaps})
 	e.Witness = w
 	cfg.ExpectedEvidenceSHA256 = write(cfg.EvidencePath, e)
 	return cfg, e
@@ -110,7 +110,7 @@ func TestClassifiedHistoryEvidenceRejectsAmbiguousPinnedLog(t *testing.T) {
 	os.WriteFile(e.DiagnosticLogPath, raw, 0600)
 	e.Witness.DiagnosticLogSHA256 = liveRebuildDigest(raw)
 	w := e.Witness
-	op := ClassifiedHistoryOperatorReceipt{1, true, true, w.LaunchEvidenceSHA256, w.DiagnosticLogSHA256, w.OriginalArchiveSHA256, w.RebuildGeneration, w.UnsafeEpoch, w.ArchiveRevision, w.RecoveryEpoch}
+	op := ClassifiedHistoryOperatorReceipt{1, true, true, w.LaunchEvidenceSHA256, w.DiagnosticLogSHA256, w.OriginalArchiveSHA256, w.RebuildGeneration, w.UnsafeEpoch, w.ArchiveRevision, w.RecoveryEpoch, w.AcceptUnknownHistoryGaps}
 	raw, _ = json.Marshal(op)
 	os.WriteFile(e.OperatorReceiptPath, raw, 0600)
 	e.Witness.OperatorReceiptSHA256 = liveRebuildDigest(raw)

@@ -159,11 +159,13 @@ type SyncUpdate struct {
 type UnsafeReason string  // allowlisted fixed reason code
 type ObservationID string // random, process-owned lifecycle capability
 type ReadSnapshot struct {
-	PolicyGeneration Generation
-	ArchiveRevision  ArchiveRevision
-	IndexGeneration  uint64
-	RecoveryEpoch    uint64
-	RecoveryCode     string
+	CoverageEpoch     uint64 `json:"-"`
+	UnknownHistoryGap bool
+	PolicyGeneration  Generation
+	ArchiveRevision   ArchiveRevision
+	IndexGeneration   uint64
+	RecoveryEpoch     uint64
+	RecoveryCode      string
 }
 type SearchRequest struct {
 	Query       string

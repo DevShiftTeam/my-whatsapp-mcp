@@ -193,6 +193,9 @@ func withHistoricalMetadata(value any, metadata archive.HistoricalViewMetadata) 
 		current.ArchiveState = "historical_snapshot"
 		current.CurrentPhoneState = "unknown"
 		current.CoverageWarning = "Captured-time historical archive; read-only and partial. Current phone state is unknown. Current permissions apply; post-capture phone edits and deletions may not be reflected."
+		if current.UnknownHistoryGap {
+			current.CoverageWarning += " " + unknownHistoryGapWarning
+		}
 		return current
 	}
 	switch out := value.(type) {

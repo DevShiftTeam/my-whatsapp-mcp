@@ -796,6 +796,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ctx context.Cont
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "search", Search: archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor}})
 		return
 	}
+	if s.liveArchiveRead(w, r, ctx, ArchiveReadRequest{Kind: "search", Search: archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor}}) {
+		return
+	}
 	value, err := s.app.Search(ctx, archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor})
 	result(w, value, err)
 }
@@ -818,6 +821,9 @@ func (s *Server) context(w http.ResponseWriter, r *http.Request, ctx context.Con
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "context", Context: archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After}})
 		return
 	}
+	if s.liveArchiveRead(w, r, ctx, ArchiveReadRequest{Kind: "context", Context: archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After}}) {
+		return
+	}
 	value, err := s.app.Context(ctx, archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After})
 	result(w, value, err)
 }
@@ -838,6 +844,9 @@ func (s *Server) chats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 	}
 	if query.Get("source") == "historical" {
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "chats", Chats: archive.ChatListRequest{Limit: limit, Cursor: query.Get("cursor")}})
+		return
+	}
+	if s.liveArchiveRead(w, r, ctx, ArchiveReadRequest{Kind: "chats", Chats: archive.ChatListRequest{Limit: limit, Cursor: query.Get("cursor")}}) {
 		return
 	}
 	value, err := s.app.Chats(ctx, archive.ChatListRequest{Limit: limit, Cursor: query.Get("cursor")})

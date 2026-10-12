@@ -67,7 +67,7 @@ func classifiedIntegrationProfile(t *testing.T, legacy bool) classifiedIntegrati
 		if start < 0 {
 			t.Fatal("missing legacy audit schema")
 		}
-		if _, err = db.Exec("DROP TABLE snapshot_recovery_audit;" + string(raw[start:]) + "; DELETE FROM schema_migrations WHERE version>=15"); err != nil {
+		if _, err = db.Exec("DROP TABLE unknown_history_codes; DROP TABLE unknown_history_coverage; DROP TABLE snapshot_recovery_audit;" + string(raw[start:]) + "; DELETE FROM schema_migrations WHERE version>=15"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -185,7 +185,7 @@ func classifiedIntegrationResign(t *testing.T, cfg *ClassifiedHistoryRecoveryCon
 	e.Witness.LaunchEvidenceSHA256 = write(e.LaunchEvidencePath, launch)
 	w := &e.Witness
 	w.EvidenceSHA256 = ""
-	w.OperatorReceiptSHA256 = write(e.OperatorReceiptPath, ClassifiedHistoryOperatorReceipt{Version: 1, AcceptedPartial: true, AttestedCurrentFence: true, LaunchSHA256: w.LaunchEvidenceSHA256, DiagnosticLogSHA256: w.DiagnosticLogSHA256, OriginalArchiveSHA256: w.OriginalArchiveSHA256, RebuildGeneration: w.RebuildGeneration, UnsafeEpoch: w.UnsafeEpoch, ArchiveRevision: w.ArchiveRevision, RecoveryEpoch: w.RecoveryEpoch})
+	w.OperatorReceiptSHA256 = write(e.OperatorReceiptPath, ClassifiedHistoryOperatorReceipt{AcceptUnknownHistoryGaps: w.AcceptUnknownHistoryGaps, Version: 1, AcceptedPartial: true, AttestedCurrentFence: true, LaunchSHA256: w.LaunchEvidenceSHA256, DiagnosticLogSHA256: w.DiagnosticLogSHA256, OriginalArchiveSHA256: w.OriginalArchiveSHA256, RebuildGeneration: w.RebuildGeneration, UnsafeEpoch: w.UnsafeEpoch, ArchiveRevision: w.ArchiveRevision, RecoveryEpoch: w.RecoveryEpoch})
 	cfg.ExpectedEvidenceSHA256 = write(cfg.EvidencePath, e)
 }
 
@@ -344,7 +344,7 @@ func TestClassifiedHistoryProfileRecoveryRetriesAfterBindingAndMigration(t *test
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if version != 16 || audits != 0 {
+	if version != 17 || audits != 0 {
 		t.Fatal("interruption was not between migration and recovery prepare", version, audits)
 	}
 	if _, err := os.Stat(classifiedHistoryBindingPath(f.paths, e.Witness.EvidenceSHA256)); err != nil {

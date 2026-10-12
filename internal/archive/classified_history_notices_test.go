@@ -114,7 +114,7 @@ func TestClassifiedHistoryThirdNoticePreservesTwoPriorAudits(t *testing.T) {
 		t.Fatal("217 tuple or conflict count rewritten in audit")
 	}
 	var migrations int
-	if err = s.writeDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&migrations); err != nil || migrations != 16 {
+	if err = s.writeDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&migrations); err != nil || migrations != 17 {
 		t.Fatal("notice added migration", migrations, err)
 	}
 	if !reflect.DeepEqual(snapshotRecoveryRows(t, s), before) {

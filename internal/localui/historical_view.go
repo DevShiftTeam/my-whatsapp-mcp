@@ -34,6 +34,10 @@ type ArchiveReadApplication interface {
 	ReadArchive(context.Context, ArchiveReadRequest) (ArchiveReadResult, error)
 }
 
+// LiveArchiveReadApplication keeps the live source guard through owner delivery.
+type LiveArchiveReadApplication interface {
+	ReadLiveArchive(context.Context, ArchiveReadRequest) (ArchiveReadResult, error)
+}
 type ownerReadCheckKey struct{}
 type ownerReadAdmissionKey struct{}
 
@@ -171,14 +175,30 @@ func (s *Server) historicalRead(w http.ResponseWriter, r *http.Request, ctx cont
 		publicError(w, err)
 		return
 	}
+	s.deliverArchiveRead(w, r, ctx, value, true)
+}
+func (s *Server) liveArchiveRead(w http.ResponseWriter, r *http.Request, ctx context.Context, q ArchiveReadRequest) bool {
+	app, ok := s.app.(LiveArchiveReadApplication)
+	if !ok {
+		return false
+	}
+	value, err := app.ReadLiveArchive(ctx, q)
+	if err != nil {
+		publicError(w, err)
+		return true
+	}
+	s.deliverArchiveRead(w, r, ctx, value, false)
+	return true
+}
+func (s *Server) deliverArchiveRead(w http.ResponseWriter, r *http.Request, ctx context.Context, value ArchiveReadResult, historical bool) {
 	if value.Release != nil {
 		defer value.Release()
 	}
-	if value.Check == nil || value.Release == nil || value.Metadata.Source != "historical" {
+	if value.Check == nil || value.Release == nil || (historical && value.Metadata.Source != "historical") || (!historical && value.Metadata.Source != "") {
 		fail(w, 503, "archive_unavailable")
 		return
 	}
-	if err = value.Check(ctx); err != nil {
+	if err := value.Check(ctx); err != nil {
 		publicError(w, err)
 		return
 	}
@@ -193,10 +213,12 @@ func (s *Server) historicalRead(w http.ResponseWriter, r *http.Request, ctx cont
 		fail(w, 503, "archive_unavailable")
 		return
 	}
-	fields["archive_view"], err = json.Marshal(value.Metadata)
-	if err != nil {
-		fail(w, 503, "archive_unavailable")
-		return
+	if historical {
+		fields["archive_view"], err = json.Marshal(value.Metadata)
+		if err != nil {
+			fail(w, 503, "archive_unavailable")
+			return
+		}
 	}
 	body, err := json.Marshal(fields)
 	if err != nil {
@@ -208,7 +230,7 @@ func (s *Server) historicalRead(w http.ResponseWriter, r *http.Request, ctx cont
 		fail(w, 401, "unauthorized")
 		return
 	}
-	if err = value.Check(ctx); err != nil {
+	if err := value.Check(ctx); err != nil {
 		publicError(w, err)
 		return
 	}
@@ -227,6 +249,9 @@ func (s *Server) archiveStatus(w http.ResponseWriter, r *http.Request, ctx conte
 	}
 	if q.Get("source") == "historical" {
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "status"})
+		return
+	}
+	if s.liveArchiveRead(w, r, ctx, ArchiveReadRequest{Kind: "status"}) {
 		return
 	}
 	value, err := s.app.Status(ctx)

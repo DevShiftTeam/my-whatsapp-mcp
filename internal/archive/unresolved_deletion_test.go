@@ -240,7 +240,7 @@ func TestUnresolvedDeletionMigrationNineUpgradePreservesSourcesAndCursor(t *test
 	}
 	// Reconstruct a checksummed version-9 archive, including removal of the
 	// later empty recovery audit and its archive metadata columns.
-	for _, statement := range []string{"DROP TABLE extension_document_promotions", "ALTER TABLE extension_media_associations DROP COLUMN filename", "DROP TABLE send_permission_modes", "DROP TABLE send_requests", "DROP TABLE send_permissions", "DROP TABLE snapshot_recovery_audit", "ALTER TABLE archive_meta DROP COLUMN recovery_epoch", "ALTER TABLE archive_meta DROP COLUMN recovery_code"} {
+	for _, statement := range []string{"DROP TABLE unknown_history_codes", "DROP TABLE unknown_history_coverage", "DROP TABLE extension_document_promotions", "ALTER TABLE extension_media_associations DROP COLUMN filename", "DROP TABLE send_permission_modes", "DROP TABLE send_requests", "DROP TABLE send_permissions", "DROP TABLE snapshot_recovery_audit", "ALTER TABLE archive_meta DROP COLUMN recovery_epoch", "ALTER TABLE archive_meta DROP COLUMN recovery_code"} {
 		if _, err := s.writeDB.Exec(statement); err != nil {
 			t.Fatal(err)
 		}

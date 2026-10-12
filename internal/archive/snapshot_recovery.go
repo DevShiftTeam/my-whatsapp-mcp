@@ -296,6 +296,11 @@ func (s *Store) snapshotRecoveryEligibility(ctx context.Context, requested strin
 	if bindingErr := s.bindClassifiedHistoryAudit(witness, &a, &prior, err == nil, unsafe, markers); bindingErr != nil {
 		return a, false, bindingErr
 	}
+	if witness != nil && witness.Classification == AcceptedPartialHistoryGap && a.epoch == witness.RecoveryEpoch+1 {
+		if gapErr := requireAcceptedPartialHistoryGap(ctx, s.writeDB, a.account); gapErr != nil {
+			return a, false, gapErr
+		}
+	}
 	if err == nil && prior.phase == "prepared" {
 		if prior.account != a.account || unsafe != 1 || prior.unsafeEpoch != a.unsafeEpoch || prior.reason != a.reason || prior.revision != a.beforeRevision {
 			return a, false, ErrPolicyChanged
@@ -412,6 +417,14 @@ func (s *Store) prepareSnapshotRecovery(ctx context.Context, a snapshotRecoveryA
 		if revision != a.beforeRevision || recovery != a.epoch {
 			return ErrPolicyChanged
 		}
+		if a.classification == AcceptedPartialHistoryGap {
+			// The explicit witness accepts a committed partial snapshot, not a
+			// benign classification. Record global uncertainty atomically with
+			// prepare; identical prepared retries never enter this transaction.
+			if err := recordUnknownHistoryGapTx(ctx, tx, a.account, 229, s.now()); err != nil {
+				return err
+			}
+		}
 		if unsafe == 0 {
 			if _, err := tx.ExecContext(ctx, `UPDATE account_safety SET unsafe=1,reason='unclean_shutdown',epoch=epoch+1 WHERE account=? AND unsafe=0 AND epoch=?`, a.account, epoch); err != nil {
 				return err
@@ -480,6 +493,11 @@ func (s *Store) completeSnapshotRecovery(ctx context.Context, a snapshotRecovery
 	}
 	defer tx.Rollback()
 	err = func() error {
+		if a.classification == AcceptedPartialHistoryGap {
+			if err := requireAcceptedPartialHistoryGap(ctx, tx, a.account); err != nil {
+				return err
+			}
+		}
 		result, err := tx.ExecContext(ctx, `UPDATE account_safety SET unsafe=0,epoch=epoch+1 WHERE account=? AND unsafe=1 AND reason=? AND epoch=? AND EXISTS(SELECT 1 FROM snapshot_recovery_audit r JOIN archive_meta m ON m.id=1 WHERE r.recovery_epoch=? AND r.account=account_safety.account AND r.phase='prepared' AND r.prior_unsafe_epoch=account_safety.epoch AND m.recovery_epoch=r.recovery_epoch AND m.archive_revision=r.archive_revision AND r.classification=? AND r.witness_sha256=? AND r.witness_json=?)`, a.account, a.reason, a.unsafeEpoch, a.epoch, a.classification, a.witnessSHA256, a.witnessJSON)
 		if err != nil {
 			return err
@@ -500,4 +518,20 @@ func (s *Store) completeSnapshotRecovery(ctx context.Context, a snapshotRecovery
 		return fixedSQLError(err)
 	}
 	return fixedSQLError(tx.Commit())
+}
+
+func requireAcceptedPartialHistoryGap(ctx context.Context, q sqlQuerier, account string) error {
+	var present bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(
+ SELECT 1 FROM unknown_history_coverage u JOIN unknown_history_codes c ON c.account=u.account
+ WHERE u.account=? AND u.epoch>0 AND u.total_observations>=c.count AND c.raw_stub=229 AND c.count>0
+ AND EXISTS(SELECT 1 FROM sync_gaps g WHERE g.account=u.account AND g.chat='' AND g.code='unknown_history_notice')
+ AND EXISTS(SELECT 1 FROM sync_state s WHERE s.account=u.account AND s.chat='' AND s.coverage_unknown=1))`, account).Scan(&present)
+	if err != nil {
+		return fixedSQLError(err)
+	}
+	if !present {
+		return ErrReconciliationRequired
+	}
+	return nil
 }

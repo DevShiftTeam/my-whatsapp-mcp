@@ -57,6 +57,9 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "stats", Stats: query})
 		return
 	}
+	if s.liveArchiveRead(w, r, ctx, ArchiveReadRequest{Kind: "stats", Stats: query}) {
+		return
+	}
 	app, ok := s.app.(StatsApplication)
 	if !ok {
 		fail(w, http.StatusNotFound, "route_unavailable")

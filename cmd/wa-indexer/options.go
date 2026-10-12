@@ -25,35 +25,37 @@ var (
 )
 
 type options struct {
-	historicalViewDir      string
-	historicalViewID       string
-	historicalViewAt       string
-	rebuildAncestorLockFDs []int
-	rebuildSourceLockFD    *int
-	historicalSnapshotAt   string
-	container              bool
-	browserOrigin          string
-	dockerContainerName    string
-	connect                string
-	command                string
-	profile                string
-	config                 string
-	listen                 string
-	dataDir                string
-	backupDir              string
-	demo                   bool
-	demoAcceptance         bool
-	noOpen                 bool
-	openExisting           bool
-	help                   bool
-	originalBudget         *int64
-	mcpListen              string
-	mcpPublicURL           string
-	mcpHeaderAuth          bool
-	adminListen            string
-	adminPublicURL         string
-	adminEnvFile           string
-	transcriptionEnvFile   string
+	unknownHistoryPolicy         string
+	unknownHistoryPolicyExplicit bool
+	historicalViewDir            string
+	historicalViewID             string
+	historicalViewAt             string
+	rebuildAncestorLockFDs       []int
+	rebuildSourceLockFD          *int
+	historicalSnapshotAt         string
+	container                    bool
+	browserOrigin                string
+	dockerContainerName          string
+	connect                      string
+	command                      string
+	profile                      string
+	config                       string
+	listen                       string
+	dataDir                      string
+	backupDir                    string
+	demo                         bool
+	demoAcceptance               bool
+	noOpen                       bool
+	openExisting                 bool
+	help                         bool
+	originalBudget               *int64
+	mcpListen                    string
+	mcpPublicURL                 string
+	mcpHeaderAuth                bool
+	adminListen                  string
+	adminPublicURL               string
+	adminEnvFile                 string
+	transcriptionEnvFile         string
 }
 
 // Supplied values never form part of an error or the flag parser's output.
@@ -80,6 +82,8 @@ func parseArgs(args []string) (options, error) {
 		opts.command = args[0]
 	case "doctor":
 		opts.command = "doctor"
+	case "recover-partial-history":
+		opts.command = "recover_partial_history"
 	case "recover-classified-history":
 		opts.command = "recover_classified_history"
 	case "rebuild-live":
@@ -108,7 +112,7 @@ func parseArgs(args []string) (options, error) {
 	flags.SetOutput(io.Discard)
 	var originalBudget string
 	var rebuildSourceFD int
-	if opts.command == "mcp_stdio" || opts.command == "rebuild_live" || opts.command == "recover_classified_history" {
+	if opts.command == "mcp_stdio" || opts.command == "rebuild_live" || opts.command == "recover_classified_history" || opts.command == "recover_partial_history" {
 		flags.StringVar(&opts.config, "config", "", "")
 	} else {
 		flags.StringVar(&opts.dataDir, "data-dir", "", "")
@@ -128,6 +132,7 @@ func parseArgs(args []string) (options, error) {
 		}
 	}
 	if opts.command == "serve" {
+		flags.StringVar(&opts.unknownHistoryPolicy, "unknown-history-policy", "strict", "")
 		flags.IntVar(&rebuildSourceFD, "rebuild-source-lock-fd", -1, "")
 		flags.Func("rebuild-ancestor-lock-fd", "", func(raw string) error {
 			fd, err := strconv.Atoi(raw)
@@ -164,6 +169,9 @@ func parseArgs(args []string) (options, error) {
 		}
 		return options{}, errArguments
 	}
+	if opts.command == "serve" && opts.unknownHistoryPolicy != "strict" && opts.unknownHistoryPolicy != "partial" {
+		return options{}, errArguments
+	}
 	if (opts.command == "owner-link" || opts.command == "health") && !localui.ValidOwnerConnect(opts.connect) {
 		return options{}, errArguments
 	}
@@ -176,7 +184,10 @@ func parseArgs(args []string) (options, error) {
 	if opts.demoAcceptance && !opts.demo {
 		return options{}, errArguments
 	}
-	if (opts.command == "mcp_stdio" || opts.command == "rebuild_live" || opts.command == "recover_classified_history") && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
+	if (opts.command == "mcp_stdio" || opts.command == "rebuild_live" || opts.command == "recover_classified_history" || opts.command == "recover_partial_history") && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
+		return options{}, errArguments
+	}
+	if opts.command == "recover_partial_history" && strings.IndexByte(opts.config, 0) >= 0 {
 		return options{}, errArguments
 	}
 	if (opts.command == "recover_snapshot" || opts.command == "recover_original_cache") && (!filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir) {
@@ -241,7 +252,12 @@ func parseArgs(args []string) (options, error) {
 	if transcriptionExplicit && (!filepath.IsAbs(opts.transcriptionEnvFile) || filepath.Clean(opts.transcriptionEnvFile) != opts.transcriptionEnvFile) {
 		return options{}, errArguments
 	}
-	if opts.openExisting && (opts.container || adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
+	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "unknown-history-policy" {
+			opts.unknownHistoryPolicyExplicit = true
+		}
+	})
+	if opts.openExisting && (opts.unknownHistoryPolicyExplicit || opts.container || adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
 		return options{}, errArguments
 	}
 	snapshotExplicit := false

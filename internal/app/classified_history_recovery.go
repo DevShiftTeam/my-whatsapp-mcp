@@ -52,16 +52,17 @@ type ClassifiedHistoryLaunchEvidence struct {
 	JoinedExitReceiptPath  string                                     `json:"joined_exit_receipt_path"`
 }
 type ClassifiedHistoryOperatorReceipt struct {
-	Version               int    `json:"version"`
-	AcceptedPartial       bool   `json:"accepted_partial"`
-	AttestedCurrentFence  bool   `json:"attested_current_fence"`
-	LaunchSHA256          string `json:"launch_sha256"`
-	DiagnosticLogSHA256   string `json:"diagnostic_log_sha256"`
-	OriginalArchiveSHA256 string `json:"original_archive_sha256"`
-	RebuildGeneration     string `json:"rebuild_generation"`
-	UnsafeEpoch           uint64 `json:"unsafe_epoch"`
-	ArchiveRevision       uint64 `json:"archive_revision"`
-	RecoveryEpoch         uint64 `json:"recovery_epoch"`
+	Version                  int    `json:"version"`
+	AcceptedPartial          bool   `json:"accepted_partial"`
+	AttestedCurrentFence     bool   `json:"attested_current_fence"`
+	LaunchSHA256             string `json:"launch_sha256"`
+	DiagnosticLogSHA256      string `json:"diagnostic_log_sha256"`
+	OriginalArchiveSHA256    string `json:"original_archive_sha256"`
+	RebuildGeneration        string `json:"rebuild_generation"`
+	UnsafeEpoch              uint64 `json:"unsafe_epoch"`
+	ArchiveRevision          uint64 `json:"archive_revision"`
+	RecoveryEpoch            uint64 `json:"recovery_epoch"`
+	AcceptUnknownHistoryGaps bool   `json:"accept_unknown_history_gaps,omitempty"`
 }
 
 func strictClassifiedJSON(raw []byte, into any) error {
@@ -120,6 +121,9 @@ func strictClassifiedJSON(raw []byte, into any) error {
 	return liveRebuildDecode(raw, into)
 }
 func readClassifiedHistoryEvidence(cfg ClassifiedHistoryRecoveryConfig) (ClassifiedHistoryEvidence, error) {
+	return readClassifiedHistoryEvidenceMode(cfg, false)
+}
+func readClassifiedHistoryEvidenceMode(cfg ClassifiedHistoryRecoveryConfig, acceptUnknown bool) (ClassifiedHistoryEvidence, error) {
 	var e ClassifiedHistoryEvidence
 	if !filepath.IsAbs(cfg.DataDir) || filepath.Clean(cfg.DataDir) != cfg.DataDir || !filepath.IsAbs(cfg.EvidencePath) || filepath.Clean(cfg.EvidencePath) != cfg.EvidencePath || !liveRebuildValidDigest(cfg.ExpectedEvidenceSHA256) {
 		return e, ErrClassifiedHistoryRecovery
@@ -132,7 +136,11 @@ func readClassifiedHistoryEvidence(cfg ClassifiedHistoryRecoveryConfig) (Classif
 	if w.EvidenceSHA256 != "" || !liveRebuildValidDigest(e.ReadySHA256) || w.Version != 1 || len(w.RebuildGeneration) != 32 || strings.Trim(w.RebuildGeneration, "0123456789abcdef") != "" || w.UnsafeEpoch == 0 || w.RuntimePID <= 0 || w.LaunchEvidenceKind != "owner_attested_launch_interval_v1" || w.LaunchActionRecordedAt.IsZero() || w.LaunchActionRecordedAt.Location() != time.UTC || w.ProcessObservedAt.Location() != time.UTC || w.StoppedAt.Location() != time.UTC || w.ProcessObservedAt.Before(w.LaunchActionRecordedAt) || w.StoppedAt.Before(w.ProcessObservedAt) || len(w.RuntimeBuildSHA) != 40 || strings.Trim(w.RuntimeBuildSHA, "0123456789abcdef") != "" {
 		return e, ErrClassifiedHistoryRecovery
 	}
-	if !archive.ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) || w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != archive.ClassifiedHistoryChangeUsername || !archive.ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
+	if acceptUnknown {
+		if w.Classification != archive.AcceptedPartialHistoryGap || !w.AcceptUnknownHistoryGaps || !archive.AcceptedPartialHistoryDiagnosticAllowed(w.Diagnostic) || !archive.AcceptedPartialHistoryProducerSupported(w.RuntimeBuildSHA) || w.SourceRevisionConflicts > 32 {
+			return e, ErrClassifiedHistoryRecovery
+		}
+	} else if w.AcceptUnknownHistoryGaps || !archive.ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) || w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != archive.ClassifiedHistoryChangeUsername || !archive.ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
 		return e, ErrClassifiedHistoryRecovery
 	}
 	for _, h := range []string{w.OriginalArchiveSHA256, w.OperatorReceiptSHA256, w.DiagnosticLogSHA256, w.LaunchEvidenceSHA256, w.RuntimeBinarySHA256, w.UnsafeMarkerSHA256, w.ProcessReadReceiptSHA256, w.JoinedExitReceiptSHA256} {
@@ -188,7 +196,7 @@ func readClassifiedHistoryEvidence(cfg ClassifiedHistoryRecoveryConfig) (Classif
 	}
 	operatorRaw, err := liveRebuildReadPrivate(e.OperatorReceiptPath, 65536)
 	var operator ClassifiedHistoryOperatorReceipt
-	expected := ClassifiedHistoryOperatorReceipt{1, true, true, w.LaunchEvidenceSHA256, w.DiagnosticLogSHA256, w.OriginalArchiveSHA256, w.RebuildGeneration, w.UnsafeEpoch, w.ArchiveRevision, w.RecoveryEpoch}
+	expected := ClassifiedHistoryOperatorReceipt{1, true, true, w.LaunchEvidenceSHA256, w.DiagnosticLogSHA256, w.OriginalArchiveSHA256, w.RebuildGeneration, w.UnsafeEpoch, w.ArchiveRevision, w.RecoveryEpoch, acceptUnknown}
 	if err != nil || liveRebuildDigest(operatorRaw) != w.OperatorReceiptSHA256 || strictClassifiedJSON(operatorRaw, &operator) != nil || operator != expected {
 		return e, ErrClassifiedHistoryRecovery
 	}
@@ -251,7 +259,11 @@ func readClassifiedHistoryEvidence(cfg ClassifiedHistoryRecoveryConfig) (Classif
 			StubKnown   bool   `json:"stub_known"`
 			Presence    uint64 `json:"presence"`
 		}
-		if strictClassifiedJSON(line, &diagnostic) != nil || diagnostic.Event != "history_failure" || diagnostic.Stage != "record_body_missing" || diagnostic.Stub != "other_stub" || diagnostic.StubType != w.Diagnostic.RawStub || diagnostic.RawStub != w.Diagnostic.RawStub || !diagnostic.StubPresent || !diagnostic.StubKnown || diagnostic.Presence != w.Diagnostic.Presence {
+		expectedStubType := w.Diagnostic.RawStub
+		if !w.Diagnostic.StubKnown {
+			expectedStubType = -1
+		}
+		if strictClassifiedJSON(line, &diagnostic) != nil || diagnostic.Event != "history_failure" || diagnostic.Stage != "record_body_missing" || diagnostic.Stub != "other_stub" || diagnostic.StubType != expectedStubType || diagnostic.RawStub != w.Diagnostic.RawStub || diagnostic.StubPresent != w.Diagnostic.StubPresent || diagnostic.StubKnown != w.Diagnostic.StubKnown || diagnostic.Presence != w.Diagnostic.Presence {
 			return e, ErrClassifiedHistoryRecovery
 		}
 		count++
@@ -358,8 +370,11 @@ func prepareClassifiedHistoryBinding(ctx context.Context, paths appdata.Paths, e
 	}
 	return liveRebuildWriteNew(path, raw)
 }
-func RecoverClassifiedHistorySnapshot(ctx context.Context, cfg ClassifiedHistoryRecoveryConfig) (receipt archive.SnapshotRecoveryReceipt, result error) {
-	e, err := readClassifiedHistoryEvidence(cfg)
+func RecoverClassifiedHistorySnapshot(ctx context.Context, cfg ClassifiedHistoryRecoveryConfig) (archive.SnapshotRecoveryReceipt, error) {
+	return recoverClassifiedHistorySnapshot(ctx, cfg, false)
+}
+func recoverClassifiedHistorySnapshot(ctx context.Context, cfg ClassifiedHistoryRecoveryConfig, acceptUnknown bool) (receipt archive.SnapshotRecoveryReceipt, result error) {
+	e, err := readClassifiedHistoryEvidenceMode(cfg, acceptUnknown)
 	if err != nil {
 		return receipt, ErrClassifiedHistoryRecovery
 	}
@@ -403,7 +418,11 @@ func RecoverClassifiedHistorySnapshot(ctx context.Context, cfg ClassifiedHistory
 			return receipt, err
 		}
 	}
-	store, err := archive.OpenClassifiedHistoryRecovery(ctx, paths.ArchiveDir, e.Witness, func() error { return prepareClassifiedHistoryBinding(ctx, paths, e) })
+	openRecovery := archive.OpenClassifiedHistoryRecovery
+	if acceptUnknown {
+		openRecovery = archive.OpenAcceptedPartialHistoryRecovery
+	}
+	store, err := openRecovery(ctx, paths.ArchiveDir, e.Witness, func() error { return prepareClassifiedHistoryBinding(ctx, paths, e) })
 	if err != nil {
 		return receipt, err
 	}
@@ -432,6 +451,9 @@ func RecoverClassifiedHistorySnapshot(ctx context.Context, cfg ClassifiedHistory
 		if _, err = recovery.step(ctx, store); err != nil {
 			return receipt, err
 		}
+	}
+	if acceptUnknown {
+		return store.RestoreAcceptedPartialHistorySnapshot(ctx, e.Witness)
 	}
 	return store.RestoreClassifiedHistorySnapshot(ctx, e.Witness)
 }

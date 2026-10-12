@@ -17,13 +17,15 @@ type HistoricalView struct {
 }
 
 type historicalRead struct {
-	view        *HistoricalView
-	original    ReadScope
-	identity    [32]byte
-	grant       *CredentialGrant
-	translated  ReadScope
-	liveScope   ReadScope
-	liveMapping [32]byte
+	liveCoverageEpoch     uint64
+	liveUnknownHistoryGap bool
+	view                  *HistoricalView
+	original              ReadScope
+	identity              [32]byte
+	grant                 *CredentialGrant
+	translated            ReadScope
+	liveScope             ReadScope
+	liveMapping           [32]byte
 }
 
 var _ HistoricalReadFactory = (*HistoricalView)(nil)
@@ -96,13 +98,15 @@ func (v *HistoricalView) bind(ctx context.Context, scope ReadScope, grant *Crede
 	// Keep relative rolling retention in the identity. Its current cutoff is
 	// checked on every read/final delivery, rather than baked into the cursor.
 	binding := struct {
-		View       string
-		Identity   [32]byte
-		Credential CredentialID
-		Revision   uint64
-		Scope      ReadScope
-		Mapping    [32]byte
-	}{View: v.meta.SnapshotID, Identity: identity, Scope: translated, Mapping: historicalMappingIdentity(liveScope, liveState)}
+		LiveCoverageEpoch     uint64
+		SnapshotCoverageEpoch uint64
+		View                  string
+		Identity              [32]byte
+		Credential            CredentialID
+		Revision              uint64
+		Scope                 ReadScope
+		Mapping               [32]byte
+	}{LiveCoverageEpoch: liveState.coverageEpoch, SnapshotCoverageEpoch: historyState.coverageEpoch, View: v.meta.SnapshotID, Identity: identity, Scope: translated, Mapping: historicalMappingIdentity(liveScope, liveState)}
 	if grant != nil {
 		binding.Credential, binding.Revision = grant.CredentialID, grant.CredentialRevision
 	}
@@ -112,7 +116,7 @@ func (v *HistoricalView) bind(ctx context.Context, scope ReadScope, grant *Crede
 	}
 	digest := sha256.Sum256(encoded)
 	translated.Principal = "historical:" + hex.EncodeToString(digest[:])
-	r := &historicalRead{view: v, original: scope, identity: identity, grant: grant, translated: translated, liveScope: liveScope, liveMapping: binding.Mapping}
+	r := &historicalRead{view: v, original: scope, identity: identity, grant: grant, translated: translated, liveScope: liveScope, liveMapping: binding.Mapping, liveCoverageEpoch: liveState.coverageEpoch, liveUnknownHistoryGap: liveState.unknownHistoryGap}
 	if err = r.checkLive(ctx, scope); err != nil {
 		return nil, err
 	}
@@ -132,6 +136,9 @@ func (r *historicalRead) checkLiveAt(ctx context.Context, scope ReadScope) (time
 	state, err := historicalAuthorityState(ctx, r.view.live, r.view.account, r.grant)
 	if err != nil {
 		return time.Time{}, err
+	}
+	if state.coverageEpoch != r.liveCoverageEpoch {
+		return time.Time{}, ErrCursorStale
 	}
 	effective, err := historicalLiveScope(r.original, state)
 	if err != nil {
@@ -182,6 +189,7 @@ func (r *historicalRead) CheckResponse(ctx context.Context, scope ReadScope, che
 	if (!check.Guard.minExpiry.IsZero() && !now.Before(check.Guard.minExpiry)) || (rolling > 0 && !check.Guard.minSent.IsZero() && check.Guard.minSent.Before(now.Add(-rolling))) {
 		return ReadSnapshot{}, ErrSourceUnavailable
 	}
+	snapshot.UnknownHistoryGap = snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
 	return snapshot, nil
 }
 
@@ -213,6 +221,7 @@ func (r *historicalRead) SearchGuarded(ctx context.Context, scope ReadScope, req
 	if err = r.finish(ctx, scope, guard); err != nil {
 		return SearchPage{}, ResponseGuard{}, err
 	}
+	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
 	return page, guard, nil
 }
 
@@ -235,6 +244,7 @@ func (r *historicalRead) ContextGuarded(ctx context.Context, scope ReadScope, re
 	if err = r.finish(ctx, scope, guard); err != nil {
 		return ContextPage{}, ResponseGuard{}, err
 	}
+	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
 	return page, guard, nil
 }
 
@@ -261,6 +271,12 @@ func (r *historicalRead) ListChatsGuarded(ctx context.Context, scope ReadScope, 
 	if err = r.finish(ctx, scope, guard); err != nil {
 		return ChatPage{}, ResponseGuard{}, err
 	}
+	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
+	if page.Snapshot.UnknownHistoryGap {
+		for i := range page.Chats {
+			page.Chats[i].Coverage = "partial"
+		}
+	}
 	return page, guard, nil
 }
 
@@ -282,6 +298,12 @@ func (r *historicalRead) StatusGuarded(ctx context.Context, scope ReadScope) (St
 	page.Codes = []string{"historical_snapshot", "partial_history", "current_phone_unknown"}
 	if err = r.finish(ctx, scope, guard); err != nil {
 		return StatusSnapshot{}, ResponseGuard{}, err
+	}
+	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
+	if page.Snapshot.UnknownHistoryGap {
+		for i := range page.Chats {
+			page.Chats[i].Coverage = "partial"
+		}
 	}
 	return page, guard, nil
 }
@@ -307,6 +329,7 @@ func (r *historicalRead) StatsGuarded(ctx context.Context, scope ReadScope, requ
 	if err = r.finish(ctx, scope, guard); err != nil {
 		return StatsSnapshot{}, ResponseGuard{}, err
 	}
+	page.UnknownHistoryGap = page.UnknownHistoryGap || r.liveUnknownHistoryGap
 	return page, guard, nil
 }
 

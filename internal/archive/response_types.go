@@ -60,6 +60,7 @@ type RetrievedDocument struct {
 	Excerpts             []DerivedExcerpt
 }
 type ResponseGuard struct {
+	coverageEpoch      uint64
 	safetyEpoch        uint64
 	indexGeneration    uint64
 	recoveryEpoch      uint64

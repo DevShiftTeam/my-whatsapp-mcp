@@ -17,9 +17,18 @@ type RebuildConfig struct {
 	Requests                         int // dispatch window <=32; zero disables rebuild network work
 }
 
+// UnknownHistoryPolicy is trusted server configuration, never remote input.
+type UnknownHistoryPolicy uint8
+
+const (
+	UnknownHistoryStrict UnknownHistoryPolicy = iota
+	UnknownHistoryPartial
+)
+
 type Config struct {
-	Rebuild       *RebuildConfig
-	DiagnosticDir string // private body-free mutation witnesses
+	UnknownHistoryPolicy UnknownHistoryPolicy
+	Rebuild              *RebuildConfig
+	DiagnosticDir        string // private body-free mutation witnesses
 
 	SessionDir, TemporaryDir string
 	BackfillRequests         int // zero explicitly disables history requests

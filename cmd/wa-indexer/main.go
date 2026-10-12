@@ -19,6 +19,7 @@ import (
 	"github.com/Bodokh/my-whatsapp-mcp/internal/app"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/appdata"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/ingestion"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/remoteaccess"
@@ -28,6 +29,7 @@ var errStartup = errors.New("application_unavailable")
 var errRestartRequired = errors.New("restart_required")
 
 const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir DIRECTORY] [--no-open]
+       wa-indexer serve --unknown-history-policy strict|partial
        wa-indexer serve --container [--listen 0.0.0.0:8123] [--browser-origin http://127.0.0.1:8123] [--docker-container-name NAME]
        wa-indexer owner-link [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
        wa-indexer health [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
@@ -36,6 +38,7 @@ const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir 
        wa-indexer demo [--data-dir DIRECTORY] [--no-open]
        wa-indexer doctor [--data-dir DIRECTORY]
        wa-indexer rebuild-live --config ABSOLUTE_PRIVATE_CONFIG
+       wa-indexer recover-partial-history --config ABSOLUTE_PRIVATE_CONFIG
        wa-indexer recover-snapshot --data-dir ABSOLUTE_PRIVATE_PROFILE
        wa-indexer recover-original-cache --data-dir ABSOLUTE_PRIVATE_PROFILE --backup-dir ABSOLUTE_STOPPED_BACKUP
        wa-indexer models install|verify PROFILE [--data-dir DIRECTORY]
@@ -64,6 +67,12 @@ app or changing its configuration. Missing owner metadata fails without startup.
 rebuild-live prepares a separate profile offline from a coherent current backup.
 It preserves saved client authority and device identity; it does not connect or
 activate the destination. Configure its private operator receipt before use.
+Unknown-history policy defaults to strict. Explicit partial mode records sticky
+account-wide warnings: unsupported edits, deletions, or retention changes may be
+missed. Known controls and current permissions remain enforced. Changing this
+launch option requires a restart. recover-partial-history is a separate offline
+owner acceptance of an eligible committed partial snapshot using protected
+evidence; it does not verify current phone state or recover an unvisited suffix.
 After stopping the app, recover-snapshot explicitly restores the committed
 archive after an eligible interrupted drain. It preserves saved messages and
 clients, records a coverage gap, and does not verify the phone's current state.
@@ -208,7 +217,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.unknownHistoryPolicyExplicit || opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -242,7 +251,11 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err != nil {
 		return errStartup
 	}
-	cfg := app.Config{RebuildAncestorLockFDs: opts.rebuildAncestorLockFDs, RebuildSourceLockFD: opts.rebuildSourceLockFD, DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
+	unknownPolicy := ingestion.UnknownHistoryStrict
+	if opts.unknownHistoryPolicy == "partial" {
+		unknownPolicy = ingestion.UnknownHistoryPartial
+	}
+	cfg := app.Config{UnknownHistoryPolicy: unknownPolicy, RebuildAncestorLockFDs: opts.rebuildAncestorLockFDs, RebuildSourceLockFD: opts.rebuildSourceLockFD, DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
 
 	cfg.HistoricalView, err = historicalViewOptions(opts, opts.historicalViewDir != "")
 	if err != nil {
@@ -277,7 +290,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.unknownHistoryPolicyExplicit || opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -378,6 +391,8 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) (resul
 		return ownerLink(ctx, opts, stdout)
 	case "health":
 		return health(ctx, opts, stdout)
+	case "recover_partial_history":
+		return executeAcceptedPartialHistoryRecovery(ctx, opts.config, stdout)
 	case "recover_classified_history":
 		return executeClassifiedHistoryRecovery(ctx, opts.config, stdout)
 	case "rebuild_live":

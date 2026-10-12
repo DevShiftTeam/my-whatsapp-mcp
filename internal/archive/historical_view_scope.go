@@ -11,10 +11,12 @@ import (
 )
 
 type historicalAuthority struct {
-	account string
-	policy  ArchivePolicy
-	chats   map[ChatID]string // opaque public ID -> exact canonical source identity
-	now     time.Time
+	coverageEpoch     uint64
+	unknownHistoryGap bool
+	account           string
+	policy            ArchivePolicy
+	chats             map[ChatID]string // opaque public ID -> exact canonical source identity
+	now               time.Time
 }
 
 // Resolve bounded inventory and authority in one read transaction under the
@@ -89,6 +91,10 @@ func historicalAuthorityState(ctx context.Context, s *Store, account string, gra
 	if err != nil {
 		return historicalAuthority{}, err
 	}
+	gap := ReadSnapshot{}
+	if err = unknownHistoryGapSnapshot(fenced, tx, bound, &gap); err != nil {
+		return historicalAuthority{}, err
+	}
 	if err = tx.Commit(); err != nil {
 		return historicalAuthority{}, readError(fenced, err)
 	}
@@ -96,7 +102,7 @@ func historicalAuthorityState(ctx context.Context, s *Store, account string, gra
 	if !credentialExpiry.IsZero() && !now.Before(credentialExpiry) {
 		return historicalAuthority{}, ErrUnauthorized
 	}
-	return historicalAuthority{bound, policy, chats, now}, nil
+	return historicalAuthority{account: bound, policy: policy, chats: chats, now: now, coverageEpoch: gap.CoverageEpoch, unknownHistoryGap: gap.UnknownHistoryGap}, nil
 }
 
 func historicalInventory(ctx context.Context, tx *sql.Tx, account string) (map[ChatID]string, error) {

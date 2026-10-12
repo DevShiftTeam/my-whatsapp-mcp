@@ -8,6 +8,12 @@ import (
 )
 
 func executeClassifiedHistoryRecovery(ctx context.Context, path string, stdout io.Writer) error {
+	return executeHistoryRecovery(ctx, path, stdout, false)
+}
+func executeAcceptedPartialHistoryRecovery(ctx context.Context, path string, stdout io.Writer) error {
+	return executeHistoryRecovery(ctx, path, stdout, true)
+}
+func executeHistoryRecovery(ctx context.Context, path string, stdout io.Writer, acceptUnknown bool) error {
 	raw, err := readPrivateEnvFile(path)
 	if err != nil {
 		return app.ErrClassifiedHistoryRecovery
@@ -16,7 +22,11 @@ func executeClassifiedHistoryRecovery(ctx context.Context, path string, stdout i
 	if err != nil {
 		return app.ErrClassifiedHistoryRecovery
 	}
-	receipt, err := app.RecoverClassifiedHistorySnapshot(ctx, cfg)
+	recoverSnapshot := app.RecoverClassifiedHistorySnapshot
+	if acceptUnknown {
+		recoverSnapshot = app.RecoverAcceptedPartialHistorySnapshot
+	}
+	receipt, err := recoverSnapshot(ctx, cfg)
 	if err != nil {
 		return app.ErrClassifiedHistoryRecovery
 	}

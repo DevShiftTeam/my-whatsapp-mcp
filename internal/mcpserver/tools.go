@@ -40,6 +40,7 @@ type chatSearchArgs struct {
 	Cursor string `json:"cursor,omitempty"`
 }
 type contentLabel struct {
+	UnknownHistoryGap bool                            `json:"unknown_history_gap,omitempty"`
 	ArchiveView       *archive.HistoricalViewMetadata `json:"archive_view,omitempty"`
 	Untrusted         bool                            `json:"untrusted"`
 	Instruction       string                          `json:"instruction"`
@@ -50,6 +51,8 @@ type contentLabel struct {
 	RecoveryCode      string                          `json:"recovery_code"`
 	RecoveryEpoch     uint64                          `json:"recovery_epoch"`
 }
+
+const unknownHistoryGapWarning = "History is partial; current phone state is unknown. Unsupported edits, deletions or retention changes may not be reflected."
 
 func sourceLabel(snapshot archive.ReadSnapshot) contentLabel {
 	label := contentLabel{
@@ -64,6 +67,11 @@ func sourceLabel(snapshot archive.ReadSnapshot) contentLabel {
 	}
 	if snapshot.RecoveryCode == "owner_restored_snapshot" {
 		label.CoverageWarning += " The owner restored this stored snapshot after an interrupted import. Messages, edits, or deletions during the interruption may be missing; current phone state remains unverified."
+	}
+	if snapshot.UnknownHistoryGap {
+		label.UnknownHistoryGap = true
+		label.CurrentPhoneState = "unknown"
+		label.CoverageWarning += " " + unknownHistoryGapWarning
 	}
 	return label
 }
@@ -353,6 +361,9 @@ func newToolServer(c Config, reader guardedReader, credentials Credentials) *mcp
 			p.Keyword.Pending = 0
 			p.Semantic = archive.Progress{State: "unavailable", Code: "historical_snapshot_read_only"}
 			p.Media = archive.Progress{State: "unavailable", Code: "historical_snapshot_read_only"}
+		}
+		if p.Snapshot.UnknownHistoryGap {
+			p.Coverage = "partial"
 		}
 		out := statusDTO{Rebuild: p.Rebuild, HistoricalSnapshot: c.HistoricalSnapshot, contentLabel: sourceLabel(p.Snapshot), Connection: p.Connection, Paused: p.Paused, ReconciliationRequired: p.ReconciliationRequired, Coverage: p.Coverage, Chats: chatDTOs(p.Chats), MessageCount: p.Messages, Keyword: progress(p.Keyword), Semantic: progress(p.Semantic), Media: progress(p.Media), Codes: p.Codes}
 		if c.HistoricalReads != nil && selected.metadata == nil {

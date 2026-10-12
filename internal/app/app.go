@@ -19,6 +19,7 @@ import (
 )
 
 type Config struct {
+	UnknownHistoryPolicy   ingestion.UnknownHistoryPolicy
 	RebuildAncestorLockFDs []int
 	HistoricalView         *HistoricalViewConfig
 	RebuildSourceLockFD    *int
@@ -55,6 +56,7 @@ type runtimeFactory func(ingestion.Config, archive.ConnectorStore, ingestion.Cal
 // Application serializes lifecycle mutations separately from callbacks. Callbacks
 // never acquire ops or data, so stopping a connector can safely wait for them.
 type Application struct {
+	unknownHistoryPolicy          ingestion.UnknownHistoryPolicy
 	historicalView                *historicalViewOwner
 	snapshot                      *SnapshotConfig
 	rebuild                       *ingestion.RebuildConfig
@@ -114,6 +116,9 @@ func newApplication(ctx context.Context, cfg Config, factory runtimeFactory) (*A
 
 func newApplicationWithResources(ctx context.Context, cfg Config, factory runtimeFactory, open func(context.Context, appdata.Paths, *archive.Store, Config, bool) (*resources, error)) (*Application, error) {
 	cfg = copyApplicationConfig(cfg)
+	if cfg.UnknownHistoryPolicy != ingestion.UnknownHistoryStrict && cfg.UnknownHistoryPolicy != ingestion.UnknownHistoryPartial {
+		return nil, archive.ErrInvalidPolicy
+	}
 	if err := validateTranscriptionConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -264,7 +269,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	queries, cancel := context.WithCancel(context.Background())
 	cfg.instanceGuard = lease
-	a := &Application{snapshot: cfg.Snapshot, rebuild: rebuild, rebuildSourceLease: rebuildSourceLease, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
+	a := &Application{unknownHistoryPolicy: cfg.UnknownHistoryPolicy, snapshot: cfg.Snapshot, rebuild: rebuild, rebuildSourceLease: rebuildSourceLease, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
 	a.historicalView, err = openHistoricalView(ctx, paths, store, cfg, rebuildSourceLease)
 	startupHistorical = a.historicalView
 	if err != nil {
@@ -330,7 +335,7 @@ func (a *Application) makeRuntime() (connector, error) {
 	if a.snapshot != nil {
 		return nil, archive.ErrHistoricalSnapshotReadOnly
 	}
-	return a.factory(ingestion.Config{SessionDir: a.paths.SessionDir, TemporaryDir: a.paths.WorkingDir, BackfillRequests: a.backfillRequests, Rebuild: a.rebuild, DiagnosticDir: a.paths.WorkingDir}, a.store, ingestion.Callbacks{QRChanged: a.qrChanged, StatusChanged: a.statusChanged, MediaAdmitter: a.resources.admitMedia})
+	return a.factory(ingestion.Config{UnknownHistoryPolicy: a.unknownHistoryPolicy, SessionDir: a.paths.SessionDir, TemporaryDir: a.paths.WorkingDir, BackfillRequests: a.backfillRequests, Rebuild: a.rebuild, DiagnosticDir: a.paths.WorkingDir}, a.store, ingestion.Callbacks{QRChanged: a.qrChanged, StatusChanged: a.statusChanged, MediaAdmitter: a.resources.admitMedia})
 }
 
 func resolveDataRoot(cfg Config) (string, error) {
@@ -1019,6 +1024,9 @@ func (a *Application) Status(ctx context.Context) (archive.StatusSnapshot, error
 	}
 	ctx, done := a.query(ctx)
 	defer done()
+	return a.statusLocked(ctx)
+}
+func (a *Application) statusLocked(ctx context.Context) (archive.StatusSnapshot, error) {
 	diagnostic, err := a.store.DiagnosticStatus(ctx)
 	if err != nil {
 		return archive.StatusSnapshot{}, err

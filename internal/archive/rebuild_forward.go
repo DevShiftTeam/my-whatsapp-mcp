@@ -28,7 +28,7 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 	if err != nil {
 		return 0, err
 	}
-	if version == 14 || version == 15 {
+	if version < 17 {
 		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_classified_schema"); err != nil {
 			return 0, err
 		}
@@ -36,6 +36,8 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 		schemaFile := "migrations/011_snapshot_recovery.sql"
 		if version == 15 {
 			schemaFile = "migrations/015_classified_history_recovery.sql"
+		} else if version == 16 {
+			schemaFile = "migrations/016_classified_history_username.sql"
 		}
 		ddl, err := migrationFiles.ReadFile(schemaFile)
 		if err != nil {
@@ -46,14 +48,14 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 			return 0, ErrSchemaChanged
 		}
 		auditDDL := string(ddl[start:])
-		if version == 15 {
+		if version >= 15 {
 			end := strings.Index(auditDDL, "INSERT INTO snapshot_recovery_audit(")
 			if end < 0 {
 				return 0, ErrSchemaChanged
 			}
 			auditDDL = auditDDL[:end]
 		}
-		if _, err = dst.ExecContext(ctx, "DROP INDEX snapshot_recovery_one_prepared; DROP TABLE snapshot_recovery_audit;"+auditDDL); err != nil {
+		if _, err = dst.ExecContext(ctx, "DROP TABLE unknown_history_codes; DROP TABLE unknown_history_coverage; DROP INDEX snapshot_recovery_one_prepared; DROP TABLE snapshot_recovery_audit;"+auditDDL); err != nil {
 			return 0, err
 		}
 	}

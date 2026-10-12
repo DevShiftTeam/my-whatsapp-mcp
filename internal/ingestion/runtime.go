@@ -114,7 +114,7 @@ type Runtime struct {
 }
 
 func New(config Config, store archive.ConnectorStore, callbacks Callbacks) (*Runtime, error) {
-	if store == nil {
+	if store == nil || (config.UnknownHistoryPolicy != UnknownHistoryStrict && config.UnknownHistoryPolicy != UnknownHistoryPartial) {
 		return nil, archive.ErrInvalidEvent
 	}
 	if err := configureRebuild(context.Background(), &config, store); err != nil {

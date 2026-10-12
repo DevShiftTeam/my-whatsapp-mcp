@@ -12,6 +12,17 @@ import (
 
 const ClassifiedHistoryGroupParticipantChangeNumber = "v1_group_participant_change_number"
 const ClassifiedHistoryChangeUsername = "v1_noncontent_history_notice"
+const AcceptedPartialHistoryGap = "v1_owner_accepted_unknown_history_gap"
+
+// This admission is only owner acceptance of one legacy unknown stop producer.
+// It does not certify the record as benign or extend the known notice classes.
+func AcceptedPartialHistoryProducerSupported(buildSHA string) bool {
+	return buildSHA == "eda63bbfbde526536685f40d6d74e6a2ef282214"
+}
+
+func AcceptedPartialHistoryDiagnosticAllowed(diagnostic ClassifiedHistoryDiagnostic) bool {
+	return diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 229, StubPresent: true, StubKnown: false, Presence: 155})
+}
 
 // ClassifiedHistoryDiagnosticFor retains the original diagnostic constructors.
 // Authorization uses ClassifiedHistoryDiagnosticAllowed for exact membership.
@@ -57,8 +68,8 @@ type ClassifiedHistoryDiagnostic struct {
 	Presence    uint64 `json:"presence"`
 }
 
-// These metadata readers support exactly the last pre-classification schema
-// and its additive audit migration. Writable recovery still requires latest.
+// Metadata reads admit only exact reviewed schemas 14 through 17. Writable
+// original-cache recovery still requires the latest complete migration history.
 func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int, error) {
 	if err := validateOriginalCacheMigrationHistory(ctx, tx, false); err != nil {
 		return 0, err
@@ -67,7 +78,7 @@ func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int,
 	if err := tx.QueryRowContext(ctx, "SELECT max(version) FROM schema_migrations").Scan(&version); err != nil {
 		return 0, fixedSQLError(err)
 	}
-	if version != 14 && version != 15 && version != 16 {
+	if version != 14 && version != 15 && version != 16 && version != 17 {
 		return 0, ErrSchemaChanged
 	}
 	return version, nil
@@ -102,6 +113,29 @@ type ClassifiedHistoryWitness struct {
 	UnsafeMarkerSHA256        string                      `json:"unsafe_marker_sha256"`
 	UnsafeMarkerIdentity      string                      `json:"unsafe_marker_identity"`
 	SourceRevisionConflicts   uint32                      `json:"source_revision_conflicts,omitempty"`
+	AcceptUnknownHistoryGaps  bool                        `json:"accept_unknown_history_gaps,omitempty"`
+}
+
+// OpenAcceptedPartialHistoryRecovery is a distinct, explicit owner operation.
+// It never classifies unknown content as benign.
+func OpenAcceptedPartialHistoryRecovery(ctx context.Context, dir string, w ClassifiedHistoryWitness, beforeMigration func() error) (*Store, error) {
+	if _, _, err := canonicalAcceptedPartialHistoryWitness(w); err != nil {
+		return nil, err
+	}
+	if beforeMigration == nil {
+		return nil, ErrInvalidEvent
+	}
+	if _, err := originalCacheExistingArchive(dir, true); err != nil {
+		return nil, err
+	}
+	return openArchive(ctx, dir, Options{}, beforeMigration)
+}
+
+func (s *Store) RestoreAcceptedPartialHistorySnapshot(ctx context.Context, w ClassifiedHistoryWitness) (SnapshotRecoveryReceipt, error) {
+	if _, _, err := canonicalAcceptedPartialHistoryWitness(w); err != nil {
+		return SnapshotRecoveryReceipt{}, err
+	}
+	return s.restoreCommittedSnapshot(ctx, "", &w)
 }
 
 // OpenClassifiedHistoryRecovery seals the caller's validated evidence while
@@ -128,6 +162,20 @@ func (s *Store) RestoreClassifiedHistorySnapshot(ctx context.Context, w Classifi
 }
 
 func canonicalClassifiedHistoryWitness(w ClassifiedHistoryWitness) (string, string, error) {
+	if w.AcceptUnknownHistoryGaps || !ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) || w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != ClassifiedHistoryChangeUsername || !ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
+		return "", "", ErrInvalidEvent
+	}
+	return canonicalSnapshotHistoryWitness(w)
+}
+
+func canonicalAcceptedPartialHistoryWitness(w ClassifiedHistoryWitness) (string, string, error) {
+	if !w.AcceptUnknownHistoryGaps || w.Classification != AcceptedPartialHistoryGap || !AcceptedPartialHistoryDiagnosticAllowed(w.Diagnostic) || !AcceptedPartialHistoryProducerSupported(w.RuntimeBuildSHA) || w.SourceRevisionConflicts > 32 {
+		return "", "", ErrInvalidEvent
+	}
+	return canonicalSnapshotHistoryWitness(w)
+}
+
+func canonicalSnapshotHistoryWitness(w ClassifiedHistoryWitness) (string, string, error) {
 	validHex := func(value string, bytes int) bool {
 		v, e := hex.DecodeString(value)
 		return e == nil && len(v) == bytes && strings.ToLower(value) == value
@@ -154,12 +202,6 @@ func canonicalClassifiedHistoryWitness(w ClassifiedHistoryWitness) (string, stri
 	if (w.ObservationMarkerSHA256 == "") != (w.ObservationMarkerIdentity == "") || (w.ObservationMarkerSHA256 != "" && (!validHex(w.ObservationMarkerSHA256, 32) || !validString(w.ObservationMarkerIdentity, 256))) {
 		return "", "", ErrInvalidEvent
 	}
-	if !ClassifiedHistoryDiagnosticAllowed(w.Classification, w.Diagnostic) {
-		return "", "", ErrInvalidEvent
-	}
-	if w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != ClassifiedHistoryChangeUsername || !ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
-		return "", "", ErrInvalidEvent
-	}
 	b, err := json.Marshal(w)
 	if err != nil || len(b) > 8192 {
 		return "", "", ErrInvalidEvent
@@ -182,7 +224,11 @@ func (s *Store) bindClassifiedHistoryAudit(w *ClassifiedHistoryWitness, current,
 		}
 		return nil
 	}
-	canonical, digest, err := canonicalClassifiedHistoryWitness(*w)
+	canonicalize := canonicalClassifiedHistoryWitness
+	if w.Classification == AcceptedPartialHistoryGap {
+		canonicalize = canonicalAcceptedPartialHistoryWitness
+	}
+	canonical, digest, err := canonicalize(*w)
 	if err != nil {
 		return err
 	}

@@ -149,6 +149,9 @@ func (s *Store) beginRead(ctx context.Context, scope ReadScope, requestChats []C
 	if err != nil {
 		return fail(readError(bounded, err))
 	}
+	if err = unknownHistoryGapSnapshot(bounded, tx, scope.Account, &f.snapshot); err != nil {
+		return fail(err)
+	}
 	if generation == 0 {
 		return fail(ErrUnauthorized)
 	}
@@ -326,6 +329,7 @@ func (f *readFrame) responseGuard() (ResponseGuard, error) {
 		safetyEpoch:      f.epoch,
 		indexGeneration:  f.snapshot.IndexGeneration,
 		recoveryEpoch:    f.snapshot.RecoveryEpoch,
+		coverageEpoch:    f.snapshot.CoverageEpoch,
 		minSent:          f.minSent,
 		minExpiry:        f.minExpiry,
 		rolling:          f.rolling,
@@ -402,6 +406,12 @@ func (f *readFrame) finish() error {
 	err = verification.QueryRowContext(f.ctx, `SELECT p.generation,a.archive_revision,a.index_generation,a.recovery_epoch,a.recovery_code FROM archive_policy p JOIN archive_meta a ON a.id=1 WHERE p.id=1`).Scan(&live.PolicyGeneration, &live.ArchiveRevision, &live.IndexGeneration, &live.RecoveryEpoch, &live.RecoveryCode)
 	if err != nil {
 		return readError(f.ctx, err)
+	}
+	if err = unknownHistoryGapSnapshot(f.ctx, verification, f.scope.Account, &live); err != nil {
+		return err
+	}
+	if live.CoverageEpoch != f.snapshot.CoverageEpoch {
+		return ErrCursorStale
 	}
 	if live.PolicyGeneration != f.snapshot.PolicyGeneration {
 		return ErrPolicyChanged
@@ -830,6 +840,10 @@ func (f *readFrame) filteredChatViews(limit, offset int, queryKey, chatType stri
 		chat.Latest = fromMillis(latest)
 		chat.Coverage = CoverageState("unknown")
 		chat.GapCodes = []string{}
+		if f.snapshot.UnknownHistoryGap {
+			chat.Coverage = "partial"
+			chat.GapCodes = append(chat.GapCodes, UnknownHistoryGapCode)
+		}
 		if unresolvedDeletion {
 			chat.Coverage = "partial"
 			chat.GapCodes = append(chat.GapCodes, "unresolved_deletion")
@@ -942,6 +956,10 @@ func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *Respo
 		return StatusSnapshot{}, err
 	}
 	status := StatusSnapshot{Rebuild: s.rebuildStatus(), Connection: ConnectionState("disconnected"), Coverage: CoverageState("unknown"), Chats: chats, Snapshot: f.snapshot, Keyword: Progress{State: ProgressState("ready")}, Semantic: Progress{State: ProgressState("not_configured")}, Media: Progress{State: ProgressState("not_configured")}, Codes: []string{}}
+	if f.snapshot.UnknownHistoryGap {
+		status.Coverage = "partial"
+		status.Codes = append(status.Codes, UnknownHistoryGapCode)
+	}
 	if status.Rebuild != nil {
 		status.Coverage = "partial"
 	}

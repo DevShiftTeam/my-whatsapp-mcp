@@ -4,6 +4,8 @@
 
 ### Added
 
+- Add explicit `serve --unknown-history-policy partial` opt-in with strict mode remaining the default and persistent account-wide warnings about potentially missed edits, deletions and retention changes. Add separate protected offline `recover-partial-history --config` acceptance of an eligible committed partial snapshot; preserve current sessions, AI-client grants, known controls and spent allowances without claiming recovery of the unvisited remainder or current phone state.
+
 - Continue importing when reviewed roster, administration and display notices have no message body, while retaining source-safety checks and local permissions.
 
 - Add explicit offline acceptance of a committed partial history snapshot for only the reviewed participant-number-change (`33`/`475`), username-change (`193`/`411`) and group member link-mode (`217`/`411`) notice shapes, bound to fresh per-operation append-only private evidence; retain conflict quarantines and preserve the latest session, grants, send journal and recovery allowances, with current phone state still unverified.

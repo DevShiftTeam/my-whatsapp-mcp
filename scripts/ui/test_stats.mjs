@@ -128,7 +128,7 @@ function harness() {
     setInterval:callback => { const id=nextTimer++; intervals.set(id,callback); return id; },clearInterval:id => intervals.delete(id),
   };
   const fetch = (path,options={}) => new Promise((resolve,reject) => { requests.push({path,options,resolve:(value,status=200) => resolve({ok:status>=200&&status<300,status,json:async()=>value}),resolveJSON:json => resolve({ok:true,status:200,json}),reject}); });
-  const expose = `  globalThis.__test = {openSettings,savePolicy,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
+  const expose = `  globalThis.__test = {requestAPI:api,openSettings,savePolicy,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;}};\n})();`;
   const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date,Intl,URLSearchParams,crypto:crypto.webcrypto,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},history:{replaceState(){}},console});
@@ -143,6 +143,19 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const cases = [];
 async function check(name,body) { await body(); cases.push(name); }
 
+await check('partial-history warning persists across Stats and Archive without locking live date settings',async()=>{
+ const h=harness();
+ const stats=h.api.refreshStats();h.requests[0].resolve({...snapshot(),unknown_history_gap:true});await stats;
+ const warning=h.nodes.get('unknown-history-notice');assert.ok(warning,'persistent account warning exists');assert.equal(warning.hidden,false);
+ assert.match(warning.textContent,/unsupported.*edit.*delet.*retention/i);assert.match(warning.textContent,/current phone state.*unknown/i);
+ h.api.selectWorkspaceView('archive');assert.equal(warning.hidden,false);
+ const old=h.api.requestAPI('/api/status');h.requests.at(-1).resolve({Snapshot:{UnknownHistoryGap:false}});await old;assert.equal(warning.hidden,false,'late response cannot clear sticky warning');
+ const pending=h.api.openSettings();h.requests.at(-1).resolve({configured:true,Policy:{DateMode:'since',StartDate:'2026-01-01',ChatMode:'all'}});await flush();h.requests.at(-1).resolve({Chats:[]});await pending;
+ assert.equal(h.document.documentElement.dataset.historicalSnapshot,undefined);
+ for(const id of ['save-policy','import-start','refresh-chats']) assert.equal(h.nodes.get(id).disabled,false,id);
+ assert.doesNotMatch(h.nodes.get('settings-intro').textContent,/Historical snapshot|read-only/i);
+ const fresh=harness();const archive=fresh.api.requestAPI('/api/search','POST',{query:'synthetic'});fresh.requests[0].resolve({Snapshot:{UnknownHistoryGap:true},Hits:[]});await archive;assert.equal(fresh.nodes.get('unknown-history-notice').hidden,false);
+});
 await check('historical settings remain inspectable but cannot change import choices',async()=>{
   const h=harness(); h.document.documentElement.dataset.historicalSnapshot='true';
   const saved={configured:true,historical_snapshot:{captured_at:'2026-01-02T03:04:05Z'},Policy:{DateMode:'all_available',ChatMode:'selective',IncludedChats:['synthetic-chat'],RollingRetention:0}};

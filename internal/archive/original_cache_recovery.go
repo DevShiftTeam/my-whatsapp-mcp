@@ -338,6 +338,9 @@ func validateOriginalCacheRecoverySchemaMode(ctx context.Context, path string, h
 		if _, err = validateCompatibleSnapshotMigrations(ctx, tx); err != nil {
 			return err
 		}
+		if err = validateHistoricalSnapshotSchema(ctx, tx); err != nil {
+			return err
+		}
 	} else if err = validateOriginalCacheMigrationHistory(ctx, tx, true); err != nil {
 		return err
 	}
@@ -371,6 +374,27 @@ func validateOriginalCacheRecoverySchemaMode(ctx context.Context, path string, h
 		return ErrUnauthorized
 	}
 	return fixedSQLError(tx.Commit())
+}
+
+// Compile expected DDL in an ephemeral database. Source remains query-only;
+// a checksum receipt alone cannot authorize missing or altered SQL constraints.
+func validateHistoricalSnapshotSchema(ctx context.Context, source *sql.Tx) error {
+	db, err := sql.Open("sqlite3", "file::memory:?cache=private&_foreign_keys=on")
+	if err != nil {
+		return fixedSQLError(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if err = migrate(ctx, db); err != nil {
+		return err
+	}
+	destination, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fixedSQLError(err)
+	}
+	defer destination.Rollback()
+	_, err = classifyRebuildSourceSchema(ctx, source, destination)
+	return fixedSQLError(err)
 }
 
 // Current recovery must not cause migration. Backup reads accept only a known,

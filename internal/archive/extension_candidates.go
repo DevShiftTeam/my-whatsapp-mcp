@@ -588,7 +588,7 @@ func (s *Store) HydrateDocuments(ctx context.Context, scope ReadScope, request H
 	if err != nil {
 		return HydratedPage{}, err
 	}
-	page := HydratedPage{Snapshot: f.snapshot, Guard: ResponseGuard{PolicyGeneration: f.snapshot.PolicyGeneration, Generation: generation.ID, IndexVersionID: generation.Version.ID, ScopeIdentity: identity, safetyEpoch: f.epoch, indexGeneration: f.snapshot.IndexGeneration, recoveryEpoch: f.snapshot.RecoveryEpoch, rolling: f.rolling}}
+	page := HydratedPage{Snapshot: f.snapshot, Guard: ResponseGuard{PolicyGeneration: f.snapshot.PolicyGeneration, Generation: generation.ID, IndexVersionID: generation.Version.ID, ScopeIdentity: identity, safetyEpoch: f.epoch, indexGeneration: f.snapshot.IndexGeneration, recoveryEpoch: f.snapshot.RecoveryEpoch, coverageEpoch: f.snapshot.CoverageEpoch, rolling: f.rolling}}
 	guard := make(map[MessageID]SourceReadVersion)
 	rootPins := make(map[DocumentID]extensionRootResponsePin)
 	for _, ref := range request.Documents {
@@ -758,6 +758,9 @@ func extensionResponseFrame(s *Store, ctx context.Context, tx *sql.Tx, scope Rea
 	if err != nil {
 		return nil, readError(ctx, err)
 	}
+	if err = unknownHistoryGapSnapshot(ctx, tx, scope.Account, &f.snapshot); err != nil {
+		return nil, err
+	}
 	if f.snapshot.PolicyGeneration != scope.PolicyGeneration {
 		return nil, ErrPolicyChanged
 	}
@@ -861,6 +864,9 @@ func (s *Store) CheckResponse(ctx context.Context, scope ReadScope, check Respon
 		return ReadSnapshot{}, err
 	}
 	if check.Guard.indexGeneration != 0 && check.Guard.indexGeneration != f.snapshot.IndexGeneration {
+		return ReadSnapshot{}, ErrCursorStale
+	}
+	if check.Guard.coverageEpoch != f.snapshot.CoverageEpoch {
 		return ReadSnapshot{}, ErrCursorStale
 	}
 	if check.Guard.recoveryEpoch != f.snapshot.RecoveryEpoch {

@@ -157,7 +157,8 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 		return receipt, ErrArchiveUnavailable
 	}
 	defer src.Rollback()
-	if _, err = validateCompatibleSnapshotMigrations(ctx, src); err != nil {
+	sourceVersion, err := validateCompatibleSnapshotMigrations(ctx, src)
+	if err != nil {
 		return receipt, err
 	}
 	var account string
@@ -202,6 +203,11 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 			return receipt, e
 		}
 		receipt.Tables[projection.table] = digest
+	}
+	if sourceVersion == 17 {
+		if err = rebuildCopyUnknownHistoryGaps(ctx, src, tx, account, receipt.Tables); err != nil {
+			return receipt, err
+		}
 	}
 	// This is a separate physical source namespace. Its local safety row starts
 	// clean while the original fence remains sealed in provenance. Credential
@@ -264,6 +270,63 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 		return receipt, err
 	}
 	return receipt, nil
+}
+
+// A fresh physical namespace cannot erase accepted source uncertainty. These
+// bounded projections carry only owner diagnostics and generic coverage, never
+// old content or request authority. Prior schemas have no such tables.
+func rebuildCopyUnknownHistoryGaps(ctx context.Context, src, dst *sql.Tx, account string, digests map[string]RebuildTableDigest) error {
+	var epoch, total int64
+	err := src.QueryRowContext(ctx, "SELECT epoch,total_observations FROM unknown_history_coverage WHERE account=?", account).Scan(&epoch, &total)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fixedSQLError(err)
+	}
+	var codes, warning int
+	if queryErr := src.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM unknown_history_codes WHERE account=?),(SELECT count(*) FROM sync_gaps WHERE account=? AND chat='' AND code='unknown_history_notice')", account, account).Scan(&codes, &warning); queryErr != nil {
+		return fixedSQLError(queryErr)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		if codes != 0 || warning != 0 {
+			return ErrReconciliationRequired
+		}
+		return nil
+	}
+	if epoch <= 0 || total <= 0 || codes < 1 || codes > MaxUnknownHistoryGapCodes || warning != 1 {
+		return ErrReconciliationRequired
+	}
+	rows, err := src.QueryContext(ctx, "SELECT raw_stub,count,first_seen,last_seen FROM unknown_history_codes WHERE account=? ORDER BY raw_stub LIMIT ?", account, MaxUnknownHistoryGapCodes+1)
+	if err != nil {
+		return fixedSQLError(err)
+	}
+	var sum int64
+	for rows.Next() {
+		var stub, count, first, last int64
+		if err = rows.Scan(&stub, &count, &first, &last); err != nil || stub < 1 || stub > 2147483647 || count <= 0 || count > total-sum || last < first || !validReadTime(fromMillis(first)) || !validReadTime(fromMillis(last)) {
+			rows.Close()
+			return ErrReconciliationRequired
+		}
+		sum += count
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return fixedSQLError(err)
+	}
+	if sum != total {
+		return ErrReconciliationRequired
+	}
+	for _, projection := range []rebuildProjection{{"unknown_history_coverage", "account,epoch,total_observations", 1}, {"unknown_history_codes", "account,raw_stub,count,first_seen,last_seen", MaxUnknownHistoryGapCodes}} {
+		digest, err := rebuildCopyProjection(ctx, src, dst, projection)
+		if err != nil {
+			return err
+		}
+		digests[projection.table] = digest
+	}
+	if _, err = dst.ExecContext(ctx, "INSERT INTO sync_gaps(account,chat,code) VALUES(?,'','unknown_history_notice')", account); err != nil {
+		return fixedSQLError(err)
+	}
+	_, err = dst.ExecContext(ctx, "INSERT INTO sync_state(account,chat,connection,coverage_unknown) VALUES(?,'','disconnected',1)", account)
+	return fixedSQLError(err)
 }
 
 func rebuildFileHash(path string) (string, error) {
@@ -394,7 +457,8 @@ func rebuildCopyProjection(ctx context.Context, src, dst *sql.Tx, p rebuildProje
 					}
 				}
 			case int64:
-				if types[i].DatabaseTypeName() != "INTEGER" || v < 0 {
+				gapTimestamp := p.table == "unknown_history_codes" && (column == "first_seen" || column == "last_seen")
+				if types[i].DatabaseTypeName() != "INTEGER" || (v < 0 && !gapTimestamp) || (gapTimestamp && !validReadTime(fromMillis(v))) {
 					return out, ErrInvalidEvent
 				}
 				switch column {

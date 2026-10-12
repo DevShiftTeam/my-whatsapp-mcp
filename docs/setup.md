@@ -72,6 +72,14 @@ Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmle
 
 Stop the app with Ctrl+C, start it again with `./bin/wa-indexer serve`, and repeat the search. This checks fresh import, search, and local persistence. Older history is still limited to what WhatsApp delivered.
 
+## Choose an unknown-history policy
+
+`serve --unknown-history-policy strict` is the default. A trusted operator may explicitly choose `--unknown-history-policy partial` on the existing `serve` launch. Keep the current data directory, linked-device session, AI-client configuration and other launch arguments. Changing this option requires stopping and restarting the app; there is no browser or MCP toggle.
+
+Partial mode continues only for tightly validated, undeclared history notices without message bodies in eligible conversation contexts. It does not create content, relax known deletion or retention controls, or change current chat/date policy and client permissions. Other unsafe records remain refused.
+
+Choosing partial mode accepts that unsupported edits, deletions or retention changes may be unreflected. When an unknown gap is encountered, the owner UI and archive reads, including MCP, carry a persistent account-wide warning: history is partial and current phone state is unknown. Restarting, switching back to strict or upgrading the recovery destination does not clear an existing warning. This does not establish complete history.
+
 ## Everyday use
 
 To transcribe voice notes, follow the optional [Hebrew transcription setup](transcription.md). The basic setup above imports text; it does not install a speech model. Voice transcription works without configuring semantic search or image models.
@@ -150,6 +158,19 @@ Stop the current destination and every writer first, then make a coherent privat
 Use only `--config`; there is no force option or HTTP, MCP or Settings recovery route. The operation preserves the latest destination's linked-device session, current grants, send journal, archive choices and spent recovery allowances. It does not restore any of them from an older profile. Only exact reviewed committed-message-conflict diagnostics can accompany username-change or group member link-mode acceptance; conflicting messages remain quarantined, and spent requests are not refilled. Never clear safety markers with SQL or roll back to a stale session to bypass refusal.
 
 Success reports `mode: "committed_snapshot"`, `code: "owner_restored_snapshot"`, `coverage: "partial"`, `current_phone_state_verified: false` and a recovery epoch. Restart the same destination with its existing launch settings, then verify known reads and current permissions. Explicit acceptance is never an automatic startup action or a general guard-clear switch; the partial-coverage warning remains, and later source-safety failures still block access.
+
+## Accept unknown partial history offline
+
+`recover-partial-history` is a separate explicit owner acceptance of an eligible already committed **partial** snapshot after an unknown-history pause. It admits only the narrowly reviewed unknown-stub case (`229`) with matching protected evidence. It does not classify that unknown record as a benign notice; the known `33`/`193`/`217` acceptance above remains separate. Neither `recover-snapshot` nor `recover-classified-history` accepts this unknown case.
+
+Stop the app and every writer, retain a coherent private backup, and have a trusted operator review the current protected evidence and private configuration. Exclusive ownership and checks against the exact current archive state remain required. Both the recovery witness and operator acceptance must explicitly acknowledge unknown-history gaps; a log line alone is insufficient. Later operations still need fresh append-only evidence.
+
+```sh
+./bin/wa-indexer recover-partial-history \
+  --config "/absolute/private/recovery.json"
+```
+
+Use only `--config`. The command preserves the current linked-device session, AI-client grants, send journal, archive choices, deletion and conflict barriers, and spent allowances. It accepts the committed snapshot and uncertainty about the unvisited remainder of the failed batch; it does not replay that record, recover that remainder, or prove that the older record meets today's partial-ingestion checks. It never enables partial ingestion automatically. Restart with the existing launch settings, adding `--unknown-history-policy partial` only if explicitly choosing that ongoing policy. The persistent account-wide warning remains; current phone state is unknown. There is no force option or HTTP, MCP or Settings recovery route, and no automatic guard clearing.
 
 ## Recover associations for existing original recordings
 
