@@ -37,3 +37,11 @@ test('build helpers remain opt-in runtime providers with all privacy tags',()=>{
  assert.match(read('Dockerfile'),/sqlite_fts5,ts_omit_logtail/);
  assert.doesNotMatch(read('scripts/app/build.sh'),/rtk/);
 });
+
+test('retained synthetic document fixture uses exact metadata lookup with guarded original checks',()=>{
+ const file=read('scripts/docker/tests/docker.spec.ts');
+ assert.match(file,/search_attachments',args:\{filename:'synthetic-acceptance\.pdf'\}/);
+ assert.doesNotMatch(file,/query:'SYNTHETIC_DOCUMENT_ACCEPTANCE'|ownerSearch\('SYNTHETIC_DOCUMENT_ACCEPTANCE'\)/);
+ for(const code of ['retained_document_out_of_scope','retained_document_metadata','retained_original_download','expired_original_denied','revoked_original_denied'])assert.ok(file.includes(code),code);
+ assert.ok(file.includes('download.bytes===83'));
+});
