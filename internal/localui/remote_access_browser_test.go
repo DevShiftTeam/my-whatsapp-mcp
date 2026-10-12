@@ -85,7 +85,7 @@ func TestRemoteWizardBrowserFixture(t *testing.T) {
 	if dir == "" {
 		t.Skip("synthetic browser opt-in")
 	}
-	a := &wizardBrowserApplication{fakeApplication: &fakeApplication{setup: SetupState{Configured: true, Demo: true}, search: archive.SearchPage{Hits: []archive.SearchHit{{MessageID: "synthetic_1", ChatID: "synthetic_chat", Snippet: "Synthetic local result during outage", SentAt: time.Now()}}}}, snapshot: RemoteAccessSnapshot{State: "disabled", Code: "remote_disabled"}}
+	a := &wizardBrowserApplication{fakeApplication: &fakeApplication{status: archive.StatusSnapshot{Messages: 1}, setup: SetupState{Configured: true, Demo: true}, search: archive.SearchPage{Hits: []archive.SearchHit{{MessageID: "synthetic_1", ChatID: "synthetic_chat", Snippet: "Synthetic local result during outage", SentAt: time.Now()}}}}, snapshot: RemoteAccessSnapshot{State: "disabled", Code: "remote_disabled"}}
 	h := httptest.NewUnstartedServer(nil)
 	defer h.Close()
 	s, e := New(Config{Origin: "http://" + h.Listener.Addr().String()}, a)
