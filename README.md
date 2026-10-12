@@ -6,6 +6,8 @@
 
 **Your WhatsApp history, searchable on your own computer.**
 
+[**Documentation**](https://devshiftteam.github.io/my-whatsapp-mcp/) · [**Docker Compose quickstart**](https://devshiftteam.github.io/my-whatsapp-mcp/install/docker-compose.html)
+
 Link WhatsApp by QR code. Search saved conversations in Hebrew and English, transcribe voice notes locally, and find files with their surrounding messages. Keep the archive on your computer and explore it in a responsive dashboard with light and dark themes.
 
 Connect your AI tools through **MCP with read + send**. Codex, Claude Code, and Composio can search your permitted chats and send text, media, and existing voice recordings to contacts and groups. Each client gets its own chat scope, dates, and expiry. New connections start read-only; you can grant sending to selected chats or all permitted chats from the owner interface.
@@ -39,7 +41,7 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
 docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
 ```
 
-Open the returned short-lived private link. Continue with [Docker Compose](docs/install/docker-compose.md), [remote access](docs/remote/index.md) and [compatibility](docs/compatibility.md). Public documentation is prepared for GitHub Pages under `/my-whatsapp-mcp/`; Pages does not run your archive.
+Open the returned short-lived private link. Continue with [Docker Compose](docs/install/docker-compose.md), [remote access](docs/remote/index.md) and [compatibility](docs/compatibility.md). The documentation is live on GitHub Pages; Pages does not run your archive.
 
 ## Start locally
 
