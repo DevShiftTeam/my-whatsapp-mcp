@@ -14,6 +14,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -210,6 +211,27 @@ func parseAttachURL(value string) (origin, instance string, key []byte, err erro
 // secret to its port. The caller opens the returned URL only after verification.
 // All failures are fixed and contain no URLs, secret, proof or response contents.
 func Attach(ctx context.Context, privateURL string, expectedDemo bool) (string, error) {
+	return attach(ctx, privateURL, expectedDemo, "")
+}
+
+// ValidOwnerConnect accepts only canonical literal loopback addresses with a
+// positive port. DNS, IPv4-mapped IPv6 and scoped addresses are never dialed.
+func ValidOwnerConnect(connect string) bool {
+	address, err := netip.ParseAddrPort(connect)
+	return err == nil && address.Port() != 0 && address.String() == connect && address.Addr().IsLoopback() && !address.Addr().Is4In6() && address.Addr().Zone() == ""
+}
+
+// AttachWithConnect dials an explicitly trusted local listener while retaining
+// the private URL's approved browser Host and signed Origin. The override never
+// expands authority, allows a proxy, or follows a redirect.
+func AttachWithConnect(ctx context.Context, privateURL string, expectedDemo bool, connect string) (string, error) {
+	if !ValidOwnerConnect(connect) {
+		return "", ErrOwnerAttach
+	}
+	return attach(ctx, privateURL, expectedDemo, connect)
+}
+
+func attach(ctx context.Context, privateURL string, expectedDemo bool, connect string) (string, error) {
 	origin, instance, key, err := parseAttachURL(privateURL)
 	if err != nil {
 		return "", ErrOwnerAttach
@@ -234,7 +256,13 @@ func Attach(ctx context.Context, privateURL string, expectedDemo bool) (string, 
 	}
 	httpRequest.Header.Set("Origin", origin)
 	httpRequest.Header.Set("Content-Type", "application/json")
-	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 2 * time.Second}).DialContext, DisableKeepAlives: true, ResponseHeaderTimeout: 2 * time.Second, MaxResponseHeaderBytes: attachReplyLimit}
+	dial := (&net.Dialer{Timeout: 2 * time.Second}).DialContext
+	if connect != "" {
+		dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, network, connect)
+		}
+	}
+	transport := &http.Transport{Proxy: nil, DialContext: dial, DisableKeepAlives: true, ResponseHeaderTimeout: 2 * time.Second, MaxResponseHeaderBytes: attachReplyLimit}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrOwnerAttach }}
 	response, err := client.Do(httpRequest)

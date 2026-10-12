@@ -11,6 +11,12 @@
     for (const select of document.querySelectorAll("select")) window.MyWhatsAppSelects.refresh(select);
   };
   let csrf = "";
+  let remoteMode = false;
+  let wizardSnapshot = null;
+  let wizardVersion = 0;
+  let wizardBusy = false;
+  let wizardTimer = null;
+  let wizardConfirmation = "";
   let setup = null;
   let status = null;
   let pairingSnapshot = null;
@@ -80,6 +86,15 @@
   const capabilityKey = "wa_archive_owner_capability";
 
   const messages = {
+    remote_operation_busy: "Another remote action is finishing. Wait a moment, then retry.",
+    remote_identity_changed: "This hostname or provider belongs to the saved identity. Choose Change domain or provider account to migrate explicitly.",
+    remote_manual_mode: "Remote MCP is managed by your launch settings. Restart without the manual MCP flags before using this wizard.",
+    owner_auth_busy: "Password setup is busy. Wait a moment, then try again.",
+    owner_auth_unavailable: "Password setup is unavailable. Try again from this device.",
+    remote_password_required: "Save a separate remote owner password before enabling browser access.",
+    remote_invalid_intent: "Check the saved HTTPS hostname, device name, and provider token.",
+    remote_state_unavailable: "Remote setup is unavailable. Refresh its status or restart the app. Local archive search remains available.",
+
     unauthorized: "Your owner session has ended. Open the app again to request a fresh private owner window.",
     csrf_denied: "This page has no active owner session. Open the app again to request a fresh private owner window.",
     origin_denied: "Open the owner interface directly to make this change.",
@@ -183,7 +198,7 @@
     stopPolling();
     const expiredCSRF = csrf;
     csrf = "";
-    if (!remoteAdmin) {
+    if (!remoteAdmin && !remoteMode) {
       try {
         if (localStorage.getItem(capabilityKey) === expiredCSRF) localStorage.removeItem(capabilityKey);
       } catch { /* session already revoked */ }
@@ -226,6 +241,7 @@
     clearClientGuide();
     clearRemoteSecret();
     clearSendPermissions();
+    clearRemoteWizard();
     budgetVersion++;
     budgetSnapshot=null;
     budgetDirty=false;
@@ -246,6 +262,12 @@
     $("auth-screen").hidden = false;
     refreshAllSelects();
     $("auth-message").textContent = messages.unauthorized;
+    if (remoteMode) {
+      $("auth-message").textContent = "Unlock your private archive";
+      $("remote-login-form").hidden = false;
+      $("remote-password").value = "";
+      $("remote-password").focus();
+    }
     if (remoteAdmin) {
       showRemoteLogin(messages.unauthorized);
       if (!authBusy) $("admin-password").focus();
@@ -1860,7 +1882,7 @@
       if (item.state==="ready" && clientNames[item.client] && item.mode && connectionRecovery(snapshot,item.mode)==="ready" && snapshot[item.mode+"_state"]==="ready") {
         action("guide","Show setup instructions");
         if(sendPermissionEditable(item))action("permissions","Permissions");
-        if(item.mode==="remote" && item.revision>0)action("reveal","Reveal remote token");
+        if(!remoteMode && item.mode==="remote" && item.revision>0)action("reveal","Reveal remote token");
       }
       if (item.state!=="revoked" && item.revision>0) action("revoke","Revoke access");
       card.append(actions); list.append(card);
@@ -1889,7 +1911,7 @@
   function renderClientGuide(guide,item) {
     clearClientGuide(); clientGuideID=item.id;
     clientGuideBinding={id:item.id,revision:item.revision,client:item.client,mode:item.mode};
-    if(item.mode==="remote"&&guide.mode==="remote"&&guide.client===item.client&&guide.status!=="unsupported"&&typeof guide.endpoint==="string") {
+    if(!remoteMode&&item.mode==="remote"&&guide.mode==="remote"&&guide.client===item.client&&guide.status!=="unsupported"&&typeof guide.endpoint==="string") {
       try {
         const endpoint=new URL(guide.endpoint);
         if(endpoint.protocol==="https:"&&!endpoint.username&&!endpoint.password&&!endpoint.search&&!endpoint.hash&&endpoint.pathname==="/mcp"&&guide.endpoint===endpoint.origin+"/mcp") {
@@ -1967,6 +1989,7 @@
   }
 
   async function revealRemoteCredential(button,item) {
+    if (remoteMode) return;
     if(clientBusy||authExpired||item.mode!=="remote"||item.state!=="ready"||connectionRecovery(clientSnapshot,"remote")!=="ready"||clientSnapshot?.remote_state!=="ready")return;
     const epoch=authEpoch;
     clearRemoteSecret();
@@ -2084,6 +2107,7 @@
 
   function clearResults() {
     searchVersion++; contextVersion++;
+    searching = false; $("search-submit").disabled = false; $("search-more").disabled = false;
     nextCursor = ""; selectedMessage = ""; visibleMessages = [];
     $("search-results").replaceChildren(); $("conversation-messages").replaceChildren();
     $("results-empty").hidden = false; $("search-more").hidden = true; $("context-copy").hidden = true;
@@ -2474,6 +2498,142 @@
   $("admin-login-form").addEventListener("submit", loginRemote);
   $("admin-logout").addEventListener("click", logoutRemote);
 
+  $("remote-login-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!remoteMode || $("remote-login-submit").disabled) return;
+    const epoch = authEpoch;
+    $("remote-login-submit").disabled = true;
+    feedback("remote-login-feedback", "Unlocking…");
+    let password = $("remote-password").value;
+    $("remote-password").value = "";
+    try {
+      const challengeResponse = await fetch("/api/remote/login", {credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout(15000)});
+      if (!challengeResponse.ok) throw new Error("Please wait briefly, then try again.");
+      const challenge = await challengeResponse.json();
+      if (epoch !== authEpoch) return;
+      const response = await fetch("/api/remote/login", {method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",body:JSON.stringify({password,challenge:challenge.challenge}),signal:AbortSignal.timeout(15000)});
+      password = "";
+      if (epoch !== authEpoch) return;
+      if (!response.ok) throw new Error(response.status === 429 ? "Too many attempts. Wait 30 seconds, then try again." : "Could not unlock. Check your password and try again.");
+      const session = await response.json();
+      if (epoch !== authEpoch) return;
+      if (typeof session.csrf_token !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(session.csrf_token)) throw new Error("Sign-in did not finish. Try again.");
+      authEpoch++; authExpired=false; csrf=session.csrf_token;
+      feedback("remote-login-feedback", "");
+      await initializeWorkspace();
+    } catch (error) {
+      if (epoch === authEpoch || !authExpired) feedback("remote-login-feedback", error.message || "Could not unlock. Try again.", true);
+    } finally {
+      password = "";
+      $("remote-login-submit").disabled = false;
+      if (authExpired) $("remote-password").focus();
+    }
+  });
+  $("remote-logout").addEventListener("click", async () => {
+    // Capture logout material for this one request, then fence every pending
+    // archive response immediately, including QR blob and connection requests.
+    const token = csrf;
+    expireAuth();
+    $("remote-login-submit").disabled = true;
+    try { await fetch("/api/remote/logout", {method:"POST",headers:{"Content-Type":"application/json","X-CSRF-Token":token},credentials:"same-origin",cache:"no-store",body:"{}",signal:AbortSignal.timeout(5000)}); } catch { /* local private state is already cleared */ } finally { $("remote-login-submit").disabled = false; if (authExpired) $("remote-password").focus(); }
+  });
+
+  const remoteProviderInfo = {
+    tailscale_private: ["Private device access. Sign in to Tailscale on this computer and your phone. Hosted AI services cannot reach a private Tailscale address.", "tailscale-serve"],
+    tailscale_funnel: ["Public HTTPS for an AI client. Tailscale Funnel permissions must be enabled for this saved device. Sign in after saving.", "tailscale-funnel"],
+    ngrok: ["Use your assigned ngrok HTTPS domain and authtoken. No second API key is required.", "ngrok"],
+    cloudflare: ["Requires an existing Cloudflare domain and configured tunnel. Route this exact hostname to http://127.0.0.1:8124 on the archive computer. Route verification remains separate from connecting.", "cloudflare"]
+  };
+  const remoteStates = {
+    disabled: ["Remote access is off", "Local archiving and search work without remote access."],
+    needs_setup: ["Needs setup", "Review the provider settings and save a persistent hostname."],
+    connecting: ["Connecting", "Keep the app open. Complete provider sign-in if requested."],
+    online: ["Online", "Provider transport is connected. Configure a scoped AI connection and test your client separately."],
+    reconnecting: ["Reconnecting", "The saved hostname is preserved. Check connectivity or update the provider token; local search remains available."],
+    permission_required: ["Permission required", "Review your provider's access or Funnel permissions, then retry the saved setup."],
+    credentials_rejected: ["Credentials rejected", "Enter a valid provider token or complete provider sign-in, then retry."],
+    service_limit: ["Service limit reached", "Check your provider's account limits, then retry the saved setup."],
+    service_limit_reached: ["Service limit reached", "Check your provider's account limits, then retry the saved setup."],
+    route_unverified: ["Helper running; connection and hostname unverified", "The helper process is running, but its Cloudflare connection and saved hostname are unverified. Check connectivity, provider credentials and the dashboard route; test the public endpoint and AI client separately."],
+    manual: ["Manual MCP configuration", "Your launch settings own remote MCP. Restart without manual MCP flags to use managed setup here."]
+  };
+  function clearRemoteWizard() {
+    wizardVersion++; wizardSnapshot=null; wizardBusy=false; wizardConfirmation="";
+    if(wizardTimer!==null){clearInterval(wizardTimer);wizardTimer=null;}
+    $("remote-access-form").reset(); $("remote-password-form").reset();
+    $("remote-provider-secret").value=""; $("remote-new-password").value="";
+    $("remote-signin-link").removeAttribute("href"); $("remote-signin-link").hidden=true;
+    $("remote-endpoint").value=""; $("remote-endpoint-panel").hidden=true;
+    for(const id of ["remote-access-form","remote-password-form","remote-confirm-panel"])$(id).hidden=true;
+    for(const id of ["remote-access-state","remote-access-action","remote-access-mcp","remote-access-feedback"])$(id).textContent="";
+    for(const el of $("remote-access-dialog").querySelectorAll("button,input,select"))el.disabled=false;
+  }
+  function renderRemoteStatus(v) {
+    wizardSnapshot=v;
+    const text=remoteStates[v.state]||remoteStates.needs_setup;
+    $("remote-access-state").textContent=text[0];$("remote-access-action").textContent=text[1];
+    $("remote-access-mcp").textContent=v.manual?"This wizard does not supervise the manual tunnel.":!v.saved_origin?"MCP endpoint: no hostname saved.":v.authorization_ready?"MCP account authorization ready. Each AI client still needs its own scoped, expiring credential.":"MCP waiting for account or credential recovery. Provider connectivity does not grant archive access.";
+    $("remote-endpoint-panel").hidden=!v.saved_origin;$("remote-endpoint").value=v.saved_origin?v.saved_origin+"/mcp":"";
+    $("remote-configure-open").hidden=v.manual;$("remote-configure-open").textContent=v.provider?"Review or reconnect":"Set up remote access";
+    $("remote-saved-actions").hidden=!v.provider||v.manual;
+    $("remote-disable").hidden=v.state==="disabled";
+    $("remote-signin").hidden=!String(v.provider).startsWith("tailscale_")||v.state==="disabled";
+    $("remote-password-open").textContent=v.password_configured?"Change remote owner password":"Set a remote owner password first";
+    if(v.manual)$("remote-access-form").hidden=true;
+  }
+  async function refreshRemoteStatus() {
+    if(remoteMode||remoteAdmin||wizardBusy||!$("remote-access-dialog").open)return;
+    const version=wizardVersion;
+    try{const v=await api("/api/remote/status");if(version===wizardVersion&&!wizardBusy)renderRemoteStatus(v);}catch(error){if(version===wizardVersion)feedback("remote-access-feedback",error.message,true);}
+  }
+  function remoteProviderFields() {
+    const provider=$("remote-provider").value, tailscale=provider.startsWith("tailscale_");
+    const info=remoteProviderInfo[provider];$("remote-provider-help").textContent=info[0];
+    $("remote-provider-guide").href="https://devshiftteam.github.io/my-whatsapp-mcp/remote/"+info[1]+".html";
+    $("remote-node-field").hidden=!tailscale;$("remote-origin-field").hidden=tailscale;$("remote-provider-secret-field").hidden=tailscale;
+    $("remote-node").required=tailscale;$("remote-origin").required=!tailscale;$("remote-secret-note").hidden=tailscale||!wizardSnapshot?.provider;
+    $("remote-provider-secret").value="";
+    refreshSelects("remote-goal","remote-provider");
+  }
+  function openRemoteSetup() {
+    const v=wizardSnapshot||{};
+    $("remote-access-form").reset();$("remote-access-form").hidden=false;$("remote-confirm-panel").hidden=true;
+    $("remote-provider").value=v.provider||"tailscale_private";
+    $("remote-goal").value=v.provider==="cloudflare"?"domain":v.provider&&v.provider!=="tailscale_private"?"public":"private";
+    $("remote-node").value=v.node_name||"wa-archive";$("remote-origin").value=v.saved_origin||"";$("remote-browser-enable").checked=Boolean(v.browser_enabled);
+    $("remote-goal").disabled=$("remote-provider").disabled=Boolean(v.provider);
+    $("remote-node").readOnly=$("remote-origin").readOnly=Boolean(v.provider);
+    remoteProviderFields();refreshSelects("remote-goal","remote-provider");$(v.provider?"remote-browser-enable":"remote-goal").focus();
+  }
+  async function remoteWizardAction(action,success) {
+    if(wizardBusy)return;
+    wizardBusy=true;const version=++wizardVersion;let accepted=false;
+    for(const el of $("remote-access-dialog").querySelectorAll("button,input,select"))el.disabled=true;refreshAllSelects();
+    try{await action();if(version!==wizardVersion)return;success?.();accepted=true;feedback("remote-access-feedback","Saved. Check the provider and MCP states below.");}
+    catch(error){if(version===wizardVersion)feedback("remote-access-feedback",error.message,true);}
+    finally{if(version===wizardVersion){wizardBusy=false;for(const el of $("remote-access-dialog").querySelectorAll("button,input,select"))el.disabled=false;$("remote-goal").disabled=$("remote-provider").disabled=Boolean(wizardSnapshot?.provider);refreshAllSelects();await refreshRemoteStatus();if(accepted&&$("remote-access-form").hidden){$("remote-access-state").focus({preventScroll:true});$("remote-access-dialog").scrollTop=0;}}}
+  }
+  $("remote-access-open").addEventListener("click",async()=>{if(remoteMode||remoteAdmin)return;clearRemoteWizard();$("remote-access-dialog").showModal();refreshAllSelects();$("remote-access-dialog").scrollTop=0;await refreshRemoteStatus();if($("remote-access-dialog").open)wizardTimer=setInterval(refreshRemoteStatus,3000);});
+  $("remote-access-close").addEventListener("click",()=>{if(!wizardBusy){$("remote-access-dialog").close();clearRemoteWizard();}});
+  $("remote-access-dialog").addEventListener("cancel",event=>{if(wizardBusy)event.preventDefault();else clearRemoteWizard();});
+  $("remote-access-dialog").addEventListener("close",clearRemoteWizard);
+  $("remote-access-refresh").addEventListener("click",refreshRemoteStatus);
+  $("remote-configure-open").addEventListener("click",openRemoteSetup);
+  $("remote-goal").addEventListener("change",()=>{$("remote-provider").value={private:"tailscale_private",public:"tailscale_funnel",domain:"cloudflare"}[$("remote-goal").value];remoteProviderFields();});
+  $("remote-provider").addEventListener("change",remoteProviderFields);
+  $("remote-form-cancel").addEventListener("click",()=>{$("remote-access-form").reset();$("remote-access-form").hidden=true;$("remote-password-form").reset();$("remote-password-form").hidden=true;});
+  $("remote-password-open").addEventListener("click",()=>{$("remote-password-form").hidden=false;$("remote-new-password").focus();});
+  $("remote-password-cancel").addEventListener("click",()=>{$("remote-password-form").reset();$("remote-password-form").hidden=true;});
+  $("remote-browser-enable").addEventListener("change",()=>{if($("remote-browser-enable").checked&&!wizardSnapshot?.password_configured){$("remote-browser-enable").checked=false;$("remote-password-form").hidden=false;feedback("remote-access-feedback",messages.remote_password_required);$("remote-new-password").focus();}});
+  $("remote-password-form").addEventListener("submit",event=>{event.preventDefault();let password=$("remote-new-password").value;$("remote-new-password").value="";const bytes=new TextEncoder().encode(password);const valid=bytes.length>=12&&bytes.length<=128&&!/\p{Cc}/u.test(password);bytes.fill(0);if(!valid){password="";feedback("remote-access-feedback","Use 12–128 UTF-8 bytes without control characters for the owner password.",true);return;}remoteWizardAction(async()=>{try{await api("/api/remote/password","PUT",{password});}finally{password="";}},()=>{$("remote-password-form").hidden=true;});});
+  $("remote-access-form").addEventListener("submit",event=>{event.preventDefault();const provider=$("remote-provider").value;const input={provider,origin:provider.startsWith("tailscale_")?wizardSnapshot?.saved_origin||"":$("remote-origin").value,node_name:provider.startsWith("tailscale_")?$("remote-node").value:"",secret:$("remote-provider-secret").value,expose_browser:$("remote-browser-enable").checked};$("remote-provider-secret").value="";remoteWizardAction(async()=>{try{await api("/api/remote/configure","POST",input);}finally{input.secret="";}},()=>{$("remote-access-form").hidden=true;$("remote-password-form").hidden=true;$("remote-new-password").value="";});});
+  $("remote-endpoint-copy").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("remote-endpoint").value);assertOwner();feedback("remote-access-feedback","Endpoint copied. No token is included.");}catch{feedback("remote-access-feedback","Select the endpoint and copy it manually.",true);}});
+  $("remote-signin").addEventListener("click",async()=>{const version=wizardVersion;try{const result=await api("/api/remote/sign-in","POST",{});if(version!==wizardVersion)return;$("remote-signin-link").hidden=!result.url;if(result.url)$("remote-signin-link").href=result.url;else feedback("remote-access-feedback","No sign-in action is pending. Refresh the provider status.");}catch(error){if(version===wizardVersion)feedback("remote-access-feedback",error.message,true);}});
+  for(const kind of ["disable","remove","migrate"])$("remote-"+kind).addEventListener("click",()=>{wizardConfirmation=kind;$("remote-confirm-title").textContent={disable:"Disable remote access?",remove:"Remove this saved provider?",migrate:"Change the saved identity?"}[kind];$("remote-confirm-text").textContent={disable:"Connections stop, but the saved hostname and provider credentials remain for a later reconnect.",remove:"Connections stop and the saved hostname and provider credentials are removed. Your archive and separate owner password remain.",migrate:"Remove the current provider identity first, then configure the new domain or account. You must reconfigure AI clients for a changed endpoint. The current hostname will never be silently replaced."}[kind];$("remote-confirm-panel").hidden=false;$("remote-confirm-yes").focus();});
+  $("remote-confirm-no").addEventListener("click",()=>{$("remote-confirm-panel").hidden=true;wizardConfirmation="";});
+  $("remote-confirm-yes").addEventListener("click",()=>{const kind=wizardConfirmation;if(!kind)return;remoteWizardAction(()=>api("/api/remote/"+(kind==="disable"?"disable":"remove"),"POST",{confirm:kind==="disable"?"disable":"remove"}),()=>{$("remote-confirm-panel").hidden=true;$("remote-access-form").hidden=true;$("remote-password-form").hidden=true;$("remote-new-password").value="";$("remote-provider-secret").value="";$("remote-signin-link").hidden=true;$("remote-signin-link").removeAttribute("href");wizardConfirmation="";});});
+
+
   async function initializeWorkspace() {
     const epoch = authEpoch;
     try {
@@ -2509,9 +2669,28 @@
   async function start() {
     // Remove any fragment capability before requests, including on the remote
     // login shell. Remote access never consumes a local owner bootstrap.
-    const fragment = new URLSearchParams(location.hash.slice(1));
-    const token = remoteAdmin ? "" : fragment.get("bootstrap");
+    let initialFragment = location.hash;
     history.replaceState(null, "", location.pathname);
+    if (!remoteAdmin) {
+      try {
+        const response = await fetch("/api/interface", {credentials:"same-origin", cache:"no-store"});
+        if (!response.ok) throw new Error("The archive interface is unavailable.");
+        const mode = await response.json();
+        if (mode.realm !== "local" && mode.realm !== "remote") throw new Error("The archive interface is unavailable.");
+        remoteMode = mode.realm === "remote";
+      } catch (error) { initialFragment = ""; $("auth-message").textContent = error.message; return; }
+    }
+    for (const node of document.querySelectorAll("[data-native-only]")) node.hidden = remoteAdmin || remoteMode;
+    if (remoteMode) {
+      initialFragment = "";
+      $("admin-login-form").hidden = true;
+      for (const node of document.querySelectorAll("[data-managed-excluded]")) node.hidden = true;
+      $("remote-logout").hidden = false;
+      expireAuth();
+      return;
+    }
+    const token = remoteAdmin ? "" : new URLSearchParams(initialFragment.slice(1)).get("bootstrap");
+    initialFragment = "";
     if (remoteAdmin) {
       authExpired = true;
       authBusy = true;

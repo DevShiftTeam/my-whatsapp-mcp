@@ -152,7 +152,11 @@ func TestRemotePublicShellHasNoCapabilitiesAndAnonymousAPIsNeverCallApplication(
 	}
 	for path, method := range routeMethods {
 		rr := remoteRequest(s, method, path, `{}`, nil, nil)
-		if rr.Code != http.StatusUnauthorized {
+		want := http.StatusUnauthorized
+		if nativeOnlyRoute(path) {
+			want = http.StatusNotFound
+		}
+		if rr.Code != want {
 			t.Fatalf("anonymous %s status %d", path, rr.Code)
 		}
 		assertFixedError(t, rr)
@@ -526,8 +530,8 @@ func TestRemoteServeJoinsAcceptedHandlerAfterForcedHTTPClose(t *testing.T) {
 		t.Fatal("handler was not admitted")
 	}
 	cancel()
-	// The application observes request cancellation after the bounded graceful
-	// HTTP shutdown expires and Close cancels the accepted request context.
+	// The shared serve context cancels accepted requests as soon as stop
+	// begins, and Serve still joins their application work before returning.
 	select {
 	case <-app.canceled:
 	case <-time.After(7 * time.Second):

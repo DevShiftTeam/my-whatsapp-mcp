@@ -108,7 +108,7 @@ func NewRemote(cfg RemoteConfig, app Application) (*RemoteServer, error) {
 		cfg.SessionTTL = 12 * time.Hour
 	}
 	now := time.Now()
-	s := &RemoteServer{dispatch: &Server{app: app}, origin: cfg.Origin, host: u.Host, listenAddress: cfg.ListenAddress, passwordHash: cfg.PasswordHash,
+	s := &RemoteServer{dispatch: &Server{realm: realmLegacy, app: app}, origin: cfg.Origin, host: u.Host, listenAddress: cfg.ListenAddress, passwordHash: cfg.PasswordHash,
 		password: password, mcpHandler: cfg.MCPHandler, sessionTTL: cfg.SessionTTL, sessions: make(map[[32]byte]session), kdfSlot: make(chan struct{}, 1),
 		clock: ownerClock{base: now, last: now, wall: time.Now, elapsed: func() time.Duration { return time.Since(now) }}}
 	s.dispatch.deleteOwnerSessions = func(w http.ResponseWriter) {
@@ -150,32 +150,60 @@ func (s *RemoteServer) RevokeSessions() {
 }
 
 func (s *RemoteServer) Serve(ctx context.Context, listener net.Listener) error {
+	var once sync.Once
+	var shutdown context.Context
+	var cancel context.CancelFunc
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+	return s.ServeWithShutdown(ctx, listener, func() context.Context {
+		once.Do(func() { shutdown, cancel = context.WithTimeout(context.Background(), 5*time.Second) })
+		return shutdown
+	})
+}
+
+// ServeWithShutdown shares the composition deadline and retains incomplete request ownership.
+func (s *RemoteServer) ServeWithShutdown(ctx context.Context, listener net.Listener, stopContext func() context.Context) error {
 	address, ok := listener.Addr().(*net.TCPAddr)
-	if !ok || address.IP.String() != "127.0.0.1" || net.JoinHostPort(address.IP.String(), strconv.Itoa(address.Port)) != s.listenAddress {
+	if stopContext == nil || !ok || address.IP.String() != "127.0.0.1" || net.JoinHostPort(address.IP.String(), strconv.Itoa(address.Port)) != s.listenAddress {
 		return errors.New("invalid_remote_admin_listener")
 	}
-	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
+	server := &http.Server{Handler: s.Handler(), BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
 	done := make(chan struct{})
-	quiesced := make(chan struct{})
+	quiesced := make(chan error, 1)
 	go func() {
-		defer close(quiesced)
 		select {
 		case <-ctx.Done():
 		case <-done:
 		}
+		shutdown := stopContext()
 		s.RevokeSessions()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		if server.Shutdown(shutdown) != nil {
 			_ = server.Close()
+		}
+		joined := make(chan struct{})
+		go func() { s.handlers.Wait(); close(joined) }()
+		select {
+		case <-joined:
+			quiesced <- nil
+		case <-shutdown.Done():
+			select {
+			case <-joined:
+				quiesced <- nil
+			default:
+				quiesced <- ErrShutdownIncomplete
+			}
 		}
 	}()
 	err := server.Serve(listener)
 	close(done)
-	<-quiesced
+	if joinErr := <-quiesced; joinErr != nil {
+		return joinErr
+	}
 	s.RevokeSessions()
-	s.handlers.Wait()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -194,8 +222,16 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Private local owner capabilities are never exported by this listener.
-	if r.URL.Path == "/api/bootstrap" || r.URL.Path == "/api/owner/attach" {
+	if r.URL.Path == "/api/bootstrap" || r.URL.Path == "/api/owner/attach" || nativeOnlyRoute(r.URL.Path) {
 		remoteFail(w, 404, "route_unavailable")
+		return
+	}
+	if r.URL.Path == "/api/interface" {
+		if r.Method != http.MethodGet || !bodyFree(r) || r.URL.RawQuery != "" || r.URL.ForceQuery {
+			remoteFail(w, 400, "invalid_request")
+			return
+		}
+		respond(w, map[string]string{"realm": "legacy"})
 		return
 	}
 	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/remoteaccess"
 )
 
 // Application keeps account scope, connector credentials and owned paths server-side.
@@ -43,8 +44,12 @@ type PairingState struct {
 }
 
 type Config struct {
-	// Origin is the exact HTTP origin of the already-bound literal loopback listener.
+	// Origin is the exact canonical HTTP loopback browser origin. In native
+	// mode it is computed from the already-bound literal loopback listener.
 	Origin string
+	// ContainerListen explicitly authorizes the canonical internal container listener.
+	// Origin remains the exact trusted literal loopback browser origin.
+	ContainerListen string
 	// Demo is the composition layer's validated application mode, not browser input.
 	Demo         bool
 	SessionTTL   time.Duration
@@ -52,3 +57,32 @@ type Config struct {
 }
 
 const DeleteConfirmation = "DELETE LOCAL DATA"
+
+// RemoteAccessApplication is available only to the authenticated local owner.
+// Provider credentials never enter the public snapshot or sign-in response.
+type RemoteAccessApplication interface {
+	RemoteAccessStatus(context.Context) (RemoteAccessSnapshot, error)
+	ConfigureRemoteAccess(context.Context, RemoteAccessSubmission) error
+	DisableRemoteAccess(context.Context) error
+	RemoveRemoteAccess(context.Context) error
+	SetRemoteOwnerPassword(context.Context, []byte) error
+}
+type RemoteAccessSignInApplication interface {
+	RemoteAccessSignIn(context.Context) (string, error)
+}
+type RemoteAccessSubmission struct {
+	Intent remoteaccess.Intent
+	Secret remoteaccess.Secret
+}
+type RemoteAccessSnapshot struct {
+	Provider           remoteaccess.Provider `json:"provider"`
+	State              string                `json:"state"`
+	Code               string                `json:"code"`
+	SavedOrigin        string                `json:"saved_origin"`
+	NodeName           string                `json:"node_name"`
+	BrowserEnabled     bool                  `json:"browser_enabled"`
+	MCPReady           bool                  `json:"mcp_ready"`
+	AuthorizationReady bool                  `json:"authorization_ready"`
+	PasswordConfigured bool                  `json:"password_configured"`
+	Manual             bool                  `json:"manual"`
+}

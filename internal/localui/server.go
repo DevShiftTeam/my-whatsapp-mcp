@@ -38,7 +38,21 @@ type session struct {
 	expires time.Time
 }
 
+type ownerRealm uint8
+
+const (
+	realmUnknown ownerRealm = iota
+	realmNative
+	realmLegacy
+	realmManaged
+)
+
 type Server struct {
+	realm                                  ownerRealm
+	remote                                 *remoteRealm
+	containerListen                        string
+	serveContext                           context.Context
+	stopping                               bool
 	app                                    Application
 	origin, host, cookieName, bootstrapURL string
 	attachURL, instance                    string
@@ -68,6 +82,9 @@ func New(cfg Config, app Application) (*Server, error) {
 	if ip == nil || !ip.IsLoopback() || err != nil || port < 1 || port > 65535 || u.Host != net.JoinHostPort(ip.String(), strconv.Itoa(port)) || cfg.Origin != "http://"+u.Host {
 		return nil, errors.New("invalid_local_origin")
 	}
+	if cfg.ContainerListen != "" && !validContainerListen(cfg.ContainerListen) {
+		return nil, errors.New("invalid_local_listener")
+	}
 	if cfg.SessionTTL == 0 {
 		cfg.SessionTTL = 12 * time.Hour
 	}
@@ -90,8 +107,8 @@ func New(cfg Config, app Application) (*Server, error) {
 		return nil, errors.New("owner_auth_unavailable")
 	}
 	now := time.Now()
-	s := &Server{app: app, origin: cfg.Origin, host: u.Host, cookieName: "owner_session_" + strconv.Itoa(port), bootstrapURL: cfg.Origin + "/#bootstrap=" + token,
-		instance: hex.EncodeToString(instance[:]), attachKey: key, demo: cfg.Demo,
+	s := &Server{realm: realmNative, app: app, origin: cfg.Origin, host: u.Host, cookieName: "owner_session_" + strconv.Itoa(port), bootstrapURL: cfg.Origin + "/#bootstrap=" + token,
+		instance: hex.EncodeToString(instance[:]), attachKey: key, demo: cfg.Demo, containerListen: cfg.ContainerListen,
 		bootstraps: map[[32]byte]time.Time{sha256.Sum256([]byte(token)): now.Add(cfg.BootstrapTTL)},
 		nonces:     make(map[string]time.Time), sessionTTL: cfg.SessionTTL,
 		clock: ownerClock{base: now, last: now, wall: time.Now, elapsed: func() time.Duration { return time.Since(now) }}}
@@ -117,6 +134,11 @@ func (s *Server) RevokeSessions() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.owner = nil
+	if s.remote != nil {
+		s.remote.revoked = true
+		clear(s.remote.sessions)
+		clear(s.remote.challenges)
+	}
 	s.attachRevoked = true
 	clear(s.bootstraps)
 	clear(s.nonces)
@@ -125,31 +147,87 @@ func (s *Server) RevokeSessions() {
 
 // Serve enforces listener safety as well as request authority. It deliberately
 // configures no request or body logging.
+// ErrShutdownIncomplete means native requests still own application resources.
+// Composition must retain those resources rather than treating Close as a join.
+var ErrShutdownIncomplete = errors.New("owner_shutdown_incomplete")
+
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
-	address, ok := listener.Addr().(*net.TCPAddr)
-	if !ok || !address.IP.IsLoopback() || net.JoinHostPort(address.IP.String(), strconv.Itoa(address.Port)) != s.host {
+	var once sync.Once
+	var shutdown context.Context
+	var cancel context.CancelFunc
+	defer func() {
+		if cancel != nil {
+			cancel()
+		}
+	}()
+	return s.ServeWithShutdown(ctx, listener, func() context.Context {
+		once.Do(func() { shutdown, cancel = context.WithTimeout(context.Background(), 5*time.Second) })
+		return shutdown
+	})
+}
+
+// ServeWithShutdown accepts a trusted shared shutdown budget. The callback runs
+// at the first stop intent, before HTTP shutdown; it must return the same budget.
+func (s *Server) ServeWithShutdown(ctx context.Context, listener net.Listener, stopContext func() context.Context) error {
+	if s.remote != nil || !s.acceptsListener(listener) || stopContext == nil {
 		return errors.New("invalid_local_listener")
 	}
-	server := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
-		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
+	s.mu.Lock()
+	s.serveContext = ctx
+	s.mu.Unlock()
+	var admission sync.Mutex
+	var requests sync.WaitGroup
+	stopped := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		admission.Lock()
+		if stopped {
+			admission.Unlock()
+			fail(w, 503, "request_interrupted")
+			return
+		}
+		requests.Add(1)
+		admission.Unlock()
+		defer requests.Done()
+		s.Handler().ServeHTTP(w, r)
+	})
+	server := &http.Server{Handler: handler, BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
 	done := make(chan struct{})
-	quiesced := make(chan struct{})
+	quiesced := make(chan error, 1)
 	go func() {
-		defer close(quiesced)
 		select {
 		case <-ctx.Done():
 		case <-done:
 		}
+		shutdown := stopContext()
+		admission.Lock()
+		stopped = true
+		admission.Unlock()
+		s.mu.Lock()
+		s.stopping = true
+		s.mu.Unlock()
 		s.RevokeSessions()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		if server.Shutdown(shutdown) != nil {
 			_ = server.Close()
+		}
+		joined := make(chan struct{})
+		go func() { requests.Wait(); close(joined) }()
+		select {
+		case <-joined:
+			quiesced <- nil
+		case <-shutdown.Done():
+			select {
+			case <-joined:
+				quiesced <- nil
+			default:
+				quiesced <- ErrShutdownIncomplete
+			}
 		}
 	}()
 	err := server.Serve(listener)
 	close(done)
-	<-quiesced
+	if joinErr := <-quiesced; joinErr != nil {
+		return joinErr
+	}
 	s.RevokeSessions()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -169,6 +247,10 @@ func securityHeaders(w http.ResponseWriter) {
 
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	securityHeaders(w)
+	if s.remote != nil {
+		s.handleRemote(w, r)
+		return
+	}
 	if r.Host != s.host || (r.URL.Host != "" && r.URL.Host != s.host) {
 		fail(w, http.StatusForbidden, "host_denied")
 		return
@@ -179,6 +261,27 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" {
 		fail(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if r.URL.Path == "/api/interface" {
+		s.interfaceMode(w, r)
+		return
+	}
+	if r.URL.Path == "/healthz" {
+		if r.Method != http.MethodGet {
+			fail(w, http.StatusMethodNotAllowed, "method_denied")
+			return
+		}
+		s.mu.Lock()
+		ready := !s.stopping && (s.serveContext == nil || s.serveContext.Err() == nil)
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if !ready {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, "unavailable\n")
+			return
+		}
+		_, _ = io.WriteString(w, "ready\n")
 		return
 	}
 	if r.Method == http.MethodGet && (r.URL.Path == "/" || r.URL.Path == "/assets/app.css" || r.URL.Path == "/assets/app.js" || r.URL.Path == "/assets/theme.js" || r.URL.Path == "/assets/selects.js" || r.URL.Path == "/assets/logo.png") {
@@ -239,7 +342,13 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 var routeMethods = map[string]string{
-	"/api/session": http.MethodGet, "/api/setup": http.MethodGet, "/api/policy": http.MethodPut,
+	"/api/remote/password":  http.MethodPut,
+	"/api/remote/status":    http.MethodGet,
+	"/api/remote/configure": http.MethodPost,
+	"/api/remote/disable":   http.MethodPost,
+	"/api/remote/remove":    http.MethodPost,
+	"/api/remote/sign-in":   http.MethodPost,
+	"/api/session":          http.MethodGet, "/api/setup": http.MethodGet, "/api/policy": http.MethodPut,
 	"/api/pairing/start": http.MethodPost, "/api/pairing": http.MethodGet, "/api/pairing/qr": http.MethodGet,
 	"/api/status": http.MethodGet, "/api/chats": http.MethodGet, "/api/search": http.MethodPost,
 	"/api/stats":   http.MethodPost,
@@ -376,6 +485,7 @@ func decode(w http.ResponseWriter, r *http.Request, into any) bool {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	data, err := io.ReadAll(r.Body)
+	defer clear(data)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
@@ -471,9 +581,17 @@ func uniqueJSONValue(decoder *json.Decoder, depth int) bool {
 }
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
+	if nativeOnlyRoute(r.URL.Path) && s.realm != realmNative || s.remote != nil && !remoteProtected[r.URL.Path] {
+		fail(w, http.StatusNotFound, "route_unavailable")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	switch r.URL.Path {
+	case "/api/remote/status", "/api/remote/configure", "/api/remote/disable", "/api/remote/remove", "/api/remote/sign-in":
+		s.remoteAccess(w, r, ctx)
+	case "/api/remote/password":
+		s.setOwnerPassword(w, r, ctx)
 	case "/api/connections/send-permission":
 		s.sendPermission(w, r, ctx)
 	case "/api/connections/reveal":

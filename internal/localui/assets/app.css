@@ -378,8 +378,13 @@ select.select-native { position: absolute !important; width: 1px !important; hei
   .select-trigger-appearance .select-value, .select-trigger-appearance .select-chevron { display: none; }
   .select-trigger-appearance .select-appearance-icon { width: 22px; height: 22px; }
   .select-trigger-appearance:hover:not(:disabled), .select-trigger-appearance[aria-expanded="true"] { background: var(--emerald-wash); border-color: transparent; }
-  #admin-logout { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; padding: 0; border-color: transparent; background: transparent; color: var(--muted); }
-  #admin-logout:hover:not(:disabled) { background: var(--hover); }
+  #admin-logout, #remote-logout { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; padding: 0; border-color: transparent; background: transparent; color: var(--muted); }
+  #admin-logout:hover:not(:disabled), #remote-logout:hover:not(:disabled) { background: var(--hover); }
   .sign-out-icon { display: block; }
   .sign-out-label { display: none; }
 }
+
+.remote-login-form{width:min(100%,360px);margin:24px auto 0;text-align:left;display:grid;gap:12px}.remote-login-form[hidden]{display:none}.remote-login-form input[type=password]{box-sizing:border-box;width:100%;min-width:0;font-size:16px;min-height:48px}.remote-login-form button{min-height:48px}.remote-login-form .field-help{margin:0}.auth-screen:has(.remote-login-form:not([hidden])){margin:0 auto;padding:40px 20px;min-height:100dvh;box-sizing:border-box}.remote-login-form input:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+
+/* Remote setup follows the archive palette and compact owner dialogs. */
+#remote-access-dialog{max-width:620px}#remote-access-dialog .stacked-label input,#remote-access-dialog .stacked-label select{width:100%;max-width:none}.remote-summary{padding:16px;background:var(--wash);border-inline-start:3px solid var(--emerald)}.remote-summary>strong{font-size:18px}.remote-form{margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}.remote-browser-choice{display:flex;align-items:flex-start;gap:9px;margin-top:22px;font-size:14px}.remote-browser-choice input{margin-top:2px}.remote-saved-actions{display:flex;flex-direction:column;gap:13px;margin-top:24px;padding-top:19px;border-top:1px solid var(--line)}#remote-signin-link{overflow-wrap:anywhere}#remote-endpoint{font-size:13px}#remote-provider-guide{display:inline-block;margin-top:10px}#remote-access-dialog button,#remote-access-dialog input,#remote-access-dialog select{min-height:44px}#remote-access-dialog input[type=checkbox]{min-height:18px}@media(max-width:540px){#remote-access-dialog{width:calc(100% - 20px);padding:20px}#remote-access-dialog .dialog-actions>*{flex:1 1 130px}.remote-summary{padding:12px}}

@@ -21,6 +21,10 @@ func encodeRemoteSecret(value RemoteCredentialSecret) ([]byte, bool) {
 }
 
 func (s *Server) revealRemote(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+	if s.remote != nil {
+		fail(w, 404, "route_unavailable")
+		return
+	}
 	app, ok := s.app.(RemoteCredentialApplication)
 	if !ok {
 		fail(w, 503, "client_connections_unavailable")
