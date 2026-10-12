@@ -27,8 +27,9 @@ type guardedReader interface {
 
 type requestKey struct{}
 type pendingCheck struct {
-	grant archive.CredentialGrant
-	guard archive.ResponseGuard
+	grant  archive.CredentialGrant
+	guard  archive.ResponseGuard
+	reader guardedReader
 }
 type pendingSendCheck struct {
 	grant   archive.CredentialGrant
@@ -231,7 +232,7 @@ func NewHandler(config Config, reader archive.Reader, credentials Credentials) (
 			}
 			// This shared source/credential commit fence is the final read before
 			// flushing bytes. No potentially blocking credential lookup follows it.
-			if _, err = g.CheckResponse(ctx, check.grant.Scope, archive.ResponseCheck{Guard: check.guard, Credential: &check.grant}); err != nil {
+			if _, err = check.reader.CheckResponse(ctx, check.grant.Scope, archive.ResponseCheck{Guard: check.guard, Credential: &check.grant}); err != nil {
 				fixedHTTP(w, http.StatusConflict, "mcp_response_invalidated")
 				return
 			}

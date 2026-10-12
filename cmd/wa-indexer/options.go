@@ -25,6 +25,9 @@ var (
 )
 
 type options struct {
+	historicalViewDir      string
+	historicalViewID       string
+	historicalViewAt       string
 	rebuildAncestorLockFDs []int
 	rebuildSourceLockFD    *int
 	historicalSnapshotAt   string
@@ -77,6 +80,8 @@ func parseArgs(args []string) (options, error) {
 		opts.command = args[0]
 	case "doctor":
 		opts.command = "doctor"
+	case "recover-classified-history":
+		opts.command = "recover_classified_history"
 	case "rebuild-live":
 		opts.command = "rebuild_live"
 	case "recover-snapshot":
@@ -103,7 +108,7 @@ func parseArgs(args []string) (options, error) {
 	flags.SetOutput(io.Discard)
 	var originalBudget string
 	var rebuildSourceFD int
-	if opts.command == "mcp_stdio" || opts.command == "rebuild_live" {
+	if opts.command == "mcp_stdio" || opts.command == "rebuild_live" || opts.command == "recover_classified_history" {
 		flags.StringVar(&opts.config, "config", "", "")
 	} else {
 		flags.StringVar(&opts.dataDir, "data-dir", "", "")
@@ -133,6 +138,9 @@ func parseArgs(args []string) (options, error) {
 			return nil
 		})
 		flags.StringVar(&opts.historicalSnapshotAt, "historical-snapshot-at", "", "")
+		flags.StringVar(&opts.historicalViewDir, "historical-view-dir", "", "")
+		flags.StringVar(&opts.historicalViewID, "historical-view-id", "", "")
+		flags.StringVar(&opts.historicalViewAt, "historical-view-at", "", "")
 		flags.BoolVar(&opts.demoAcceptance, "demo-acceptance-fixtures", false, "")
 		flags.StringVar(&opts.mcpListen, "mcp-listen", "", "")
 		flags.StringVar(&opts.adminListen, "admin-listen", "", "")
@@ -168,7 +176,7 @@ func parseArgs(args []string) (options, error) {
 	if opts.demoAcceptance && !opts.demo {
 		return options{}, errArguments
 	}
-	if (opts.command == "mcp_stdio" || opts.command == "rebuild_live") && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
+	if (opts.command == "mcp_stdio" || opts.command == "rebuild_live" || opts.command == "recover_classified_history") && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
 		return options{}, errArguments
 	}
 	if (opts.command == "recover_snapshot" || opts.command == "recover_original_cache") && (!filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir) {
@@ -264,6 +272,15 @@ func parseArgs(args []string) (options, error) {
 		if opts.rebuildSourceLockFD != nil && *opts.rebuildSourceLockFD == opts.rebuildAncestorLockFDs[0] {
 			return options{}, errArguments
 		}
+	}
+	viewExplicit := false
+	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "historical-view-dir" || value.Name == "historical-view-id" || value.Name == "historical-view-at" {
+			viewExplicit = true
+		}
+	})
+	if _, err := historicalViewOptions(opts, viewExplicit); err != nil {
+		return options{}, err
 	}
 	return opts, nil
 }

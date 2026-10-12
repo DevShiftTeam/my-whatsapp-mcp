@@ -95,6 +95,10 @@ func normalizedOptions(o Options) (Options, error) {
 // Open requires the application instance lease to be held by the caller
 // for the entire Store lifetime. internal/appdata owns that process boundary.
 func Open(ctx context.Context, privateDir string, options Options) (*Store, error) {
+	return openArchive(ctx, privateDir, options, nil)
+}
+
+func openArchive(ctx context.Context, privateDir string, options Options, beforeSQLite func() error) (*Store, error) {
 	if !options.rebuildBootstrap {
 		if _, err := os.Lstat(filepath.Join(privateDir, "rebuild-incomplete.marker")); !os.IsNotExist(err) {
 			return nil, ErrReconciliationRequired
@@ -139,6 +143,11 @@ func Open(ctx context.Context, privateDir string, options Options) (*Store, erro
 			lockFile.Close()
 		}
 	}()
+	if beforeSQLite != nil {
+		if err = beforeSQLite(); err != nil {
+			return nil, err
+		}
+	}
 	// Pre-create the DB privately so sidecars inherit owner-only permissions.
 	flags := os.O_CREATE | os.O_RDWR
 	if o.originalCacheRecovery {

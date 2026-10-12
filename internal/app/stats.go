@@ -10,6 +10,9 @@ import (
 
 // Stats is an owner aggregate read. It never broadens an MCP client's scope.
 func (a *Application) Stats(ctx context.Context, request archive.StatsRequest) (archive.StatsSnapshot, error) {
+	if archive.IsHistoricalHandle(string(request.ChatID)) {
+		return archive.StatsSnapshot{}, archive.ErrInvalidQuery
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed {

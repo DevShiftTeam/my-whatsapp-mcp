@@ -174,6 +174,33 @@ await check('live rebuild retains date controls and explains protected session d
  h.nodes.get('delete-confirmation').value='DELETE LOCAL DATA'; h.nodes.get('delete-form').dispatch('submit'); await flush(); assert.equal(h.requests.length,2);
  h.api.savePolicy({preventDefault(){}}); assert.equal(h.requests[2].path,'/api/policy');
 });
+await check('historical archive selection is explicit and labels captured scope',async()=>{
+ assert.match(html,/id="archive-source"/);
+ assert.match(html,/value="live"[^>]*>Live/);
+ assert.match(html,/value="historical"[^>]*>Historical/);
+ assert.match(html,/id="archive-source-note"/);
+});
+await check('historical selection clears filters and keeps settings and permissions live',async()=>{
+ const h=harness();
+ const meta={source:'historical',snapshot_id:'0123456789abcdef',captured_at:'2026-01-02T03:04:05Z',read_only:true,coverage:'partial',current_phone_state:'unknown'};
+ h.api.setSetup({configured:true,archive_view:meta,Policy:{ChatMode:'all'}});
+ h.nodes.get('search-chat').value='live-chat'; h.nodes.get('stats-chat').value='live-chat';
+ h.nodes.get('archive-source').value='historical'; h.nodes.get('archive-source').dispatch('change');
+ assert.equal(h.nodes.get('search-chat').value,''); assert.equal(h.nodes.get('stats-chat').value,'');
+ assert.equal(h.requests[0].path,'/api/status?source=historical');
+ h.requests[0].resolve({Connection:'historical_snapshot',Messages:10,archive_view:meta}); await flush();
+ assert.equal(h.requests[1].path,'/api/chats?source=historical&limit=100');
+ h.requests[1].resolve({Chats:[{ID:'h1.0123456789abcdef.c.chat',Name:'Captured chat'}],archive_view:meta}); await flush();
+ assert.equal(JSON.parse(h.requests[2].options.body).source,'historical');
+ h.requests[2].resolve(snapshot()); await flush();
+ assert.match(h.nodes.get('archive-source-note').textContent,/2026.*Read-only.*partial.*unknown/i);
+ assert.equal(h.nodes.get('search-content').hidden,false);
+ assert.equal(h.nodes.get('chat-choices').children.length,0,'historical chats must not populate live policy choices');
+ const opened=h.api.openSettings(); h.requests[3].resolve({configured:true,archive_view:meta,Policy:{DateMode:'all_available',ChatMode:'all',RollingRetention:0}}); await flush();
+ assert.equal(h.requests[4].path,'/api/chats?limit=100'); h.requests[4].resolve({Chats:[]}); await opened;
+ assert.equal(h.nodes.get('save-policy').disabled,false);
+ h.api.expireAuth(); assert.equal(h.nodes.get('archive-source-control').hidden,true);
+});
 await check('recovery shows attempts separately from accepted copies and reuses an uncertain command',async()=>{
  const h=harness(); const opening=h.api.openSettings();
  const recovery={operation_id:'synthetic-operation',revision:7,state:'exhausted',copy_limit:10000,copy_spent:10000,discovery_limit:512,discovery_spent:20,discovered:12000,queued:2000,pending:100,accepted:9900,stale:0,target_start:'2026-01-01T00:00:00Z'};

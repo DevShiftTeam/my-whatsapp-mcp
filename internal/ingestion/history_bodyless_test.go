@@ -539,7 +539,7 @@ func TestHistoryBodylessUnsafeMetadataAndAmbiguousControlsRemainStrict(t *testin
 		{"viewed_once_control", waWeb.WebMessageInfo_VIEWED_ONCE, nil},
 		{"disappearing_mode_control", waWeb.WebMessageInfo_DISAPPEARING_MODE, nil},
 		{"keep_control", waWeb.WebMessageInfo_EPHEMERAL_KEEP_IN_CHAT, nil},
-		{"group_sender_number_migration", waWeb.WebMessageInfo_GROUP_PARTICIPANT_CHANGE_NUMBER, nil},
+		{"group_sender_number_migration_conflicting_actor", waWeb.WebMessageInfo_GROUP_PARTICIPANT_CHANGE_NUMBER, func(m *waWeb.WebMessageInfo) { m.Key.Participant = proto.String("777@s.whatsapp.net") }},
 		{"individual_number_migration", waWeb.WebMessageInfo_INDIVIDUAL_CHANGE_NUMBER, nil},
 		{"lid_migration", waWeb.WebMessageInfo_CHANGE_LID, nil},
 		{"group_delete", waWeb.WebMessageInfo_GROUP_DELETE, nil},
@@ -618,4 +618,103 @@ func (s *bodylessHistoryGapFailureStore) SetSyncStatus(ctx context.Context, upda
 		return s.failure
 	}
 	return s.ConnectorStore.SetSyncStatus(ctx, update)
+}
+
+func TestHistoryGroupNumberChangeObservedShapeContinuesBodyAndRevoke(t *testing.T) {
+	const chat = "300@g.us"
+	const noticeID = "synthetic-number-change-notice"
+	const oldNumber = "901@s.whatsapp.net"
+	const newNumber = "902@s.whatsapp.net"
+	store, dir := durableFixture(t)
+	r := durableRuntime(t, store)
+	ctx := context.Background()
+	target := bodylessHistoryRecord(chat, "number-change-target", "numberchangetargetreceipt")
+	if err := r.projectHistory(ctx, bodylessHistoryWire(t, chat, target)); err != nil {
+		t.Fatal(err)
+	}
+	notice := bodylessHistoryStub(chat, noticeID, waWeb.WebMessageInfo_GROUP_PARTICIPANT_CHANGE_NUMBER)
+	notice.Message.Key.Participant = nil
+	notice.Message.MessageStubParameters = []string{oldNumber, newNumber}
+	if got := historyPresence(notice.Message); got != 475 {
+		t.Fatalf("fixture does not match observed presence475: %d", got)
+	}
+	tail := bodylessHistoryRecord(chat, "number-change-tail", "numberchangetailreceipt")
+	control := bodylessHistoryRecord(chat, "number-change-control", "")
+	control.Message.Message = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{Type: waE2E.ProtocolMessage_REVOKE.Enum(), Key: &waCommon.MessageKey{ID: proto.String("number-change-target"), RemoteJID: proto.String(chat), Participant: proto.String("200@s.whatsapp.net"), FromMe: proto.Bool(false)}}}
+	if err := r.projectHistory(ctx, bodylessHistoryWire(t, chat, notice, tail, control)); err != nil {
+		t.Fatalf("known number-change notice stopped valid body/control suffix: %v", err)
+	}
+	if r.Status().ReconciliationRequired {
+		t.Fatal("known notice fenced valid history")
+	}
+	queueBurstAssertSearch(t, store, "numberchangetailreceipt", 1)
+	queueBurstAssertSearch(t, store, "numberchangetargetreceipt", 0)
+	targetMetadata, err := store.SourceMetadata(ctx, bodylessHistoryKey(chat, "number-change-target"))
+	if err != nil || !targetMetadata.Version.Deleted {
+		t.Fatal("following revoke was lost")
+	}
+	metadata, err := store.SourceMetadata(ctx, bodylessHistoryKey(chat, noticeID))
+	if err != nil || metadata.Version.MessageID != "" || metadata.OriginalDateKnown || metadata.Version.Deleted {
+		t.Fatal("notice fabricated source metadata")
+	}
+	anchors, err := store.BackfillAnchors(ctx, durableAccount, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, anchor := range anchors {
+		if anchor.Key.Message == noticeID {
+			t.Fatal("notice fabricated a cursor")
+		}
+	}
+	for _, number := range []string{oldNumber, newNumber} {
+		canonical, err := store.Canonical(ctx, durableAccount, number)
+		if err != nil || canonical != number {
+			t.Fatal("number parameters changed identity authority")
+		}
+	}
+	if got := bodylessHistoryStatus(t, store).Messages; got != 1 {
+		t.Fatalf("notice created searchable content: %d", got)
+	}
+	durableAssertAbsent(t, dir, oldNumber, newNumber, noticeID)
+}
+
+func TestHistoryGroupNumberChangePreservesSafetyAndActorFences(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*waWeb.WebMessageInfo)
+	}{
+		{"invalid_actor", func(m *waWeb.WebMessageInfo) { m.Participant = proto.String("@s.whatsapp.net") }},
+		{"conflicting_actor", func(m *waWeb.WebMessageInfo) { m.Key.Participant = proto.String("777@s.whatsapp.net") }},
+		{"invalid_key", func(m *waWeb.WebMessageInfo) { m.Key.ID = proto.String("") }},
+		{"wrong_chat", func(m *waWeb.WebMessageInfo) { m.Key.RemoteJID = proto.String("301@g.us") }},
+		{"expiry_even_zero", func(m *waWeb.WebMessageInfo) { m.EphemeralDuration = proto.Uint32(0) }},
+		{"futureproof", func(m *waWeb.WebMessageInfo) { m.FutureproofData = []byte{1} }},
+		{"keep", func(m *waWeb.WebMessageInfo) { m.KeepInChat = &waWeb.KeepInChat{} }},
+		{"target_control", func(m *waWeb.WebMessageInfo) {
+			m.TargetMessageID = &waCommon.MessageKey{ID: proto.String("synthetic-target")}
+		}},
+		{"unknown_enum", func(m *waWeb.WebMessageInfo) { m.MessageStubType = waWeb.WebMessageInfo_StubType(987654).Enum() }},
+		{"unknown_zero", func(m *waWeb.WebMessageInfo) { m.MessageStubType = waWeb.WebMessageInfo_UNKNOWN.Enum() }},
+		{"individual_number_change", func(m *waWeb.WebMessageInfo) {
+			m.MessageStubType = waWeb.WebMessageInfo_INDIVIDUAL_CHANGE_NUMBER.Enum()
+		}},
+		{"expiry_control", func(m *waWeb.WebMessageInfo) {
+			m.MessageStubType = waWeb.WebMessageInfo_CHANGE_EPHEMERAL_SETTING.Enum()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := fixtureStore()
+			r := testRuntime(store)
+			notice := bodylessHistoryStub("300@g.us", "synthetic-number-change", waWeb.WebMessageInfo_GROUP_PARTICIPANT_CHANGE_NUMBER)
+			notice.Message.MessageStubParameters = []string{"901@s.whatsapp.net", "902@s.whatsapp.net"}
+			tc.mutate(notice.Message)
+			tail := bodylessHistoryRecord("300@g.us", "unsafe-number-change-tail", "mustnotadmitreceipt")
+			if err := r.projectHistory(context.Background(), bodylessHistoryWire(t, "300@g.us", notice, tail)); err == nil || !r.Status().ReconciliationRequired {
+				t.Fatal("unsafe notice bypassed fence")
+			}
+			if len(store.events) != 0 || len(store.aliases) != 0 {
+				t.Fatal("unsafe notice fabricated content or alias authority")
+			}
+		})
+	}
 }

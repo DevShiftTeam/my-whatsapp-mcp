@@ -259,7 +259,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "origin_denied")
 		return
 	}
-	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" {
+	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" {
 		fail(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -625,8 +625,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 		value, err := s.app.Setup(ctx)
 		result(w, value, err)
 	case "/api/status":
-		value, err := s.app.Status(ctx)
-		result(w, value, err)
+		s.archiveStatus(w, r, ctx)
 	case "/api/pairing":
 		value, err := s.app.PairingState(ctx)
 		result(w, value, err)
@@ -773,6 +772,7 @@ func validOpaque(id string) bool {
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	var request struct {
+		Source string           `json:"source"`
 		Query  string           `json:"query"`
 		Chats  []archive.ChatID `json:"chats"`
 		From   time.Time        `json:"from"`
@@ -783,8 +783,8 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ctx context.Cont
 	if !decode(w, r, &request) {
 		return
 	}
-	if len(request.Query) > 4096 || !utf8.ValidString(request.Query) || strings.TrimSpace(request.Query) == "" ||
-		request.Limit < 0 || request.Limit > 100 || len(request.Cursor) > 8192 || !validIDs(request.Chats, 100) ||
+	if !validArchiveSource(request.Source) || len(request.Query) > 4096 || !utf8.ValidString(request.Query) || strings.TrimSpace(request.Query) == "" ||
+		request.Limit < 0 || request.Limit > 100 || !validArchiveCursor(request.Cursor, request.Source) || !validArchiveIDs(request.Chats, request.Source) ||
 		(!request.From.IsZero() && !request.Until.IsZero() && !request.From.Before(request.Until)) {
 		fail(w, http.StatusBadRequest, "invalid_query")
 		return
@@ -792,12 +792,17 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ctx context.Cont
 	if request.Limit == 0 {
 		request.Limit = 30
 	}
+	if request.Source == "historical" {
+		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "search", Search: archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor}})
+		return
+	}
 	value, err := s.app.Search(ctx, archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor})
 	result(w, value, err)
 }
 
 func (s *Server) context(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	var request struct {
+		Source    string            `json:"source"`
 		MessageID archive.MessageID `json:"message_id"`
 		Before    int               `json:"before"`
 		After     int               `json:"after"`
@@ -805,8 +810,12 @@ func (s *Server) context(w http.ResponseWriter, r *http.Request, ctx context.Con
 	if !decode(w, r, &request) {
 		return
 	}
-	if !validOpaque(string(request.MessageID)) || request.Before < 0 || request.After < 0 || request.Before > 50 || request.After > 50 {
+	if !validArchiveSource(request.Source) || !validArchiveID(string(request.MessageID), request.Source, "m") || request.Before < 0 || request.After < 0 || request.Before > 50 || request.After > 50 {
 		fail(w, http.StatusBadRequest, "invalid_query")
+		return
+	}
+	if request.Source == "historical" {
+		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "context", Context: archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After}})
 		return
 	}
 	value, err := s.app.Context(ctx, archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After})
@@ -814,23 +823,21 @@ func (s *Server) context(w http.ResponseWriter, r *http.Request, ctx context.Con
 }
 
 func (s *Server) chats(w http.ResponseWriter, r *http.Request, ctx context.Context) {
-	query, err := url.ParseQuery(r.URL.RawQuery)
+	query, err := archiveReadQuery(r, true)
 	if err != nil {
-		fail(w, http.StatusBadRequest, "invalid_query")
+		fail(w, 400, "invalid_query")
 		return
-	}
-	for key, values := range query {
-		if (key != "limit" && key != "cursor") || len(values) != 1 {
-			fail(w, http.StatusBadRequest, "invalid_query")
-			return
-		}
 	}
 	limit := 100
 	if value := query.Get("limit"); value != "" {
 		limit, err = strconv.Atoi(value)
 	}
-	if err != nil || limit < 1 || limit > 100 || len(query.Get("cursor")) > 8192 {
+	if err != nil || limit < 1 || limit > 100 || !validArchiveCursor(query.Get("cursor"), query.Get("source")) {
 		fail(w, http.StatusBadRequest, "invalid_query")
+		return
+	}
+	if query.Get("source") == "historical" {
+		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "chats", Chats: archive.ChatListRequest{Limit: limit, Cursor: query.Get("cursor")}})
 		return
 	}
 	value, err := s.app.Chats(ctx, archive.ChatListRequest{Limit: limit, Cursor: query.Get("cursor")})

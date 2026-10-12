@@ -61,7 +61,7 @@ func OpenHistoricalSnapshot(ctx context.Context, privateDir string) (*Store, err
 	if _, err := os.Lstat(fence); err != nil {
 		return nil, ErrUnsafeDataPath
 	}
-	if err := validateOriginalCacheRecoverySchema(ctx, path); err != nil {
+	if err := validateOriginalCacheRecoverySchemaMode(ctx, path, true); err != nil {
 		return nil, err
 	}
 	base := url.URL{Scheme: "file", Path: path}

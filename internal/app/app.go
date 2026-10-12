@@ -20,6 +20,7 @@ import (
 
 type Config struct {
 	RebuildAncestorLockFDs []int
+	HistoricalView         *HistoricalViewConfig
 	RebuildSourceLockFD    *int
 	Snapshot               *SnapshotConfig
 	DataDir                string
@@ -54,6 +55,7 @@ type runtimeFactory func(ingestion.Config, archive.ConnectorStore, ingestion.Cal
 // Application serializes lifecycle mutations separately from callbacks. Callbacks
 // never acquire ops or data, so stopping a connector can safely wait for them.
 type Application struct {
+	historicalView                *historicalViewOwner
 	snapshot                      *SnapshotConfig
 	rebuild                       *ingestion.RebuildConfig
 	rebuildSourceLease            *LiveRebuildSourceGuards
@@ -193,6 +195,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	var startupResources *resources
 	var startupRuntime connector
+	var startupHistorical *historicalViewOwner
 	cleanup := func(e error) (*Application, error) {
 		// A failed constructor still owns every resource until cleanup is
 		// acknowledged; caller cancellation cannot release the instance early.
@@ -206,6 +209,9 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 			}
 		}
 		drainResources(startupResources)
+		for startupHistorical.close() != nil {
+			time.Sleep(50 * time.Millisecond)
+		}
 		for store.Close() != nil {
 			time.Sleep(50 * time.Millisecond)
 		}
@@ -259,6 +265,12 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	queries, cancel := context.WithCancel(context.Background())
 	cfg.instanceGuard = lease
 	a := &Application{snapshot: cfg.Snapshot, rebuild: rebuild, rebuildSourceLease: rebuildSourceLease, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
+	a.historicalView, err = openHistoricalView(ctx, paths, store, cfg, rebuildSourceLease)
+	startupHistorical = a.historicalView
+	if err != nil {
+		cancel()
+		return cleanup(err)
+	}
 	if cfg.Snapshot != nil {
 		a.resources, err = openHistoricalResources(ctx, paths, store, cfg)
 	} else {
@@ -375,7 +387,7 @@ func (a *Application) Setup(ctx context.Context) (localui.SetupState, error) {
 		return localui.SetupState{}, archive.ErrArchiveUnavailable
 	}
 	policy, err := a.store.Policy(ctx)
-	value := localui.SetupState{Configured: policy.Generation != 0, Policy: policy, Demo: a.demo, HistoricalSnapshot: a.snapshotMetadata(), Rebuild: a.liveRebuildMetadata()}
+	value := localui.SetupState{Configured: policy.Generation != 0, Policy: policy, Demo: a.demo, ArchiveView: a.historicalViewMetadata(), HistoricalSnapshot: a.snapshotMetadata(), Rebuild: a.liveRebuildMetadata()}
 	if err == nil && a.rebuild != nil && a.snapshot == nil {
 		value.Recovery, err = a.store.RebuildProgress(ctx)
 	}
@@ -742,6 +754,10 @@ func (a *Application) DeleteLocalData(ctx context.Context, confirmed bool) error
 	if err := a.resources.close(ctx); err != nil {
 		return err
 	}
+	if err := a.historicalView.close(); err != nil {
+		return err
+	}
+	a.historicalView = nil
 	if err := a.store.Close(); err != nil {
 		a.store = nil
 		a.closed = true
@@ -895,6 +911,10 @@ func (a *Application) Close(ctx context.Context) error {
 	if err := appdata.RemoveOwnerURL(a.paths, a.lease); result == nil {
 		result = err
 	}
+	if err := a.historicalView.close(); err != nil {
+		return err
+	}
+	a.historicalView = nil
 	if a.store != nil {
 		if err := a.store.Close(); result == nil {
 			result = err
@@ -945,6 +965,9 @@ func (a *Application) scope(ctx context.Context) (archive.ReadScope, error) {
 	return archive.ReadScope{Account: account, Principal: "owner", PolicyGeneration: policy.Generation, AllChats: true}, nil
 }
 func (a *Application) Search(ctx context.Context, r archive.SearchRequest) (archive.SearchPage, error) {
+	if !liveSearchHandles(r) {
+		return archive.SearchPage{}, archive.ErrInvalidQuery
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed {
@@ -959,6 +982,9 @@ func (a *Application) Search(ctx context.Context, r archive.SearchRequest) (arch
 	return a.resources.retrieval.Search(ctx, scope, r)
 }
 func (a *Application) Context(ctx context.Context, r archive.ContextRequest) (archive.ContextPage, error) {
+	if archive.IsHistoricalHandle(string(r.MessageID)) {
+		return archive.ContextPage{}, archive.ErrInvalidQuery
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed {
@@ -973,6 +999,9 @@ func (a *Application) Context(ctx context.Context, r archive.ContextRequest) (ar
 	return a.store.Context(ctx, scope, r)
 }
 func (a *Application) Chats(ctx context.Context, r archive.ChatListRequest) (archive.DiscoveryPage, error) {
+	if archive.IsHistoricalHandle(r.Cursor) {
+		return archive.DiscoveryPage{}, archive.ErrInvalidQuery
+	}
 	a.data.RLock()
 	defer a.data.RUnlock()
 	if a.closed {

@@ -15,6 +15,7 @@ type StatsApplication interface {
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	var request struct {
+		Source    string         `json:"source"`
 		From      *int64         `json:"from"`
 		Until     *int64         `json:"until"`
 		ChatID    archive.ChatID `json:"chat_id"`
@@ -30,9 +31,9 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 	// The archive uses time.Time's zero value for an omitted bound. Reject that
 	// exact instant rather than silently interpreting an explicit Until as all.
 	validTime := func(value *int64) bool { return value == nil || (*value > -62135596800 && *value <= 253402300799) }
-	if !validTime(request.From) || !validTime(request.Until) ||
+	if !validArchiveSource(request.Source) || !validTime(request.From) || !validTime(request.Until) ||
 		(request.From != nil && request.Until != nil && *request.From >= *request.Until) ||
-		(request.ChatID != "" && !validOpaque(string(request.ChatID))) {
+		(request.ChatID != "" && !validArchiveID(string(request.ChatID), request.Source, "c")) {
 		fail(w, http.StatusBadRequest, "invalid_query")
 		return
 	}
@@ -44,8 +45,16 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 	if request.Until != nil {
 		query.Until = time.Unix(*request.Until, 0).UTC()
 	}
-	if !archive.ValidStatsRequest(query) {
+	validationQuery := query
+	if request.Source == "historical" {
+		validationQuery.ChatID = ""
+	}
+	if !archive.ValidStatsRequest(validationQuery) {
 		fail(w, http.StatusBadRequest, "invalid_query")
+		return
+	}
+	if request.Source == "historical" {
+		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "stats", Stats: query})
 		return
 	}
 	app, ok := s.app.(StatsApplication)

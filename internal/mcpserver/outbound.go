@@ -121,7 +121,7 @@ func runSend(ctx context.Context, b Outbound, g archive.CredentialGrant, name st
 	default:
 		return outbound.Receipt{}, outbound.ErrInvalid
 	}
-	if decodeSend(raw, &r, fields) != nil {
+	if decodeSend(raw, &r, fields) != nil || archive.IsHistoricalHandle(string(r.ChatID)) {
 		return outbound.Receipt{}, outbound.ErrInvalid
 	}
 	switch name {

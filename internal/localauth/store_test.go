@@ -196,3 +196,24 @@ func TestPasswordResetRejectsInFlightVerification(t *testing.T) {
 		t.Fatal("password reset did not advance")
 	}
 }
+
+func TestTryGenerationNeverWaitsOrAuthorizesClosedState(t *testing.T) {
+	a := &Authenticator{record: Record{generation: 7}}
+	reader, ok := any(a).(interface{ TryGeneration() (uint64, bool) })
+	if !ok {
+		t.Fatal("nonblocking generation admission unavailable")
+	}
+	if g, ok := reader.TryGeneration(); !ok || g != 7 {
+		t.Fatal("current generation rejected")
+	}
+	a.mu.Lock()
+	if g, ok := reader.TryGeneration(); ok || g != 0 {
+		a.mu.Unlock()
+		t.Fatal("contended authority admitted")
+	}
+	a.mu.Unlock()
+	a.Close()
+	if g, ok := reader.TryGeneration(); ok || g != 0 {
+		t.Fatal("closed authority admitted")
+	}
+}

@@ -234,7 +234,7 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		respond(w, map[string]string{"realm": "legacy"})
 		return
 	}
-	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" {
+	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" {
 		remoteFail(w, 400, "invalid_request")
 		return
 	}
@@ -281,7 +281,7 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		remoteFail(w, 404, "route_unavailable")
 		return
 	}
-	csrf, _, ok := s.authenticated(r)
+	csrf, ownerDigest, ok := s.authenticated(r)
 	if !ok {
 		remoteFail(w, 401, "unauthorized")
 		return
@@ -301,6 +301,11 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		remoteFail(w, 403, "origin_denied")
 		return
 	}
+	r = r.WithContext(context.WithValue(r.Context(), ownerReadCheckKey{}, func() bool {
+		current, _, valid := s.authenticated(r)
+		return valid && subtle.ConstantTimeCompare([]byte(current), []byte(csrf)) == 1
+	}))
+	r = r.WithContext(context.WithValue(r.Context(), ownerReadAdmissionKey{}, func() bool { return s.historicalAdmission(r, ownerDigest, csrf) }))
 	s.dispatch.api(w, r, csrf)
 }
 

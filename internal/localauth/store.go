@@ -51,6 +51,19 @@ func (a *Authenticator) Generation() uint64 {
 	}
 	return a.record.generation
 }
+
+// TryGeneration admits a final response only when current authority can be
+// checked without waiting behind password persistence or another auth operation.
+func (a *Authenticator) TryGeneration() (uint64, bool) {
+	if !a.mu.TryLock() {
+		return 0, false
+	}
+	defer a.mu.Unlock()
+	if a.closed || a.record.generation == 0 {
+		return 0, false
+	}
+	return a.record.generation, true
+}
 func (a *Authenticator) Close() {
 	a.mu.Lock()
 	defer a.mu.Unlock()

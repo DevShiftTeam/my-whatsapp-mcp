@@ -397,3 +397,8 @@ html[data-historical-snapshot="true"] :is(#connection-open,#pause-toggle,#policy
 html[data-historical-snapshot="true"] :is(#import-panel,#client-create-panel,#client-send-editor,#client-list .model-actions,#model-list .model-actions,#voice-retry-button,#documents-retry-button,#delete-open,#policy-save,#pairing-start,#disconnect,#original-budget-form,#local-ai-form) { display: none !important; }
 
 html[data-historical-snapshot="true"] #remote-access-open { display: none !important; }
+
+.archive-source-control { margin: 0 24px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.archive-source-control[hidden] { display: none; }
+.archive-source-control label { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.archive-source-control p { margin: 0; max-width: 75ch; font-size: .85rem; line-height: 1.5; }

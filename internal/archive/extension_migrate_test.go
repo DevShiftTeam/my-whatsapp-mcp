@@ -35,8 +35,8 @@ func TestExtensionMigrationsAreOrderedChecksummedAndReopen(t *testing.T) {
 			t.Fatalf("migration order/checksum: %d %d", i, v)
 		}
 	}
-	if i != 14 {
-		t.Fatalf("expected 14 ordered migrations, got %d", i)
+	if i != 15 {
+		t.Fatalf("expected 15 ordered migrations, got %d", i)
 	}
 	body, err := migrationFiles.ReadFile("migrations/001_archive.sql")
 	if err != nil {

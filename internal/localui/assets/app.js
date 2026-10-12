@@ -19,6 +19,10 @@
   let wizardConfirmation = "";
   let setup = null;
   let status = null;
+  let archiveSource = "live";
+  let historicalStatus = null;
+  let historicalChats = [];
+  let archiveSourceVersion = 0;
   let recoverySnapshot = null;
   let recoveryBusy = false;
   let recoveryLoading = false;
@@ -199,6 +203,8 @@
   }
 
   function expireAuth() {
+    archiveSourceVersion++; archiveSource = "live"; historicalStatus = null; historicalChats = [];
+    $("archive-source-control").hidden = true; $("archive-source").value = "live"; $("archive-source-note").textContent = "";
     window.MyWhatsAppSelects?.closeAll();
     authExpired = true;
     authEpoch++;
@@ -546,6 +552,7 @@
   }
 
   function renderImportState() {
+    if (archiveSource === "historical") { $("import-panel").hidden = true; $("search-content").hidden = false; return; }
     const policy = setup?.Policy || setup?.policy;
     const view = importPresentation(status, policy, setup?.configured, chats.length, pairingSnapshot);
     const panel = $("import-panel");
@@ -766,8 +773,8 @@
     const select = $("stats-chat");
     const chosen = select.value;
     select.replaceChildren(new Option("All archived chats", ""));
-    for (const chat of chats) {
-      if (setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
+    for (const chat of archiveSource === "historical" ? historicalChats : chats) {
+      if (archiveSource === "historical" || setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
     }
     select.value = chosen;
     refreshSelects("stats-chat");
@@ -776,6 +783,7 @@
 
   function statsFilter() {
     const request = {breakdown:statsDimension, page:statsPage, page_size:statsPageSize, sort:statsSort};
+    if (archiveSource === "historical") request.source = "historical";
     const range = $("stats-range").value;
     if (range === "custom") {
       if (!$("stats-from").value && !$("stats-until").value) throw new Error("Choose at least one custom date.");
@@ -942,20 +950,21 @@
   }
 
   function renderStatsStatus() {
-    if (!status) return;
+    const viewStatus = archiveSource === "historical" ? historicalStatus : status;
+    if (!viewStatus) return;
     const policy = setup?.Policy || setup?.policy;
-    const view = importPresentation(status, policy, setup?.configured, chats.length, pairingSnapshot);
-    const historical = status.Connection === "historical_snapshot";
-    const connected = ["connected", "discovery", "importing"].includes(status.Connection);
-    $("stats-connection-state").textContent = historical ? "Historical snapshot" : status.Paused ? "Import paused" : $("connection-status").textContent;
-    $("stats-connection-dot").dataset.state = status.Connection || "setup_required";
-    $("stats-connection-description").textContent = historical ? "Read-only. Newer messages excluded. Sending and syncing disabled." : statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !status.Paused && Number(status.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
+    const view = importPresentation(viewStatus, policy, setup?.configured, chats.length, pairingSnapshot);
+    const historical = viewStatus.Connection === "historical_snapshot";
+    const connected = ["connected", "discovery", "importing"].includes(viewStatus.Connection);
+    $("stats-connection-state").textContent = historical ? "Historical snapshot" : viewStatus.Paused ? "Import paused" : $("connection-status").textContent;
+    $("stats-connection-dot").dataset.state = viewStatus.Connection || "setup_required";
+    $("stats-connection-description").textContent = historical ? (archiveSource === "historical" ? "Captured read-only history. Current phone state unknown. Live syncing continues separately." : "Read-only. Newer messages excluded. Sending and syncing disabled.") : statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !viewStatus.Paused && Number(viewStatus.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
     $("stats-connection-action").disabled = historical;
-    $("stats-connection-action").textContent = historical ? "Syncing disabled" : !setup?.configured ? "Set up your archive" : status.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
+    $("stats-connection-action").textContent = historical ? (archiveSource === "historical" ? "Historical view" : "Syncing disabled") : !setup?.configured ? "Set up your archive" : viewStatus.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
     const notice = $("status-notice");
-    $("stats-notice").textContent = notice.textContent;
-    $("stats-notice").hidden = notice.hidden;
-    for (const [kind, progress] of [["keyword", status.Keyword], ["media", status.Media], ["semantic", status.Semantic]]) renderStatsProgress(kind, progress);
+    $("stats-notice").textContent = archiveSource === "historical" ? $("archive-source-note").textContent : notice.textContent;
+    $("stats-notice").hidden = archiveSource === "historical" ? false : notice.hidden;
+    for (const [kind, progress] of [["keyword", viewStatus.Keyword], ["media", viewStatus.Media], ["semantic", viewStatus.Semantic]]) renderStatsProgress(kind, progress);
   }
 
   function statsUTCDate(value, options = {month:"short", day:"numeric", year:"numeric"}) {
@@ -1593,6 +1602,51 @@
     if (failure && !authExpired) feedback("models-feedback", failure, true);
   }
 
+  function renderArchiveChatOptions() {
+    const select = $("search-chat"), chosen = select.value;
+    select.replaceChildren(new Option("All included chats", ""));
+    for (const chat of archiveSource === "historical" ? historicalChats : chats) {
+      if (archiveSource === "historical" || setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
+    }
+    select.value = chosen;
+    refreshSelects("search-chat"); renderStatsChatOptions();
+  }
+
+  function renderArchiveSource() {
+    const meta = setup?.archive_view;
+    $("archive-source-control").hidden = !meta || authExpired;
+    $("archive-source").value = archiveSource;
+    $("archive-source-note").textContent = archiveSource === "historical" ? "Captured " + (meta?.captured_at || "") + ". Read-only · partial history · current phone state unknown. Later phone changes are not reflected here. Settings, syncing and send permissions always apply to Live." : "Live archive. Settings, syncing and send permissions always apply to Live.";
+    refreshSelects("archive-source");
+  }
+
+  async function selectArchiveSource() {
+    if (authExpired) return;
+    const selected = $("archive-source").value;
+    if (!["live", "historical"].includes(selected) || selected === "historical" && !setup?.archive_view) { renderArchiveSource(); return; }
+    archiveSource = selected;
+    const version = ++archiveSourceVersion, epoch = authEpoch;
+    clearResults(); searchRequest = null; $("search-chat").value = ""; $("stats-chat").value = "";
+    statsPage = 1; invalidateStats(true); historicalChats = []; historicalStatus = null;
+    renderArchiveSource(); renderArchiveChatOptions(); renderImportState();
+    try {
+      if (selected === "historical") {
+        const state = await api("/api/status?source=historical");
+        if (version !== archiveSourceVersion || epoch !== authEpoch || authExpired) return;
+        historicalStatus = state;
+        let cursor = ""; const list = [];
+        for (let page = 0; page < 10; page++) {
+          const value = await api("/api/chats?source=historical&limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
+          if (version !== archiveSourceVersion || epoch !== authEpoch || authExpired) return;
+          list.push(...(value.Chats || [])); cursor = value.NextCursor || ""; if (!cursor) break;
+        }
+        historicalChats = list;
+      }
+      if (version !== archiveSourceVersion || epoch !== authEpoch || authExpired) return;
+      renderArchiveChatOptions(); renderStatsStatus(); await refreshStats();
+    } catch (error) { if (version === archiveSourceVersion && epoch === authEpoch && !authExpired) feedback("stats-feedback", error.message, true); }
+  }
+
   async function loadChats() {
     const epoch = authEpoch;
     const list = [];
@@ -1609,13 +1663,7 @@
     renderChatChoices();
     renderConnectionChats();
     renderSendPermissionChats();
-    const select = $("search-chat"), chosen = select.value;
-    select.replaceChildren(new Option("All included chats", ""));
-    for (const chat of chats) {
-      if (setup?.Policy.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
-    }
-    select.value = chosen;
-    refreshSelects("search-chat");
+    renderArchiveChatOptions();
     $("chat-discovery-note").textContent = historicalSettings() ? "Saved chat choices at capture. Importing and chat discovery are disabled in this read-only view." : cursor ? "Showing the first discovered chats. More chats are available; narrow your archive selection before importing them." : chats.length ? "Select chats to save their messages. Coverage below describes received history only." : "No chats discovered yet. Link WhatsApp, then refresh. With no selection, no message bodies are saved.";
     renderStatsChatOptions();
     renderImportState();
@@ -2157,6 +2205,7 @@
       const discoveryFirst = !setup.configured && !setup.demo;
       document.querySelector("input[name=chat-mode][value='" + (discoveryFirst || policy.ChatMode === "selective" ? "selective" : "all") + "']").checked = true;
       $("settings-intro").textContent = historical ? historicalSettingsNotice() : discoveryFirst ? "Link WhatsApp to discover your chats, then choose which messages to keep. No chat message bodies are saved until you select chats." : "Choose the import range and chats to keep. These choices also apply after linking WhatsApp.";
+      if (setup?.archive_view && !historical) $("settings-intro").textContent = "Live settings. " + $("settings-intro").textContent;
       if (liveRebuildSettings()) $("settings-intro").textContent += " The saved device requires an explicit session ownership transition before deleting this recovery profile.";
       $("settings-title").textContent = discoveryFirst ? "Set up your archive" : "Chats and dates";
       $("chat-policy-fieldset").hidden = discoveryFirst;
@@ -2244,7 +2293,7 @@
     try {
       if (!more) {
         activeQuery = $("search-query").value;
-        searchRequest = {query:activeQuery, limit:30, chats:$("search-chat").value ? [$("search-chat").value] : []};
+        searchRequest = {...(archiveSource === "historical" ? {source:"historical"} : {}), query:activeQuery, limit:30, chats:$("search-chat").value ? [$("search-chat").value] : []};
         if ($("search-from").value) searchRequest.from = dayStart($("search-from").value).toISOString();
         if ($("search-until").value) { const until = dayStart($("search-until").value); until.setDate(until.getDate()+1); searchRequest.until = until.toISOString(); }
       }
@@ -2285,7 +2334,7 @@
     $("context-title").replaceChildren(bdi(hit.ChatName || "Conversation"));
     feedback("context-feedback", "Loading permitted surrounding messages…");
     try {
-      const result = await api("/api/context", "POST", {message_id:hit.MessageID, before:10, after:10});
+      const result = await api("/api/context", "POST", {...(archiveSource === "historical" ? {source:"historical"} : {}), message_id:hit.MessageID, before:10, after:10});
       if (version !== contextVersion) return;
       visibleMessages = result.Messages || [];
       for (const message of visibleMessages) addMessage(message);
@@ -2587,6 +2636,7 @@
   window.addEventListener("pagehide",()=>clearRemoteSecret());
   $("settings-close").addEventListener("click",()=>$("settings-dialog").close());
   $("settings-dialog").addEventListener("cancel",event=>{if(!setup?.configured)event.preventDefault();});
+  $("archive-source").addEventListener("change", selectArchiveSource);
   $("refresh-chats").addEventListener("click",async()=>{const epoch=authEpoch;try{await loadChats();}catch(error){if(epoch===authEpoch&&!authExpired)feedback("policy-feedback",error.message,true);}});
   $("connection-open").addEventListener("click",()=>setup?.configured?openConnection():openSettings());
   $("connection-close").addEventListener("click",()=>$("connection-dialog").close());
@@ -2757,7 +2807,7 @@
     try {
       const nextSetup = await api("/api/setup");
       if (epoch !== authEpoch || authExpired) return;
-      setup = nextSetup; setup.Policy = setup.policy;
+      setup = nextSetup; setup.Policy = setup.policy; renderArchiveSource();
       $("demo-label").hidden = !setup.demo;
       $("admin-logout").hidden = !remoteAdmin;
       $("auth-screen").hidden = true;

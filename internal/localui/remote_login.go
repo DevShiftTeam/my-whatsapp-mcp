@@ -146,7 +146,7 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "origin_denied")
 		return
 	}
-	if r.URL.RawPath != "" || r.URL.EscapedPath() != r.URL.Path || r.URL.Fragment != "" || r.URL.ForceQuery || r.URL.RawQuery != "" && r.URL.Path != "/api/chats" {
+	if r.URL.RawPath != "" || r.URL.EscapedPath() != r.URL.Path || r.URL.Fragment != "" || r.URL.ForceQuery || r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" {
 		fail(w, 400, "invalid_request")
 		return
 	}

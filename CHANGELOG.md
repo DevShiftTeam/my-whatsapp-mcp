@@ -4,6 +4,10 @@
 
 ### Added
 
+- Add explicit offline acceptance of a committed partial history snapshot for the narrowly classified known history stub `33`, bound to reviewed private operator evidence; preserve the latest session, grants, send journal and recovery allowances, with current phone state still unverified.
+
+- Add an optional captured historical view alongside Live, with source selection on six existing MCP read tools and Archive/Stats, current live authorization and source-safety checks, and historical IDs excluded from sending and original retrieval. Retain the twelve-tool catalog and live Settings, importing and send controls.
+
 - Add durable background recovery beyond the first request window, with owner-only progress, bounded allowances, pause/resume and explicit extension; retain spent requests across restart and destination upgrades.
 - Add offline preparation of a separate live recovery profile with preserved clients, source ownership, guarded phone-copy recovery, and honest partial coverage. Preparation does not activate a device or switch public access.
 

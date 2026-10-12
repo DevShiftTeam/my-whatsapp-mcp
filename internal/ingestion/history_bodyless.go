@@ -274,6 +274,7 @@ func benignHistoryStub(kind waWeb.WebMessageInfo_StubType) bool {
 		waWeb.WebMessageInfo_GROUP_PARTICIPANT_DEMOTE,
 		waWeb.WebMessageInfo_GROUP_PARTICIPANT_INVITE,
 		waWeb.WebMessageInfo_GROUP_PARTICIPANT_LEAVE,
+		waWeb.WebMessageInfo_GROUP_PARTICIPANT_CHANGE_NUMBER,
 		waWeb.WebMessageInfo_GROUP_V4_ADD_INVITE_SENT,
 		waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD_REQUEST_JOIN,
 		waWeb.WebMessageInfo_GROUP_INVITE_LINK_GROWTH_LOCKED,

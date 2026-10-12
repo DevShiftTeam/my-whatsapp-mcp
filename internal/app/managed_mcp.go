@@ -235,6 +235,7 @@ func (a *Application) startManagedMCP(ctx context.Context) error {
 		return err
 	}
 	cfg := a.mcpConfig.Remote.Server
+	cfg.HistoricalReads = a.historicalReadFactory()
 	cfg.Outbound = a
 	cfg.Attachments = a.mcp.attachments
 	cfg.LocalCredentialID = ""

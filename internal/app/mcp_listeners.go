@@ -182,7 +182,7 @@ func (a *Application) startLocalMCP(ctx context.Context) error {
 		return err
 	}
 	if !m.localStarted {
-		cfg := mcpserver.Config{HistoricalSnapshot: a.snapshotMetadata(), Outbound: a, Attachments: m.attachments, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
+		cfg := mcpserver.Config{HistoricalReads: a.historicalReadFactory(), HistoricalSnapshot: a.snapshotMetadata(), Outbound: a, Attachments: m.attachments, Mode: mcpserver.LocalAdapter, Hosts: []string{"localhost"}, NativeClients: &a.nativeRegistry}
 		handler, err := mcpserver.NewHandler(cfg, a.resources.retrieval, a.store)
 		if err != nil {
 			return errMCPListener
@@ -228,6 +228,7 @@ func (a *Application) startRemoteMCP(ctx context.Context) error {
 		}
 		cfg := remote.Server
 		cfg.HistoricalSnapshot = a.snapshotMetadata()
+		cfg.HistoricalReads = a.historicalReadFactory()
 		cfg.Outbound = a
 		cfg.Attachments = m.attachments
 		cfg.NativeClients = &a.nativeRegistry

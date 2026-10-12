@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,31 @@ const rebuildRequestUpgradeDDL = "ALTER TABLE rebuild_requests ADD COLUMN operat
 // Expected variants are compiled from trusted DDL in the empty destination,
 // inside a rolled-back savepoint. The immutable source is never migrated.
 func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuildSourceVariant, error) {
+	version, err := validateCompatibleSnapshotMigrations(ctx, src)
+	if err != nil {
+		return 0, err
+	}
+	if version == 14 {
+		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_classified_schema"); err != nil {
+			return 0, err
+		}
+		defer dst.ExecContext(ctx, "ROLLBACK TO pre_classified_schema; RELEASE pre_classified_schema")
+		ddl, err := migrationFiles.ReadFile("migrations/011_snapshot_recovery.sql")
+		if err != nil {
+			return 0, ErrSchemaChanged
+		}
+		start := strings.Index(string(ddl), "CREATE TABLE snapshot_recovery_audit")
+		if start < 0 {
+			return 0, ErrSchemaChanged
+		}
+		if _, err = dst.ExecContext(ctx, "DROP INDEX snapshot_recovery_one_prepared; DROP TABLE snapshot_recovery_audit;"+string(ddl[start:])); err != nil {
+			return 0, err
+		}
+	}
+	return classifyRebuildSourceSchemaVariant(ctx, src, dst)
+}
+
+func classifyRebuildSourceSchemaVariant(ctx context.Context, src, dst *sql.Tx) (rebuildSourceVariant, error) {
 	actual, err := rebuildSchemaRows(ctx, src)
 	if err != nil {
 		return 0, err

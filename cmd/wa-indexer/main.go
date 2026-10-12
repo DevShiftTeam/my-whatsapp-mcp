@@ -32,6 +32,7 @@ const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir 
        wa-indexer owner-link [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
        wa-indexer health [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
        wa-indexer serve --data-dir ABSOLUTE_PRIVATE_SNAPSHOT --historical-snapshot-at RFC3339
+       wa-indexer serve --data-dir ABSOLUTE_PRIVATE_LIVE --historical-view-dir ABSOLUTE_PRIVATE_DERIVATIVE --historical-view-id OPAQUE_16_HEX --historical-view-at RFC3339
        wa-indexer demo [--data-dir DIRECTORY] [--no-open]
        wa-indexer doctor [--data-dir DIRECTORY]
        wa-indexer rebuild-live --config ABSOLUTE_PRIVATE_CONFIG
@@ -207,7 +208,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.historicalSnapshotAt != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -242,6 +243,12 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		return errStartup
 	}
 	cfg := app.Config{RebuildAncestorLockFDs: opts.rebuildAncestorLockFDs, RebuildSourceLockFD: opts.rebuildSourceLockFD, DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
+
+	cfg.HistoricalView, err = historicalViewOptions(opts, opts.historicalViewDir != "")
+	if err != nil {
+		return err
+	}
+
 	if adminConfig != nil {
 		cfg.ReservedRemoteOrigins = []string{adminConfig.Origin}
 	}
@@ -270,7 +277,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.historicalSnapshotAt != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -371,6 +378,8 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) (resul
 		return ownerLink(ctx, opts, stdout)
 	case "health":
 		return health(ctx, opts, stdout)
+	case "recover_classified_history":
+		return executeClassifiedHistoryRecovery(ctx, opts.config, stdout)
 	case "rebuild_live":
 		return executeLiveRebuild(ctx, opts.config, stdout)
 	case "recover_original_cache":

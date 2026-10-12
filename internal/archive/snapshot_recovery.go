@@ -27,6 +27,7 @@ type snapshotRecoveryAudit struct {
 	account, reason, phase                       string
 	observationDigest, unsafeDigest              string
 	observationIdentity, unsafeIdentity          string
+	classification, witnessJSON, witnessSHA256   string
 }
 
 type snapshotMarker struct {
@@ -38,7 +39,11 @@ type snapshotMarker struct {
 // the application instance lease, with no connector or worker alive. The Store
 // adds its archive lifetime lock, excludes admissions, and serializes both
 // recovery transactions with the writer. Ordinary startup never calls it.
-func (s *Store) RestoreCommittedSnapshot(ctx context.Context, account string) (receipt SnapshotRecoveryReceipt, returnErr error) {
+func (s *Store) RestoreCommittedSnapshot(ctx context.Context, account string) (SnapshotRecoveryReceipt, error) {
+	return s.restoreCommittedSnapshot(ctx, account, nil)
+}
+
+func (s *Store) restoreCommittedSnapshot(ctx context.Context, account string, witness *ClassifiedHistoryWitness) (receipt SnapshotRecoveryReceipt, returnErr error) {
 	if s.historicalSnapshot {
 		return receipt, ErrHistoricalSnapshotReadOnly
 	}
@@ -71,7 +76,7 @@ func (s *Store) RestoreCommittedSnapshot(ctx context.Context, account string) (r
 	if err != nil {
 		return SnapshotRecoveryReceipt{}, err
 	}
-	audit, done, err := s.snapshotRecoveryEligibility(ctx, account, markers)
+	audit, done, err := s.snapshotRecoveryEligibility(ctx, account, markers, witness)
 	if err != nil {
 		return SnapshotRecoveryReceipt{}, err
 	}
@@ -252,7 +257,7 @@ func markerIdentity(markers []snapshotMarker, name string) string {
 	return ""
 }
 
-func (s *Store) snapshotRecoveryEligibility(ctx context.Context, requested string, markers []snapshotMarker) (snapshotRecoveryAudit, bool, error) {
+func (s *Store) snapshotRecoveryEligibility(ctx context.Context, requested string, markers []snapshotMarker, witness *ClassifiedHistoryWitness) (snapshotRecoveryAudit, bool, error) {
 	var a snapshotRecoveryAudit
 	var count, unsafe, pins, conflicts int
 	if err := s.writeDB.QueryRowContext(ctx, `SELECT count(*),COALESCE(MIN(account),'') FROM accounts`).Scan(&count, &a.account); err != nil {
@@ -284,9 +289,12 @@ func (s *Store) snapshotRecoveryEligibility(ctx context.Context, requested strin
 		return a, false, ErrReconciliationRequired
 	}
 	var prior snapshotRecoveryAudit
-	err = s.writeDB.QueryRowContext(ctx, `SELECT recovery_epoch,account,prior_unsafe_epoch,prior_unsafe_reason,prior_archive_revision,archive_revision,observation_sha256,unsafe_sha256,observation_file_identity,unsafe_file_identity,phase FROM snapshot_recovery_audit WHERE recovery_epoch=?`, a.epoch).Scan(&prior.epoch, &prior.account, &prior.unsafeEpoch, &prior.reason, &prior.beforeRevision, &prior.revision, &prior.observationDigest, &prior.unsafeDigest, &prior.observationIdentity, &prior.unsafeIdentity, &prior.phase)
+	err = s.writeDB.QueryRowContext(ctx, `SELECT recovery_epoch,account,prior_unsafe_epoch,prior_unsafe_reason,prior_archive_revision,archive_revision,observation_sha256,unsafe_sha256,observation_file_identity,unsafe_file_identity,phase,classification,witness_json,witness_sha256 FROM snapshot_recovery_audit WHERE recovery_epoch=?`, a.epoch).Scan(&prior.epoch, &prior.account, &prior.unsafeEpoch, &prior.reason, &prior.beforeRevision, &prior.revision, &prior.observationDigest, &prior.unsafeDigest, &prior.observationIdentity, &prior.unsafeIdentity, &prior.phase, &prior.classification, &prior.witnessJSON, &prior.witnessSHA256)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return a, false, fixedSQLError(err)
+	}
+	if bindingErr := s.bindClassifiedHistoryAudit(witness, &a, &prior, err == nil, unsafe, markers); bindingErr != nil {
+		return a, false, bindingErr
 	}
 	if err == nil && prior.phase == "prepared" {
 		if prior.account != a.account || unsafe != 1 || prior.unsafeEpoch != a.unsafeEpoch || prior.reason != a.reason || prior.revision != a.beforeRevision {
@@ -310,7 +318,7 @@ func (s *Store) snapshotRecoveryEligibility(ctx context.Context, requested strin
 	}
 	if unsafe == 0 && markerDigest(markers, "observation.marker") != "" && markerDigest(markers, "unsafe.marker") == "" {
 		a.reason = "unclean_shutdown"
-	} else if unsafe != 1 || (a.reason != "drain_failed" && a.reason != "unclean_shutdown") {
+	} else if unsafe != 1 || (a.reason != "drain_failed" && a.reason != "unclean_shutdown" && !(witness != nil && a.reason == "history_corrupt")) {
 		return a, false, ErrReconciliationRequired
 	}
 	return a, false, nil
@@ -417,7 +425,7 @@ func (s *Store) prepareSnapshotRecovery(ctx context.Context, a snapshotRecoveryA
 		result.observationIdentity = markerIdentity(markers, "observation.marker")
 		result.unsafeIdentity = markerIdentity(markers, "unsafe.marker")
 		result.phase = "prepared"
-		if _, err := tx.ExecContext(ctx, `INSERT INTO snapshot_recovery_audit(recovery_epoch,account,prior_unsafe_epoch,prior_unsafe_reason,prior_archive_revision,archive_revision,observation_sha256,unsafe_sha256,observation_file_identity,unsafe_file_identity,phase,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared',?)`, result.epoch, result.account, result.unsafeEpoch, result.reason, result.beforeRevision, result.revision, result.observationDigest, result.unsafeDigest, result.observationIdentity, result.unsafeIdentity, unixms(s.now())); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO snapshot_recovery_audit(recovery_epoch,account,prior_unsafe_epoch,prior_unsafe_reason,prior_archive_revision,archive_revision,observation_sha256,unsafe_sha256,observation_file_identity,unsafe_file_identity,phase,created_at,classification,witness_json,witness_sha256) VALUES(?,?,?,?,?,?,?,?,?,?,'prepared',?,?,?,?)`, result.epoch, result.account, result.unsafeEpoch, result.reason, result.beforeRevision, result.revision, result.observationDigest, result.unsafeDigest, result.observationIdentity, result.unsafeIdentity, unixms(s.now()), result.classification, result.witnessJSON, result.witnessSHA256); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE archive_meta SET archive_revision=?,recovery_epoch=?,recovery_code=? WHERE id=1`, result.revision, result.epoch, restoredSnapshotCode); err != nil {
@@ -472,7 +480,7 @@ func (s *Store) completeSnapshotRecovery(ctx context.Context, a snapshotRecovery
 	}
 	defer tx.Rollback()
 	err = func() error {
-		result, err := tx.ExecContext(ctx, `UPDATE account_safety SET unsafe=0,epoch=epoch+1 WHERE account=? AND unsafe=1 AND reason=? AND epoch=? AND EXISTS(SELECT 1 FROM snapshot_recovery_audit r JOIN archive_meta m ON m.id=1 WHERE r.recovery_epoch=? AND r.account=account_safety.account AND r.phase='prepared' AND r.prior_unsafe_epoch=account_safety.epoch AND m.recovery_epoch=r.recovery_epoch AND m.archive_revision=r.archive_revision)`, a.account, a.reason, a.unsafeEpoch, a.epoch)
+		result, err := tx.ExecContext(ctx, `UPDATE account_safety SET unsafe=0,epoch=epoch+1 WHERE account=? AND unsafe=1 AND reason=? AND epoch=? AND EXISTS(SELECT 1 FROM snapshot_recovery_audit r JOIN archive_meta m ON m.id=1 WHERE r.recovery_epoch=? AND r.account=account_safety.account AND r.phase='prepared' AND r.prior_unsafe_epoch=account_safety.epoch AND m.recovery_epoch=r.recovery_epoch AND m.archive_revision=r.archive_revision AND r.classification=? AND r.witness_sha256=? AND r.witness_json=?)`, a.account, a.reason, a.unsafeEpoch, a.epoch, a.classification, a.witnessSHA256, a.witnessJSON)
 		if err != nil {
 			return err
 		}

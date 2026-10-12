@@ -50,6 +50,9 @@ type RemoteClientRegistry interface {
 }
 
 type Config struct {
+	// Trusted request-local historical reads under current live authority.
+	// Nil preserves the live-only schemas and source behavior.
+	HistoricalReads    archive.HistoricalReadFactory
 	HistoricalSnapshot *archive.HistoricalSnapshot
 	// Optional app-owned sender. Nil preserves the read-only surface.
 	Outbound Outbound

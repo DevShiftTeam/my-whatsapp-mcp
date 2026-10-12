@@ -157,7 +157,7 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 		return receipt, ErrArchiveUnavailable
 	}
 	defer src.Rollback()
-	if err = validateOriginalCacheMigrationHistory(ctx, src, true); err != nil {
+	if _, err = validateCompatibleSnapshotMigrations(ctx, src); err != nil {
 		return receipt, err
 	}
 	var account string

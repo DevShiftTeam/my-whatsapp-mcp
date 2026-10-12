@@ -313,6 +313,10 @@ func OpenOriginalCacheRecovery(ctx context.Context, privateArchiveDir string) (*
 }
 
 func validateOriginalCacheRecoverySchema(ctx context.Context, path string) error {
+	return validateOriginalCacheRecoverySchemaMode(ctx, path, false)
+}
+
+func validateOriginalCacheRecoverySchemaMode(ctx context.Context, path string, historical bool) error {
 	base := url.URL{Scheme: "file", Path: path}
 	base.RawQuery = url.Values{"mode": {"ro"}, "_busy_timeout": {"500"}, "_query_only": {"on"}}.Encode()
 	db, err := sql.Open(queryOnlyDriverName, base.String())
@@ -330,7 +334,11 @@ func validateOriginalCacheRecoverySchema(ctx context.Context, path string) error
 	if err = tx.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
 		return ErrArchiveUnavailable
 	}
-	if err = validateOriginalCacheMigrationHistory(ctx, tx, true); err != nil {
+	if historical {
+		if _, err = validateCompatibleSnapshotMigrations(ctx, tx); err != nil {
+			return err
+		}
+	} else if err = validateOriginalCacheMigrationHistory(ctx, tx, true); err != nil {
 		return err
 	}
 	var integrity string
