@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"os"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -25,17 +24,7 @@ func relativeNativeOperation(working *os.Root, use func(int) error) error {
 	if err != nil || currentErr != nil || !privateDirectory(info) || !os.SameFile(info, current) || !noExtendedACL(file) {
 		return ErrUnsafeDataPath
 	}
-	done := make(chan error, 1)
-	go func() {
-		runtime.LockOSThread()
-		// Deliberately never unlock: Go terminates this isolated thread on exit.
-		err := isolateNativeThread(int(file.Fd()))
-		if err == nil {
-			err = use(int(file.Fd()))
-		}
-		done <- err
-	}()
-	return <-done
+	return runNativeOperation(file, use)
 }
 
 func newNativeDescriptor() (*os.File, error) {
@@ -69,12 +58,16 @@ func bindNativeSocket(ctx context.Context, working *os.Root) (*net.UnixListener,
 		if ctx.Err() != nil {
 			return ErrNativeTransportUnavailable
 		}
+		socketPath, err := nativeSocketOperationPath(parentFD)
+		if err != nil {
+			return err
+		}
 		file, err := newNativeDescriptor()
 		if err != nil {
 			return err
 		}
 		defer file.Close()
-		if err := unix.Bind(int(file.Fd()), &unix.SockaddrUnix{Name: nativeSocketFile}); err != nil {
+		if err := unix.Bind(int(file.Fd()), &unix.SockaddrUnix{Name: socketPath}); err != nil {
 			return ErrNativeTransportUnavailable
 		}
 		created, err = working.Lstat(nativeSocketFile)
@@ -103,6 +96,10 @@ func bindNativeSocket(ctx context.Context, working *os.Root) (*net.UnixListener,
 			return ErrNativeTransportUnavailable
 		}
 		listener.SetUnlinkOnClose(false)
+		if err := publishNativeSocketAddress(listener.Addr(), working); err != nil {
+			listener.Close()
+			return err
+		}
 		return nil
 	})
 	return listener, created, err
@@ -112,9 +109,13 @@ func connectNativeSocket(ctx context.Context, working *os.Root) (*net.UnixConn, 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var conn *net.UnixConn
-	err := relativeNativeOperation(working, func(int) error {
+	err := relativeNativeOperation(working, func(parentFD int) error {
 		if ctx.Err() != nil {
 			return ErrNativeTransportUnavailable
+		}
+		socketPath, err := nativeSocketOperationPath(parentFD)
+		if err != nil {
+			return err
 		}
 		file, err := newNativeDescriptor()
 		if err != nil {
@@ -122,7 +123,7 @@ func connectNativeSocket(ctx context.Context, working *os.Root) (*net.UnixConn, 
 		}
 		defer file.Close()
 		fd := int(file.Fd())
-		err = unix.Connect(fd, &unix.SockaddrUnix{Name: nativeSocketFile})
+		err = unix.Connect(fd, &unix.SockaddrUnix{Name: socketPath})
 		for err != nil && !errors.Is(err, unix.EISCONN) {
 			if ctx.Err() != nil {
 				return ErrNativeTransportUnavailable
@@ -156,7 +157,7 @@ func connectNativeSocket(ctx context.Context, working *os.Root) (*net.UnixConn, 
 				return ErrNativeTransportUnavailable
 			case <-timer.C:
 			}
-			err = unix.Connect(fd, &unix.SockaddrUnix{Name: nativeSocketFile})
+			err = unix.Connect(fd, &unix.SockaddrUnix{Name: socketPath})
 		}
 		if ctx.Err() != nil {
 			return ErrNativeTransportUnavailable
@@ -170,6 +171,11 @@ func connectNativeSocket(ctx context.Context, working *os.Root) (*net.UnixConn, 
 		if !ok {
 			converted.Close()
 			return ErrNativeTransportUnavailable
+		}
+		if err := publishNativeSocketAddress(conn.RemoteAddr(), working); err != nil {
+			conn.Close()
+			conn = nil
+			return err
 		}
 		if !currentNativePeer(conn) {
 			conn.Close()
