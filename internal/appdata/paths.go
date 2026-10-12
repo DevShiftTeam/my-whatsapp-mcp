@@ -30,17 +30,19 @@ type Paths struct {
 	WorkingDir   string
 	ModelDir     string
 	ClientDir    string
+	RemoteDir    string
 	OwnerURLFile string
 }
 
 // InstanceLock remains held while archive/session databases and workers are open.
 type InstanceLock struct {
-	mu           sync.Mutex
-	paths        Paths
-	root         *os.Root
-	file         *os.File
-	closed       bool
-	nativeSocket *NativeSocket
+	mu              sync.Mutex
+	paths           Paths
+	root            *os.Root
+	file            *os.File
+	closed          bool
+	nativeSocket    *NativeSocket
+	remoteProviders map[RemoteProvider]*RemoteProviderDirectory
 }
 
 const (
@@ -63,7 +65,7 @@ func DefaultRoot() (string, error) {
 }
 
 func pathsFor(root string) Paths {
-	return Paths{Root: root, ArchiveDir: filepath.Join(root, "archive"), SessionDir: filepath.Join(root, "session"), MediaDir: filepath.Join(root, "media"), WorkingDir: filepath.Join(root, "working"), ModelDir: filepath.Join(root, "models"), ClientDir: filepath.Join(root, "clients"), OwnerURLFile: filepath.Join(root, ownerURLFile)}
+	return Paths{Root: root, ArchiveDir: filepath.Join(root, "archive"), SessionDir: filepath.Join(root, "session"), MediaDir: filepath.Join(root, "media"), WorkingDir: filepath.Join(root, "working"), ModelDir: filepath.Join(root, "models"), ClientDir: filepath.Join(root, "clients"), RemoteDir: filepath.Join(root, "remote"), OwnerURLFile: filepath.Join(root, ownerURLFile)}
 }
 
 func resolveRoot(root string) (string, error) {
@@ -166,6 +168,13 @@ func Prepare(root string) (Paths, error) {
 	}
 	if err := verifyOwnedChildren(dir); err != nil {
 		return Paths{}, err
+	}
+	if err := syncDirectory(dir); err != nil {
+		return Paths{}, err
+	}
+	// Remote state is optional; an unsafe existing subtree must not block local archiving.
+	if err := dir.Mkdir("remote", 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		return Paths{}, ErrDataUnavailable
 	}
 	if err := syncDirectory(dir); err != nil {
 		return Paths{}, err
@@ -476,7 +485,8 @@ func Acquire(paths Paths) (*InstanceLock, error) {
 	return &InstanceLock{paths: paths, root: dir, file: file}, nil
 }
 
-// Close releases the lock. The file stays in place so future owners use the same inode.
+// Close releases the lock after registered providers have stopped and joined.
+// The file stays in place so future owners use the same inode.
 func (lease *InstanceLock) Close() error {
 	if lease == nil {
 		return nil
@@ -485,6 +495,9 @@ func (lease *InstanceLock) Close() error {
 	defer lease.mu.Unlock()
 	if lease.closed {
 		return nil
+	}
+	if len(lease.remoteProviders) != 0 {
+		return ErrRemoteProviderActive
 	}
 	lease.closed = true
 	if lease.file == nil || lease.root == nil {
@@ -507,12 +520,21 @@ func ResetOwned(paths Paths, lease *InstanceLock) error {
 	}
 	lease.mu.Lock()
 	defer lease.mu.Unlock()
+	if len(lease.remoteProviders) != 0 {
+		return ErrRemoteProviderActive
+	}
 	dir, err := openLeaseRoot(paths, lease)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
-	for _, name := range dataDirectories {
+	// Older roots may not contain optional remote state.
+	if _, err := dir.Lstat("remote"); !errors.Is(err, os.ErrNotExist) {
+		if err := verifyRemoteTree(dir); err != nil {
+			return err
+		}
+	}
+	for _, name := range append(append([]string{}, dataDirectories...), "remote") {
 		if err := dir.RemoveAll(name); err != nil {
 			return ErrDataUnavailable
 		}
