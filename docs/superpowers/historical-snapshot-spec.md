@@ -25,3 +25,5 @@ Sending tools remain discoverable for protocol compatibility and fail with `hist
 The Stats connection control is disabled in historical mode and states that syncing is disabled; it cannot offer or invoke Resume import. Normal paused archives retain their Resume import action.
 
 Managed provider restoration and setup are disabled in historical mode, including provider changes, owner password configuration, and managed MCP publication. Existing explicit manual MCP/admin transport remains available with current authorization checks; normal serving retains managed setup.
+
+The Chats and dates dialog keeps saved choices inspectable and shows the capture time and read-only limits inside the modal. Date, chat selection, retention, Save choices and deletion controls are disabled. Submitting the form cannot change the import range or request syncing in historical mode.

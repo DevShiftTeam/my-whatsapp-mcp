@@ -95,6 +95,9 @@ function pageSnapshot(page=1,total=23,pageSize=10,name='Synthetic page row') {
 function harness() {
   const nodes = new Map([...html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"/gi)].map(match => [match[2],new FakeNode(match[1])]));
   const selectors = new Map([['.skip-link',new FakeNode('a')],['.stats-update',new FakeNode()]]);
+  const policyRadios = [...html.matchAll(/<input\b[^>]*name="(date-mode|chat-mode)"[^>]*value="([^"]+)"[^>]*>/g)].map(match => {
+    const node=new FakeNode('input'); node.name=match[1]; node.value=match[2]; node.checked=match[0].includes(' checked'); return node;
+  });
   const docListeners = new Map();
   const intervals = new Map();
   const timers = new Map();
@@ -104,8 +107,8 @@ function harness() {
     hidden:false,documentElement:{dataset:{remoteAdmin:'false'}},activeElement:null,
     getElementById:id => { assert.ok(nodes.has(id),'real HTML must contain ID ' + id); return nodes.get(id); },
     createElement:tag => { const node=new FakeNode(tag); node.ownerDocument=document; return node; },createElementNS:(_,tag) => { const node=new FakeNode(tag); node.ownerDocument=document; return node; },createTextNode:textNode,
-    querySelector:selector => { if (!selectors.has(selector)) selectors.set(selector,new FakeNode()); return selectors.get(selector); },
-    querySelectorAll:() => [],
+    querySelector:selector => { const radio=selector.match(/^input\[name=(date-mode|chat-mode)\](?::checked|\[value=['"]([^'"]+)['"]\])$/); if (radio) return policyRadios.find(node=>node.name===radio[1]&&(radio[2] ? node.value===radio[2] : node.checked)); if (!selectors.has(selector)) selectors.set(selector,new FakeNode()); return selectors.get(selector); },
+    querySelectorAll:selector => selector === 'input[name=date-mode], input[name=chat-mode]' ? policyRadios : [],
     addEventListener:(name,callback) => { if (!docListeners.has(name)) docListeners.set(name,[]); docListeners.get(name).push(callback); },
   };
   for (const node of nodes.values()) node.ownerDocument=document;
@@ -125,7 +128,7 @@ function harness() {
     setInterval:callback => { const id=nextTimer++; intervals.set(id,callback); return id; },clearInterval:id => intervals.delete(id),
   };
   const fetch = (path,options={}) => new Promise((resolve,reject) => { requests.push({path,options,resolve:(value,status=200) => resolve({ok:status>=200&&status<300,status,json:async()=>value}),resolveJSON:json => resolve({ok:true,status:200,json}),reject}); });
-  const expose = `  globalThis.__test = {refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
+  const expose = `  globalThis.__test = {openSettings,savePolicy,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;}};\n})();`;
   const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date,Intl,URLSearchParams,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},history:{replaceState(){}},console});
@@ -134,12 +137,31 @@ function harness() {
   const api = context.__test;
   api.setSetup({configured:true,Policy:{ChatMode:'all'}});
   api.setStatus({Connection:'connected',Messages:6,Keyword:{State:'ready',Complete:6,Pending:0,Failed:0},Media:{State:'ready',Complete:1,Pending:1,Failed:0},Semantic:{State:'not_configured'},Codes:[]});
-  return {api,nodes,document,requests,intervals,timers,fire:name => { for(const callback of docListeners.get(name) ?? []) callback(); }};
+  return {api,nodes,document,requests,intervals,timers,policyRadios,fire:name => { for(const callback of docListeners.get(name) ?? []) callback(); }};
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const cases = [];
 async function check(name,body) { await body(); cases.push(name); }
 
+await check('historical settings remain inspectable but cannot change import choices',async()=>{
+  const h=harness(); h.document.documentElement.dataset.historicalSnapshot='true';
+  const saved={configured:true,historical_snapshot:{captured_at:'2026-01-02T03:04:05Z'},Policy:{DateMode:'all_available',ChatMode:'selective',IncludedChats:['synthetic-chat'],RollingRetention:0}};
+  const opened=h.api.openSettings(); h.requests[0].resolve(saved); await flush();
+  assert.equal(h.nodes.get('settings-dialog').open,true);
+  assert.match(h.nodes.get('settings-intro').textContent,/Historical snapshot.*2026-01-02T03:04:05Z.*Read-only.*cannot.*Sending and syncing disabled.*Newer messages excluded/);
+  for (const id of ['save-policy','import-start','retention-days','refresh-chats','delete-open']) assert.equal(h.nodes.get(id).disabled,true,id);
+  assert.equal(h.policyRadios.length,6); assert.ok(h.policyRadios.every(node=>node.disabled));
+  h.requests[1].resolve({Chats:[{ID:'synthetic-chat',Name:'Synthetic saved chat',Selected:true}]}); await opened;
+  const checkbox=descendants(h.nodes.get('chat-choices')).find(node=>node.tagName==='INPUT'); assert.ok(checkbox.checked); assert.ok(checkbox.disabled);
+  await h.api.savePolicy({preventDefault(){}}); assert.equal(h.requests.length,2); assert.match(h.nodes.get('policy-feedback').textContent,/read-only/i);
+  h.nodes.get('delete-open').dispatch('click'); assert.equal(h.nodes.get('delete-dialog').open,false);
+  h.nodes.get('delete-confirmation').value='DELETE LOCAL DATA'; h.nodes.get('delete-form').dispatch('submit'); await flush(); assert.equal(h.requests.length,2);
+  assert.match(h.nodes.get('settings-intro').textContent,/Historical snapshot/);
+  const normal=harness(); const normalOpen=normal.api.openSettings(); normal.requests[0].resolve({...saved,historical_snapshot:undefined}); await flush(); normal.requests[1].resolve({Chats:[{ID:'synthetic-chat',Selected:true}]}); await normalOpen;
+  for (const id of ['save-policy','import-start','retention-days','refresh-chats','delete-open']) assert.equal(normal.nodes.get(id).disabled,false,id);
+  assert.ok(normal.policyRadios.every(node=>!node.disabled)); assert.equal(descendants(normal.nodes.get('chat-choices')).find(node=>node.tagName==='INPUT').disabled,false);
+  normal.api.savePolicy({preventDefault(){}}); assert.equal(normal.requests[2].path,'/api/policy'); assert.equal(normal.requests[2].options.method,'PUT');
+});
 await check('historical snapshot disables connection action without changing normal resume',async()=>{
   const h=harness(); const action=h.nodes.get('stats-connection-action');
   h.api.setStatus({Connection:'historical_snapshot',Paused:true,Codes:[]}); h.api.renderStatsStatus();

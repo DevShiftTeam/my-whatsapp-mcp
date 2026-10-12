@@ -1596,7 +1596,7 @@
     }
     select.value = chosen;
     refreshSelects("search-chat");
-    $("chat-discovery-note").textContent = cursor ? "Showing the first discovered chats. More chats are available; narrow your archive selection before importing them." : chats.length ? "Select chats to save their messages. Coverage below describes received history only." : "No chats discovered yet. Link WhatsApp, then refresh. With no selection, no message bodies are saved.";
+    $("chat-discovery-note").textContent = historicalSettings() ? "Saved chat choices at capture. Importing and chat discovery are disabled in this read-only view." : cursor ? "Showing the first discovered chats. More chats are available; narrow your archive selection before importing them." : chats.length ? "Select chats to save their messages. Coverage below describes received history only." : "No chats discovered yet. Link WhatsApp, then refresh. With no selection, no message bodies are saved.";
     renderStatsChatOptions();
     renderImportState();
   }
@@ -1610,6 +1610,7 @@
       const label = document.createElement("label"); label.className = "chat-choice";
       const input = document.createElement("input"); input.type = "checkbox"; input.value = chat.ID;
       input.checked = previous.has(chat.ID) ? previous.get(chat.ID) : included.has(chat.ID);
+      input.disabled = historicalSettings();
       const details = document.createElement("span");
       details.append(bdi(chat.Name || "Unnamed chat"));
       const coverage = document.createElement("small");
@@ -2030,6 +2031,15 @@
     }
   }
 
+  function historicalSettings() {
+    return document.documentElement?.dataset?.historicalSnapshot === "true" || !!setup?.historical_snapshot;
+  }
+
+  function historicalSettingsNotice() {
+    const captured = setup?.historical_snapshot?.captured_at;
+    return "Historical snapshot" + (captured ? " — captured " + captured : "") + ". Read-only. Import dates, chat choices and retention cannot be changed in this view. Sending and syncing disabled. Newer messages excluded.";
+  }
+
   function updatePolicyFields() {
     const custom = document.querySelector("input[name=date-mode]:checked").value === "custom";
     $("custom-date-label").hidden = !custom; $("import-start").required = custom;
@@ -2053,15 +2063,18 @@
         const d = new Date(policy.ImportStart);
         $("import-start").value = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
       }
+      const historical = historicalSettings();
       const discoveryFirst = !setup.configured && !setup.demo;
       document.querySelector("input[name=chat-mode][value='" + (discoveryFirst || policy.ChatMode === "selective" ? "selective" : "all") + "']").checked = true;
-      $("settings-intro").textContent = discoveryFirst ? "Link WhatsApp to discover your chats, then choose which messages to keep. No chat message bodies are saved until you select chats." : "Choose the import range and chats to keep. These choices also apply after linking WhatsApp.";
+      $("settings-intro").textContent = historical ? historicalSettingsNotice() : discoveryFirst ? "Link WhatsApp to discover your chats, then choose which messages to keep. No chat message bodies are saved until you select chats." : "Choose the import range and chats to keep. These choices also apply after linking WhatsApp.";
       $("settings-title").textContent = discoveryFirst ? "Set up your archive" : "Chats and dates";
       $("chat-policy-fieldset").hidden = discoveryFirst;
-      $("save-policy").textContent = discoveryFirst ? "Link WhatsApp to discover chats" : "Save choices";
+      $("save-policy").textContent = historical ? "Read-only snapshot" : discoveryFirst ? "Link WhatsApp to discover chats" : "Save choices";
       $("retention-days").value = Math.round((policy.RollingRetention || 0) / 86400000000000);
       $("settings-close").hidden = !setup.configured;
-      $("policy-change-notice").hidden = !setup.configured;
+      $("policy-change-notice").hidden = historical || !setup.configured;
+      for (const id of ["save-policy", "import-start", "retention-days", "refresh-chats", "delete-open"]) $(id).disabled = historical;
+      for (const input of document.querySelectorAll("input[name=date-mode], input[name=chat-mode]")) input.disabled = historical;
       updatePolicyFields(); feedback("policy-feedback", "");
       $("chat-choices").replaceChildren();
       if (!$("settings-dialog").open) $("settings-dialog").showModal();
@@ -2080,6 +2093,7 @@
   async function savePolicy(event) {
     event.preventDefault();
     if (authExpired) return;
+    if (historicalSettings()) { feedback("policy-feedback", historicalSettingsNotice()); return; }
     const epoch = authEpoch;
     const button = $("save-policy"); button.disabled = true;
     try {
@@ -2502,10 +2516,10 @@
   $("search-form").addEventListener("submit",event=>{event.preventDefault();runSearch();});
   $("search-more").addEventListener("click",()=>runSearch(true));
   $("context-copy").addEventListener("click",async()=>{const epoch=authEpoch;try{assertOwner(epoch);await navigator.clipboard.writeText(visibleMessages.map(message=>(message.SenderName||"Unknown sender")+" · "+dateText(message.SentAt)+"\n"+(message.Body||"")+(message.Caption?"\n"+message.Caption:"")+(message.Derived||[]).map(excerpt=>"\n"+extractionLabel(excerpt)+"\n"+excerpt.Text).join("")).join("\n\n"));assertOwner(epoch);feedback("context-feedback","Visible messages copied in their original text order.");}catch{if(epoch===authEpoch&&!authExpired)feedback("context-feedback","Select the message text and copy it with your keyboard.");}});
-  $("delete-open").addEventListener("click",()=>{$("delete-confirmation").value="";$("delete-confirm").disabled=true;feedback("delete-feedback","");$("delete-dialog").showModal();});
+  $("delete-open").addEventListener("click",()=>{if(historicalSettings())return;$("delete-confirmation").value="";$("delete-confirm").disabled=true;feedback("delete-feedback","");$("delete-dialog").showModal();});
   $("delete-cancel").addEventListener("click",()=>$("delete-dialog").close());
   $("delete-confirmation").addEventListener("input",()=>{$("delete-confirm").disabled=$("delete-confirmation").value!=="DELETE LOCAL DATA";});
-  $("delete-form").addEventListener("submit",async event=>{event.preventDefault();if(authExpired||$("delete-confirmation").value!=="DELETE LOCAL DATA")return;const epoch=authEpoch;$("delete-confirm").disabled=true;try{await api("/api/data/delete","POST",{confirmation:$("delete-confirmation").value});assertOwner(epoch);expireAuth();$("auth-message").textContent="Local data deleted. Restart the app to create a new archive.";}catch(error){if(epoch===authEpoch&&!authExpired){feedback("delete-feedback",error.message,true);$("delete-confirm").disabled=false;}}});
+  $("delete-form").addEventListener("submit",async event=>{event.preventDefault();if(authExpired||historicalSettings()||$("delete-confirmation").value!=="DELETE LOCAL DATA")return;const epoch=authEpoch;$("delete-confirm").disabled=true;try{await api("/api/data/delete","POST",{confirmation:$("delete-confirmation").value});assertOwner(epoch);expireAuth();$("auth-message").textContent="Local data deleted. Restart the app to create a new archive.";}catch(error){if(epoch===authEpoch&&!authExpired){feedback("delete-feedback",error.message,true);$("delete-confirm").disabled=false;}}});
   $("admin-login-form").addEventListener("submit", loginRemote);
   $("admin-logout").addEventListener("click", logoutRemote);
 
