@@ -19,6 +19,8 @@ import (
 )
 
 type Config struct {
+	RebuildAncestorLockFDs []int
+	RebuildSourceLockFD    *int
 	Snapshot               *SnapshotConfig
 	DataDir                string
 	Demo                   bool
@@ -53,6 +55,8 @@ type runtimeFactory func(ingestion.Config, archive.ConnectorStore, ingestion.Cal
 // never acquire ops or data, so stopping a connector can safely wait for them.
 type Application struct {
 	snapshot                      *SnapshotConfig
+	rebuild                       *ingestion.RebuildConfig
+	rebuildSourceLease            *LiveRebuildSourceGuards
 	ownerAuth                     ownerPasswordLifetime
 	remoteLifecycle               remoteLifecycle
 	managedMCP                    managedMCP
@@ -133,6 +137,11 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	if err != nil {
 		return nil, err
 	}
+	if cfg.Snapshot == nil {
+		if err := appdata.RefuseLiveRebuildSource(root); err != nil {
+			return nil, err
+		}
+	}
 	var paths appdata.Paths
 	if cfg.Snapshot != nil {
 		paths, err = appdata.ExistingPaths(root)
@@ -166,6 +175,11 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 		lease.Close()
 		return nil, archive.ErrHistoricalSnapshotReadOnly
 	}
+	rebuildSourceLease, err := AcquireLiveRebuildSourceGuard(paths.Root, cfg.RebuildSourceLockFD, cfg.RebuildAncestorLockFDs...)
+	if err != nil {
+		lease.Close()
+		return nil, err
+	}
 	var store *archive.Store
 	if cfg.Snapshot != nil {
 		store, err = archive.OpenHistoricalSnapshot(ctx, paths.ArchiveDir)
@@ -174,6 +188,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	if err != nil {
 		lease.Close()
+		rebuildSourceLease.Close()
 		return nil, err
 	}
 	var startupResources *resources
@@ -197,7 +212,27 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 		for lease.Close() != nil {
 			time.Sleep(50 * time.Millisecond)
 		}
+		for rebuildSourceLease.Close() != nil {
+			time.Sleep(50 * time.Millisecond)
+		}
 		return nil, e
+	}
+	provenance, err := store.RebuildProvenance(ctx)
+	if err != nil {
+		return cleanup(err)
+	}
+	if rebuildSourceLease != nil && (provenance == nil || *provenance != rebuildSourceLease.provenance) {
+		return cleanup(archive.ErrReconciliationRequired)
+	}
+	rebuild, err := liveRebuildRuntimeConfig(paths, provenance, cfg.BackfillRequests)
+	if err != nil {
+		return cleanup(err)
+	}
+	if (cfg.RebuildSourceLockFD != nil || len(cfg.RebuildAncestorLockFDs) != 0) && rebuild == nil {
+		return cleanup(archive.ErrReconciliationRequired)
+	}
+	if rebuild != nil && (cfg.Demo || cfg.Snapshot != nil || rebuildSourceLease == nil) {
+		return cleanup(archive.ErrReconciliationRequired)
 	}
 	account, err := store.BoundAccount(ctx)
 	if err != nil {
@@ -223,7 +258,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	queries, cancel := context.WithCancel(context.Background())
 	cfg.instanceGuard = lease
-	a := &Application{snapshot: cfg.Snapshot, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
+	a := &Application{snapshot: cfg.Snapshot, rebuild: rebuild, rebuildSourceLease: rebuildSourceLease, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
 	if cfg.Snapshot != nil {
 		a.resources, err = openHistoricalResources(ctx, paths, store, cfg)
 	} else {
@@ -283,7 +318,7 @@ func (a *Application) makeRuntime() (connector, error) {
 	if a.snapshot != nil {
 		return nil, archive.ErrHistoricalSnapshotReadOnly
 	}
-	return a.factory(ingestion.Config{SessionDir: a.paths.SessionDir, TemporaryDir: a.paths.WorkingDir, BackfillRequests: a.backfillRequests}, a.store, ingestion.Callbacks{QRChanged: a.qrChanged, StatusChanged: a.statusChanged, MediaAdmitter: a.resources.admitMedia})
+	return a.factory(ingestion.Config{SessionDir: a.paths.SessionDir, TemporaryDir: a.paths.WorkingDir, BackfillRequests: a.backfillRequests, Rebuild: a.rebuild, DiagnosticDir: a.paths.WorkingDir}, a.store, ingestion.Callbacks{QRChanged: a.qrChanged, StatusChanged: a.statusChanged, MediaAdmitter: a.resources.admitMedia})
 }
 
 func resolveDataRoot(cfg Config) (string, error) {
@@ -340,7 +375,11 @@ func (a *Application) Setup(ctx context.Context) (localui.SetupState, error) {
 		return localui.SetupState{}, archive.ErrArchiveUnavailable
 	}
 	policy, err := a.store.Policy(ctx)
-	return localui.SetupState{Configured: policy.Generation != 0, Policy: policy, Demo: a.demo, HistoricalSnapshot: a.snapshotMetadata()}, err
+	value := localui.SetupState{Configured: policy.Generation != 0, Policy: policy, Demo: a.demo, HistoricalSnapshot: a.snapshotMetadata(), Rebuild: a.liveRebuildMetadata()}
+	if err == nil && a.rebuild != nil && a.snapshot == nil {
+		value.Recovery, err = a.store.RebuildProgress(ctx)
+	}
+	return value, err
 }
 
 func (a *Application) SetPolicy(ctx context.Context, policy archive.ArchivePolicy, expected archive.Generation) (archive.ArchivePolicy, error) {
@@ -377,6 +416,7 @@ func (a *Application) SetPolicy(ctx context.Context, policy archive.ArchivePolic
 	if err == nil {
 		a.requestSelectedBackfill(ctx, previous, value)
 		a.wakeOriginalDownloads()
+		a.wakeRebuild()
 	}
 	return value, err
 }
@@ -648,6 +688,9 @@ func (a *Application) syncConnection(ctx context.Context, connection archive.Con
 }
 
 func (a *Application) DeleteLocalData(ctx context.Context, confirmed bool) error {
+	if a.rebuild != nil {
+		return archive.ErrRebuildSessionTransition
+	}
 	if a.snapshot != nil {
 		return archive.ErrHistoricalSnapshotReadOnly
 	}
@@ -813,11 +856,7 @@ func (a *Application) Close(ctx context.Context) error {
 	defer a.data.Unlock()
 	if a.closed {
 		if a.lease != nil {
-			err := a.lease.Close()
-			if err == nil {
-				a.cleanupComplete = true
-			}
-			return err
+			return a.closeInstanceOwnership()
 		}
 		return nil
 	}
@@ -862,12 +901,8 @@ func (a *Application) Close(ctx context.Context) error {
 		}
 		a.store = nil
 	}
-	if err := a.lease.Close(); err != nil {
-		if result == nil {
-			result = err
-		}
-	} else {
-		a.cleanupComplete = true
+	if err := a.closeInstanceOwnership(); err != nil && result == nil {
+		result = err
 	}
 	a.closed = true
 	a.clearQR()

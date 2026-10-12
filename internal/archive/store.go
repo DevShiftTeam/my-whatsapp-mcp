@@ -27,12 +27,14 @@ type Options struct {
 	ReadConnections       int
 	Now                   func() time.Time
 	originalCacheRecovery bool // private stopped-profile preservation factory only
+	rebuildBootstrap      bool // private offline create-only bootstrap only
 }
 
 // Store owns one serialized writer and a separate limited query-only read pool.
 // SQLite handles and protected paths never cross the public interfaces.
 type Store struct {
 	historicalSnapshot      bool
+	rebuild                 *RebuildProvenance
 	lockFile                *os.File
 	writeDB, readDB         *sql.DB
 	privateDir              string
@@ -93,6 +95,11 @@ func normalizedOptions(o Options) (Options, error) {
 // Open requires the application instance lease to be held by the caller
 // for the entire Store lifetime. internal/appdata owns that process boundary.
 func Open(ctx context.Context, privateDir string, options Options) (*Store, error) {
+	if !options.rebuildBootstrap {
+		if _, err := os.Lstat(filepath.Join(privateDir, "rebuild-incomplete.marker")); !os.IsNotExist(err) {
+			return nil, ErrReconciliationRequired
+		}
+	}
 	if err := RefuseHistoricalSnapshot(privateDir); err != nil {
 		return nil, err
 	}
@@ -191,6 +198,10 @@ func Open(ctx context.Context, privateDir string, options Options) (*Store, erro
 	reads.SetMaxOpenConns(o.ReadConnections)
 	reads.SetMaxIdleConns(o.ReadConnections)
 	s := &Store{writeDB: db, readDB: reads, lockFile: lockFile, privateDir: dir, options: o, bodies: make(chan command, o.BodyQueueCount), controls: make(chan command, o.ControlQueueCount), stop: make(chan struct{}), done: make(chan struct{}), unsafe: make(map[string]bool)}
+	if err = s.loadRebuildProvenance(ctx); err != nil {
+		reads.Close()
+		return fail(err)
+	}
 	if err = db.QueryRowContext(ctx, "SELECT cursor_key FROM archive_meta WHERE id=1").Scan(&s.cursorKey); err != nil {
 		reads.Close()
 		return fail(ErrArchiveUnavailable)

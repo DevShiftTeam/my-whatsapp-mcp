@@ -10,7 +10,17 @@ import (
 	"time"
 )
 
+// RebuildConfig is server-owned physical archive provenance, never client input.
+type RebuildConfig struct {
+	ObservationID, Account, DeviceID string
+	Boundary                         time.Time
+	Requests                         int // dispatch window <=32; zero disables rebuild network work
+}
+
 type Config struct {
+	Rebuild       *RebuildConfig
+	DiagnosticDir string // private body-free mutation witnesses
+
 	SessionDir, TemporaryDir string
 	BackfillRequests         int // zero explicitly disables history requests
 	BodyQueueCount           int

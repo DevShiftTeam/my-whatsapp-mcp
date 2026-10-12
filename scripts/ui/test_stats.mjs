@@ -131,7 +131,7 @@ function harness() {
   const expose = `  globalThis.__test = {openSettings,savePolicy,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;}};\n})();`;
-  const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date,Intl,URLSearchParams,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},history:{replaceState(){}},console});
+  const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date,Intl,URLSearchParams,crypto:crypto.webcrypto,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},history:{replaceState(){}},console});
   vm.runInContext(source.replace(ending,expose),context,{timeout:5000});
   assert.equal(requests.length,0,'test loading must not start network requests');
   const api = context.__test;
@@ -161,6 +161,44 @@ await check('historical settings remain inspectable but cannot change import cho
   for (const id of ['save-policy','import-start','retention-days','refresh-chats','delete-open']) assert.equal(normal.nodes.get(id).disabled,false,id);
   assert.ok(normal.policyRadios.every(node=>!node.disabled)); assert.equal(descendants(normal.nodes.get('chat-choices')).find(node=>node.tagName==='INPUT').disabled,false);
   normal.api.savePolicy({preventDefault(){}}); assert.equal(normal.requests[2].path,'/api/policy'); assert.equal(normal.requests[2].options.method,'PUT');
+});
+await check('live rebuild retains date controls and explains protected session deletion',async()=>{
+ const h=harness(); const opening=h.api.openSettings();
+ h.requests[0].resolve({configured:true,live_rebuild:{mode:'live_rebuild',coverage:'partial',current_phone_state:'unknown'},Policy:{DateMode:'all_available',ChatMode:'all',RollingRetention:0}}); await flush();
+ h.requests[1].resolve({Chats:[]}); await opening;
+ for (const id of ['save-policy','import-start','retention-days','refresh-chats']) assert.equal(h.nodes.get(id).disabled,false,id);
+ assert.ok(h.policyRadios.every(node=>!node.disabled));
+ assert.equal(h.nodes.get('delete-open').disabled,true);
+ assert.match(h.nodes.get('settings-intro').textContent,/session ownership.*delet/i);
+ h.nodes.get('delete-open').dispatch('click'); assert.equal(h.nodes.get('delete-dialog').open,false);
+ h.nodes.get('delete-confirmation').value='DELETE LOCAL DATA'; h.nodes.get('delete-form').dispatch('submit'); await flush(); assert.equal(h.requests.length,2);
+ h.api.savePolicy({preventDefault(){}}); assert.equal(h.requests[2].path,'/api/policy');
+});
+await check('recovery shows attempts separately from accepted copies and reuses an uncertain command',async()=>{
+ const h=harness(); const opening=h.api.openSettings();
+ const recovery={operation_id:'synthetic-operation',revision:7,state:'exhausted',copy_limit:10000,copy_spent:10000,discovery_limit:512,discovery_spent:20,discovered:12000,queued:2000,pending:100,accepted:9900,stale:0,target_start:'2026-01-01T00:00:00Z'};
+ h.requests[0].resolve({configured:true,live_rebuild:{mode:'live_rebuild'},recovery,Policy:{DateMode:'all_available',ChatMode:'all',RollingRetention:0}}); await flush(); h.requests[1].resolve({Chats:[]}); await opening;
+ assert.equal(h.nodes.get('recovery-panel').hidden,false);
+ assert.match(h.nodes.get('recovery-summary').textContent,/9,900.*accepted.*2,000.*queued.*100.*unknown/i);
+ assert.match(h.nodes.get('recovery-budget').textContent,/10,000.*10,000.*attempts.*20.*512.*discovery/i);
+ assert.match(html, /id="recovery-help"[^>]*>[^<]*partial[^<]*hours[^<]*complete/i);
+ h.nodes.get('recovery-extend').click(); assert.equal(h.requests[2].path,'/api/recovery/control');
+ const first=JSON.parse(h.requests[2].options.body); assert.equal(first.action,'extend'); assert.equal(first.expected_revision,7); assert.ok(first.command_id);
+ h.requests[2].reject(new Error('synthetic lost acknowledgement')); await flush();
+ h.nodes.get('recovery-extend').click(); const retry=JSON.parse(h.requests[3].options.body); assert.deepEqual(retry,first);
+ h.requests[3].resolve({...recovery,revision:8,state:'running',copy_limit:20000,discovery_limit:1024}); await flush();
+ assert.equal(h.nodes.get('recovery-pause').disabled,false);
+ h.nodes.get('recovery-pause').click(); const pause=JSON.parse(h.requests[4].options.body); assert.equal(pause.expected_revision,8); assert.equal(pause.action,'pause'); assert.notEqual(pause.command_id,first.command_id);
+ h.requests[4].resolve({...recovery,revision:9,state:'paused'}); await flush(); assert.equal(h.nodes.get('recovery-resume').disabled,false);
+});
+await check('recovery controls clear on owner expiry and ignore late progress',async()=>{
+ const h=harness(); const opening=h.api.openSettings();
+ h.requests[0].resolve({configured:true,live_rebuild:{mode:'live_rebuild'},recovery:{operation_id:'synthetic-operation',revision:1,state:'paused'},Policy:{DateMode:'all_available',ChatMode:'all',RollingRetention:0}}); await flush(); h.requests[1].resolve({Chats:[]}); await opening;
+ h.nodes.get('recovery-resume').click(); assert.equal(h.requests.length,3);
+ h.api.expireAuth(); assert.equal(h.nodes.get('recovery-panel').hidden,true); assert.equal(h.nodes.get('recovery-summary').textContent,'');
+ h.requests[2].resolve({operation_id:'synthetic-operation',revision:2,state:'running',accepted:1234}); await flush();
+ assert.equal(h.nodes.get('recovery-panel').hidden,true); assert.equal(h.nodes.get('recovery-summary').textContent,'');
+ h.nodes.get('recovery-extend').dispatch('click'); await flush(); assert.equal(h.requests.length,3);
 });
 await check('historical snapshot disables connection action without changing normal resume',async()=>{
   const h=harness(); const action=h.nodes.get('stats-connection-action');

@@ -67,6 +67,7 @@ func NewManagedRemote(cfg ManagedRemoteConfig, app Application) (*Server, error)
 
 // Explicit principal capabilities: new native routes cannot become remote APIs.
 var remoteProtected = map[string]bool{
+	"/api/recovery": true, "/api/recovery/control": true,
 	"/api/session": true, "/api/setup": true, "/api/policy": true,
 	"/api/pairing/start": true, "/api/pairing": true, "/api/pairing/qr": true,
 	"/api/status": true, "/api/chats": true, "/api/search": true, "/api/context": true,

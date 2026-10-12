@@ -404,6 +404,9 @@ func validCheckpoint(c *SyncCheckpoint) bool {
 	return c == nil || (validString(c.Kind, 64) && validString(c.ID, 512))
 }
 func validateEvent(e SourceEvent) error {
+	if e.RebuildRequestID != "" && !validString(e.RebuildRequestID, 128) {
+		return ErrInvalidEvent
+	}
 	if !validKey(e.Key) || !utf8.ValidString(e.Body) || !utf8.ValidString(e.Caption) || len(e.Body)+len(e.Caption) > maxEventTextBytes || len(e.Media) > 8 || e.SourceRevision < 0 || !validCheckpoint(e.Checkpoint) {
 		return ErrInvalidEvent
 	}
@@ -640,6 +643,9 @@ func (s *Store) setPolicy(ctx context.Context, p ArchivePolicy, expected Generat
 			return e
 		}
 		// Older-generation rebuild payloads carry no new permission.
+		if e = s.reviseRebuildPolicy(ctx, tx, p); e != nil {
+			return e
+		}
 		_, e = tx.ExecContext(ctx, "DELETE FROM dirty_windows WHERE generation<>?", p.Generation)
 		return e
 	})
@@ -826,6 +832,14 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 			return err
 		}
 		k := e.Key
+		admitted, err := s.rebuildAdmit(ctx, tx, &e, p.Generation)
+		if err != nil {
+			return err
+		}
+		if !admitted {
+			result.Outcome = OutcomeFiltered
+			return tx.QueryRowContext(ctx, "SELECT archive_revision FROM archive_meta WHERE id=1").Scan(&result.ArchiveRevision)
+		}
 		guarded, err := hasUnresolvedDeletion(ctx, tx, k.Account, k.Chat, k.Message)
 		if err != nil {
 			return err
@@ -857,7 +871,12 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 		if err != nil {
 			return err
 		}
-		if err = saveAnchor(ctx, tx, k, sent, e.OriginalDateKnown); err != nil {
+		if s.rebuild != nil {
+			_, err = s.saveRebuildAnchor(ctx, tx, k, sent, e.OriginalDateKnown)
+		} else {
+			err = saveAnchor(ctx, tx, k, sent, e.OriginalDateKnown)
+		}
+		if err != nil {
 			return err
 		}
 		v, exists, err := loadSourceRow(ctx, tx, k)

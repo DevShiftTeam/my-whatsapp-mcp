@@ -941,7 +941,10 @@ func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *Respo
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	status := StatusSnapshot{Connection: ConnectionState("disconnected"), Coverage: CoverageState("unknown"), Chats: chats, Snapshot: f.snapshot, Keyword: Progress{State: ProgressState("ready")}, Semantic: Progress{State: ProgressState("not_configured")}, Media: Progress{State: ProgressState("not_configured")}, Codes: []string{}}
+	status := StatusSnapshot{Rebuild: s.rebuildStatus(), Connection: ConnectionState("disconnected"), Coverage: CoverageState("unknown"), Chats: chats, Snapshot: f.snapshot, Keyword: Progress{State: ProgressState("ready")}, Semantic: Progress{State: ProgressState("not_configured")}, Media: Progress{State: ProgressState("not_configured")}, Codes: []string{}}
+	if status.Rebuild != nil {
+		status.Coverage = "partial"
+	}
 	// Restoration preserves a stored snapshot; it cannot verify changes that
 	// WhatsApp may have sent during the interrupted observation. This fixed
 	// warning applies even when the caller's permitted scope has no messages.
@@ -1038,6 +1041,9 @@ func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *Respo
 	}
 	if err = f.finish(); err != nil {
 		return StatusSnapshot{}, err
+	}
+	if status.Rebuild != nil {
+		status.Coverage = "partial"
 	}
 	return status, nil
 }

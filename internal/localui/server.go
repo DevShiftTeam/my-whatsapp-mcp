@@ -342,6 +342,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 var routeMethods = map[string]string{
+	"/api/recovery":         http.MethodGet,
+	"/api/recovery/control": http.MethodPost,
 	"/api/remote/password":  http.MethodPut,
 	"/api/remote/status":    http.MethodGet,
 	"/api/remote/configure": http.MethodPost,
@@ -595,6 +597,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	switch r.URL.Path {
+	case "/api/recovery", "/api/recovery/control":
+		s.recovery(w, r, ctx)
 	case "/api/remote/status", "/api/remote/configure", "/api/remote/disable", "/api/remote/remove", "/api/remote/sign-in":
 		s.remoteAccess(w, r, ctx)
 	case "/api/remote/password":
@@ -852,6 +856,10 @@ func respond(w http.ResponseWriter, value any) {
 }
 
 func publicError(w http.ResponseWriter, err error) {
+	if errors.Is(err, archive.ErrRebuildSessionTransition) {
+		fail(w, 409, "requires_session_transition")
+		return
+	}
 	if errors.Is(err, archive.ErrHistoricalSnapshotReadOnly) {
 		fail(w, 403, "historical_snapshot_read_only")
 		return

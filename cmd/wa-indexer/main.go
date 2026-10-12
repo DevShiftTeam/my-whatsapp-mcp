@@ -34,6 +34,7 @@ const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir 
        wa-indexer serve --data-dir ABSOLUTE_PRIVATE_SNAPSHOT --historical-snapshot-at RFC3339
        wa-indexer demo [--data-dir DIRECTORY] [--no-open]
        wa-indexer doctor [--data-dir DIRECTORY]
+       wa-indexer rebuild-live --config ABSOLUTE_PRIVATE_CONFIG
        wa-indexer recover-snapshot --data-dir ABSOLUTE_PRIVATE_PROFILE
        wa-indexer recover-original-cache --data-dir ABSOLUTE_PRIVATE_PROFILE --backup-dir ABSOLUTE_STOPPED_BACKUP
        wa-indexer models install|verify PROFILE [--data-dir DIRECTORY]
@@ -59,6 +60,9 @@ WA_INDEXER_TRANSCRIPTION_LANGUAGE (auto) and TIMEOUT_SECONDS (600). Use
 --transcription-env-file ABSOLUTE_PRIVATE_ENV to load the private service setup.
 Use --open-existing to open an authenticated running owner without starting an
 app or changing its configuration. Missing owner metadata fails without startup.
+rebuild-live prepares a separate profile offline from a coherent current backup.
+It preserves saved client authority and device identity; it does not connect or
+activate the destination. Configure its private operator receipt before use.
 After stopping the app, recover-snapshot explicitly restores the committed
 archive after an eligible interrupted drain. It preserves saved messages and
 clients, records a coverage gap, and does not verify the phone's current state.
@@ -91,6 +95,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if err := execute(ctx, opts, stdout, stderr); err != nil {
+		if opts.command == "rebuild_live" {
+			fmt.Fprintln(stderr, "Live rebuild was refused (live_rebuild_unavailable). Preserve the source and destination, and review the private operator configuration.")
+			return 1
+		}
 		if opts.command == "recover_snapshot" {
 			fmt.Fprintln(stderr, snapshotRecoveryErrorMessage(err))
 			return 1
@@ -233,7 +241,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err != nil {
 		return errStartup
 	}
-	cfg := app.Config{DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
+	cfg := app.Config{RebuildAncestorLockFDs: opts.rebuildAncestorLockFDs, RebuildSourceLockFD: opts.rebuildSourceLockFD, DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
 	if adminConfig != nil {
 		cfg.ReservedRemoteOrigins = []string{adminConfig.Origin}
 	}
@@ -363,6 +371,8 @@ func execute(ctx context.Context, opts options, stdout, stderr io.Writer) (resul
 		return ownerLink(ctx, opts, stdout)
 	case "health":
 		return health(ctx, opts, stdout)
+	case "rebuild_live":
+		return executeLiveRebuild(ctx, opts.config, stdout)
 	case "recover_original_cache":
 		receipt, err := app.RecoverOriginalCache(ctx, opts.dataDir, opts.backupDir)
 		if err != nil {

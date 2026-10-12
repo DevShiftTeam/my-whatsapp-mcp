@@ -131,7 +131,7 @@ func isMutation(e *events.Message) bool {
 	}
 	p := mutationProtocol(e)
 	newsletterEdit := e.NewsletterMeta != nil && !e.NewsletterMeta.EditTS.IsZero()
-	return newsletterEdit || e.IsEdit || (p != nil && (p.GetType() == waE2E.ProtocolMessage_REVOKE || p.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT))
+	return newsletterEdit || e.IsEdit || (e.Info.IsGroup && (e.Info.Edit == types.EditAttributeAdminRevoke || e.Info.Edit == types.EditAttributeAdminEdit)) || (p != nil && (p.GetType() == waE2E.ProtocolMessage_REVOKE || p.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT))
 }
 func (r *Runtime) trustedMutation(ctx context.Context, e *events.Message) (archive.SourceEvent, *waE2E.Message, error) {
 	var out archive.SourceEvent
@@ -154,12 +154,11 @@ func (r *Runtime) trustedMutation(ctx context.Context, e *events.Message) (archi
 		out.OriginalSentAt = e.NewsletterMeta.OriginalTS
 		out.OriginalDateKnown = !out.OriginalSentAt.IsZero()
 	} else if e.IsEdit && p == nil {
-		r.failClosed("mutation_metadata_missing")
+		r.mutationMetadataMissing("edit_protocol_missing", e)
 		return out, nil, archive.ErrMutationMetadataMissing
 	}
 	if e.Info.IsGroup && (e.Info.Edit == types.EditAttributeAdminRevoke || e.Info.Edit == types.EditAttributeAdminEdit) {
-		r.failClosed("mutation_metadata_missing")
-		return out, nil, archive.ErrMutationMetadataMissing
+		return r.trustedAdminRevoke(ctx, e, key)
 	}
 	if p != nil && (p.GetType() == waE2E.ProtocolMessage_REVOKE || p.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT) {
 		target := p.GetKey()
@@ -239,6 +238,7 @@ func (r *Runtime) applyInvalidation(ctx context.Context, event any) (bool, error
 			sender = *r.client.Store.ID
 		} else if sender.IsEmpty() {
 			if e.ChatJID.Server == types.GroupServer {
+				r.mutationMetadataMissing("delete_for_me_author_missing", &events.Message{Info: types.MessageInfo{ID: e.MessageID, Timestamp: e.Timestamp, MessageSource: types.MessageSource{Chat: e.ChatJID, Sender: e.SenderJID, IsFromMe: e.IsFromMe, IsGroup: true}}})
 				return true, archive.ErrMutationMetadataMissing
 			}
 			sender = e.ChatJID
@@ -346,6 +346,27 @@ func (r *Runtime) aliasAt(ctx context.Context, stage, a, b string, provenance ar
 	return sourceOperationFailure(ctx, stage, err)
 }
 func (r *Runtime) message(ctx context.Context, event *events.Message) error {
+	if r.Status().ReconciliationRequired {
+		return archive.ErrReconciliationRequired
+	}
+	if event != nil && event.Message == nil && event.SourceWebMsg != nil && event.UnavailableRequestID != "" {
+		if !recordWithinLimit(event) {
+			r.failClosed("history_limit_exceeded")
+			return errLimitExceeded
+		}
+		if err := r.ensureAccount(ctx); err != nil {
+			return err
+		}
+		chat, err := r.canonical(ctx, event.Info.Chat.ToNonAD().String())
+		if err != nil {
+			return err
+		}
+		claimed, err := r.canonical(ctx, event.SourceWebMsg.GetKey().GetRemoteJID())
+		if err != nil || chat != claimed {
+			return archive.ErrInvalidEvent
+		}
+		return r.projectBodylessHistory(ctx, event.Info.Chat, event.SourceWebMsg)
+	}
 	if event == nil || event.Message == nil {
 		return archive.ErrInvalidEvent
 	}
@@ -411,6 +432,13 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 	policy, err := r.store.SourcePolicy(ctx, e.Key.Account)
 	if err != nil {
 		return sourceOperationFailure(ctx, "source_policy", err)
+	}
+	allowed, err := r.rebuildAdmission(ctx, &e, event, policy)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return nil
 	}
 	var pending *pendingMedia
 	if policyPermits(policy, e, time.Now()) {

@@ -4,6 +4,9 @@
 
 ### Added
 
+- Add durable background recovery beyond the first request window, with owner-only progress, bounded allowances, pause/resume and explicit extension; retain spent requests across restart and destination upgrades.
+- Add offline preparation of a separate live recovery profile with preserved clients, source ownership, guarded phone-copy recovery, and honest partial coverage. Preparation does not activate a device or switch public access.
+
 - Add an explicit, operator-attested historical snapshot serving mode with query-only archive access, persistent capture labels, current-time scoped reads, and disabled syncing, sending, original delivery, and processing. Normal serving remains unchanged.
 
 - Docker Compose source builds, saved remote-access settings, and a separate password for phone browser access. These setup options are in preview.

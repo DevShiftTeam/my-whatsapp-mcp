@@ -2,6 +2,11 @@ package app
 
 // Deferred recovery retains immutable trusted composition, never caller slices.
 func copyApplicationConfig(cfg Config) Config {
+	cfg.RebuildAncestorLockFDs = append([]int(nil), cfg.RebuildAncestorLockFDs...)
+	if cfg.RebuildSourceLockFD != nil {
+		fd := *cfg.RebuildSourceLockFD
+		cfg.RebuildSourceLockFD = &fd
+	}
 	if cfg.Snapshot != nil {
 		v := *cfg.Snapshot
 		cfg.Snapshot = &v

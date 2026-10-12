@@ -104,12 +104,26 @@ type Runtime struct {
 	sendHistoryRequest        func(context.Context, *waE2E.Message) error
 	download                  func(context.Context, whatsmeow.DownloadableMessage, whatsmeow.File) error
 
+	lastRebuildRequest  time.Time // optionalMu; courtesy throttle, durable ledger owns rate
+	rebuildActiveMu     sync.Mutex
+	rebuildActiveCancel context.CancelFunc
+	rebuildActiveDone   chan struct{}
+	sendRebuildRequest  func(context.Context, string, *waE2E.Message) error // test seam
+	diagnosticMu        sync.Mutex
 	legacyMediaReceiver bool // private isolated-test hook; public New never enables it
 }
 
 func New(config Config, store archive.ConnectorStore, callbacks Callbacks) (*Runtime, error) {
 	if store == nil {
 		return nil, archive.ErrInvalidEvent
+	}
+	if err := configureRebuild(context.Background(), &config, store); err != nil {
+		return nil, err
+	}
+	if config.DiagnosticDir != "" {
+		if err := privateDirectory(config.DiagnosticDir, true); err != nil {
+			return nil, err
+		}
 	}
 	if config.BodyQueueCount == 0 {
 		config.BodyQueueCount = 64
@@ -132,6 +146,10 @@ func New(config Config, store archive.ConnectorStore, callbacks Callbacks) (*Run
 	container, client, err := openSession(context.Background(), config.SessionDir)
 	if err != nil {
 		return nil, err
+	}
+	if config.Rebuild != nil && (client.Store.ID == nil || client.Store.ID.ToNonAD().String() != config.Rebuild.Account || config.Rebuild.DeviceID != "" && client.Store.ID.String() != config.Rebuild.DeviceID) {
+		_ = container.Close()
+		return nil, archive.ErrUnauthorized
 	}
 	max, _ := mediaCiphertextMaximum(config.MediaMax)
 	if compressedMax+1024 > max {

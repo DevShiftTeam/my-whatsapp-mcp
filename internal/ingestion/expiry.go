@@ -36,12 +36,14 @@ func (r *Runtime) sourceExpiry(ctx context.Context, e *archive.SourceEvent, even
 		}
 		if expiration > 0 {
 			if expiration > math.MaxInt64 {
+				r.mutationMetadataMissing("expiry_overflow", event)
 				return archive.ErrMutationMetadataMissing
 			}
 			choose(time.Unix(int64(expiration), 0))
 		}
 		if start > 0 && duration > 0 {
 			if start > math.MaxInt64-duration {
+				r.mutationMetadataMissing("expiry_overflow", event)
 				return archive.ErrMutationMetadataMissing
 			}
 			choose(time.Unix(int64(start+duration), 0))
@@ -58,7 +60,7 @@ func (r *Runtime) sourceExpiry(ctx context.Context, e *archive.SourceEvent, even
 		}
 	}
 	if ephemeral && e.ExpiresAt.IsZero() {
-		r.failClosed("mutation_metadata_missing")
+		r.mutationMetadataMissing("expiry_missing", event)
 		return archive.ErrMutationMetadataMissing
 	}
 	return nil

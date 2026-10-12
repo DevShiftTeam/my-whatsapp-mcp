@@ -77,6 +77,17 @@ func (r *Runtime) RequestBackfill(ctx context.Context, q BackfillRequest) error 
 	if err := validateBackfillRequest(q); err != nil {
 		return err
 	}
+	if r.config.Rebuild != nil {
+		policy, err := r.store.SourcePolicy(ctx, r.SourceAccount())
+		if err != nil {
+			return err
+		}
+		if policy.Generation != q.PolicyGeneration {
+			return archive.ErrPolicyChanged
+		}
+		r.WakeRebuild()
+		return nil
+	}
 	q.Chats = append([]archive.ChatID(nil), q.Chats...)
 	if q.Limit == 0 {
 		q.Limit = 32
@@ -269,6 +280,10 @@ func (r *Runtime) optionalWork(n *optionalNetwork) {
 				r.WakeOriginalDownloads()
 			}
 			continue // one bounded send; source admission is checked next turn
+		}
+		r.optionalRebuildStep(n) // one recovery send must not starve normal originals
+		if n.ctx.Err() != nil || !r.optionalReady() {
+			continue
 		}
 		r.optionalNamesStep(n)
 		if n.ctx.Err() == nil && r.optionalReady() {

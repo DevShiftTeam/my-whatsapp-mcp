@@ -124,3 +124,11 @@ npm run test:browser
 ```
 
 The preview command serves the built static site on loopback. See the documentation build-tool security notes in the source checkout for the build-tool restrictions and known advisories.
+
+## Live rebuild boundary
+
+A rebuild profile has an independent archive identity and durable provenance. Offline bootstrap preserves authorization and discovery metadata while excluding old content and derived work. Inherited negative metadata is enforced before writes. The app composes the same live runtime and MCP features with optional request provenance; ordinary profiles keep existing behavior. Public status labels recovery as partial and phone history unknown without disabling normal date controls.
+
+The documented SDK unavailable-message response identifier is the admission correlation. Register a chosen peer request ID durably before sending; protocol source requests never consume client send permission or enter the outgoing human-message journal. History batches without qualified correlation supply metadata only. Synthetic tests cover exact-key mismatch, replay, expiry, policy changes, known negatives, interrupted preparation, native rebind, original-byte preservation, and source-owner exclusion. Actual device activation and upstream switching are separate operator work.
+
+Recovery operation state is destination-only. It reuses body-free source anchors, counts registration before every copy/discovery send, and retains unknown attempts across policy changes and restart. The scheduler uses bounded windows and exact discovery cursors, with no inferred batch-response association. Owner progress and controls stay outside scoped MCP status. A legacy recovery archive upgrades additively while retaining provenance, session, guards and request history; original coherent backup schemas remain read-only.

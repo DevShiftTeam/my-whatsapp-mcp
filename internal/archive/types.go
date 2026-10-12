@@ -36,6 +36,7 @@ type ReadScope struct {
 }
 
 type SourceEvent struct {
+	RebuildRequestID  string // authenticated exact-key peer response, consumed with admission
 	Key               SourceKey
 	Kind              SourceEventKind // Original, EditInvalidation, EditContent, Delete
 	OriginalSentAt    time.Time
@@ -252,6 +253,7 @@ type HistoricalSnapshot struct {
 }
 
 type StatusSnapshot struct {
+	Rebuild                        *RebuildStatus      `json:"live_rebuild,omitempty"`
 	HistoricalSnapshot             *HistoricalSnapshot `json:"historical_snapshot,omitempty"`
 	Connection                     ConnectionState
 	Paused, ReconciliationRequired bool

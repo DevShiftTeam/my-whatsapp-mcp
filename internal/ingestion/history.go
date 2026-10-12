@@ -129,10 +129,13 @@ func (r *Runtime) historyFailureObserved(err error, first bool) {
 }
 
 // Never format a provider error: it can contain message bodies, identities, or
-// signed download URLs. Error and diagnostic output use closed constants only.
+// signed download URLs. Diagnostics use closed codes and bounded protocol scalars.
 type historyStageError struct {
 	stage, stub string
 	stubType    int32
+	rawStub     int32
+	stubPresent bool
+	presence    uint32
 	cause       error
 }
 
@@ -155,11 +158,46 @@ func historyBodyMissing(message *waWeb.WebMessageInfo) error {
 }
 
 func historyBodylessFailure(message *waWeb.WebMessageInfo, stage string) error {
-	stubType := int32(-1)
+	witness := &historyStageError{stage: closedHistoryStage(stage), stub: historyStubClass(message), stubType: -1, cause: errHistoryCorrupt}
 	if message != nil && message.MessageStubType != nil {
-		stubType = closedHistoryStubType(int32(message.GetMessageStubType()))
+		witness.rawStub = int32(message.GetMessageStubType())
+		witness.stubPresent = true
+		witness.stubType = closedHistoryStubType(witness.rawStub)
 	}
-	return &historyStageError{stage: closedHistoryStage(stage), stub: historyStubClass(message), stubType: stubType, cause: errHistoryCorrupt}
+	witness.presence = historyPresence(message)
+	return witness
+}
+
+// Bit positions are a fixed private diagnostic schema. Only presence is retained:
+// 0 web, 1 key, 2 body, 3 key ID, 4 remote JID, 5 key participant,
+// 6 web participant, 7 from-me, 8 stub parameters, 9 ephemeral start,
+// 10 duration, 11 expiration, 12 off-to-on, 13 out-of-sync, 14 keep-in-chat,
+// 15 futureproof, 16 target ID, 17 add-ons, 18 quarantined, 19 history bundle.
+// Pointer presence includes explicit zero values; repeated/byte fields use length.
+func historyPresence(message *waWeb.WebMessageInfo) uint32 {
+	if message == nil {
+		return 0
+	}
+	key := message.GetKey()
+	flags := [...]bool{
+		true, key != nil, message.Message != nil,
+		key != nil && key.ID != nil, key != nil && key.RemoteJID != nil,
+		key != nil && key.Participant != nil, message.Participant != nil,
+		key != nil && key.FromMe != nil, len(message.MessageStubParameters) != 0,
+		message.EphemeralStartTimestamp != nil, message.EphemeralDuration != nil,
+		message.EphemeralExpirationTimestamp != nil, message.EphemeralOffToOn != nil,
+		message.EphemeralOutOfSync != nil, message.KeepInChat != nil,
+		len(message.FutureproofData) != 0, message.TargetMessageID != nil,
+		len(message.MessageAddOns) != 0, message.QuarantinedMessage != nil,
+		message.GroupHistoryBundleInfo != nil,
+	}
+	var presence uint32
+	for bit, present := range flags {
+		if present {
+			presence |= 1 << bit
+		}
+	}
+	return presence
 }
 
 func closedHistoryStubType(value int32) int32 {
@@ -210,17 +248,33 @@ func historyStubClass(message *waWeb.WebMessageInfo) string {
 func historyFailureDiagnostic(err error) []byte {
 	stage, stub := "unknown", "no_stub"
 	stubType := int32(-1)
+	var rawStub int32
+	var stubPresent, stubKnown bool
+	var presence uint32
 	var observed *historyStageError
 	if errors.As(err, &observed) {
 		stage, stub = closedHistoryStage(observed.stage), closedHistoryStub(observed.stub)
 		stubType = closedHistoryStubType(observed.stubType)
+		stubPresent = observed.stubPresent
+		if stubPresent {
+			rawStub = observed.rawStub
+			_, stubKnown = waWeb.WebMessageInfo_StubType_name[rawStub]
+		}
+		presence = observed.presence & ((1 << 20) - 1)
 	}
+	// Fixed strings, booleans and at most 32-bit numbers keep this first-failure
+	// record below 1 KiB without truncation or formatting the underlying error.
 	encoded, _ := json.Marshal(struct {
-		Event    string `json:"event"`
-		Stage    string `json:"stage"`
-		Stub     string `json:"stub"`
-		StubType int32  `json:"stub_type"`
-	}{Event: "history_failure", Stage: stage, Stub: stub, StubType: stubType})
+		Event       string `json:"event"`
+		Stage       string `json:"stage"`
+		Stub        string `json:"stub"`
+		StubType    int32  `json:"stub_type"`
+		RawStub     int32  `json:"raw_stub"`
+		StubPresent bool   `json:"stub_present"`
+		StubKnown   bool   `json:"stub_known"`
+		Presence    uint32 `json:"presence"`
+	}{Event: "history_failure", Stage: stage, Stub: stub, StubType: stubType,
+		RawStub: rawStub, StubPresent: stubPresent, StubKnown: stubKnown, Presence: presence})
 	return append(encoded, '\n')
 }
 
@@ -413,6 +467,12 @@ func (r *Runtime) projectConversation(ctx context.Context, raw []byte) error {
 		}
 		// Preserve original protocol authority: the pinned parser replaces edits with
 		// their edited body. RawMessage retains the validated key and mutation order.
+		if r.config.Rebuild != nil {
+			if isMutation(event) {
+				return historyStage(r.rebuildHistoryMutation(ctx, event), "record_projection", "no_stub")
+			}
+			return historyStage(r.rebuildDiscovery(ctx, event), "record_projection", "no_stub")
+		}
 		if isMutation(event) {
 			return historyStage(r.messageWithMediaOutcome(ctx, event), "record_projection", "no_stub")
 		}
@@ -426,6 +486,10 @@ func (r *Runtime) downloadAttachment(ctx context.Context, message whatsmeow.Down
 	return r.client.DownloadToFile(ctx, message, file)
 }
 func (r *Runtime) requestBackfill(ctx context.Context) error {
+	if r.config.Rebuild != nil {
+		r.WakeRebuild()
+		return nil
+	}
 	if r.config.BackfillRequests == 0 {
 		return nil
 	}

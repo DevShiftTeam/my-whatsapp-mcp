@@ -136,6 +136,16 @@
 
   <dialog id="settings-dialog" aria-labelledby="settings-title">
     <div class="dialog-heading"><div><h2 id="settings-title">Chats and dates</h2><p id="settings-intro">Choose the conversations and dates to keep on this computer.</p></div><button id="settings-close" class="icon-button" type="button" aria-label="Close archive settings">×</button></div>
+    <section id="recovery-panel" class="original-budget" aria-labelledby="recovery-title" hidden>
+      <h3 id="recovery-title">Recover earlier history</h3>
+      <p id="recovery-state" class="field-help"></p>
+      <p id="recovery-summary" class="field-help"></p>
+      <p id="recovery-budget" class="field-help"></p>
+      <p id="recovery-help" class="notice">Coverage is partial. Recovery runs in the background and can take many hours. Attempts do not guarantee returned messages or a complete import. Live sync and AI connections remain available.</p>
+      <div class="dialog-actions"><button id="recovery-pause" type="button" class="secondary">Pause recovery</button><button id="recovery-resume" type="button" class="secondary">Resume recovery</button><button id="recovery-extend" type="button" class="secondary">Allow 10,000 more attempts</button><button id="recovery-cancel" type="button" class="danger-text">Cancel recovery</button></div>
+      <p class="field-help">An extension also allows up to 512 more history discovery requests. Failed or uncertain requests still count; extending never retries them automatically.</p>
+      <p id="recovery-feedback" class="feedback" role="status" aria-live="polite"></p>
+    </section>
     <form id="policy-form">
       <p id="policy-change-notice" class="field-help" hidden>Saving a narrower date range or fewer chats removes saved messages outside those choices. Older messages may not return if you later expand the archive.</p>
       <fieldset><legend>Import messages from</legend><div class="date-options">

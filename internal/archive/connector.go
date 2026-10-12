@@ -108,6 +108,18 @@ func (s *Store) SourceMetadata(ctx context.Context, key SourceKey) (SourceMetada
 		out.Version.Deleted = out.Version.Deleted || guarded
 		return out, nil
 	}
+	if s.rebuild != nil {
+		g, err := rebuildGuardQuery(ctx, tx, key)
+		if err != nil {
+			return out, err
+		}
+		out.OriginalSentAt = g.OriginalSentAt
+		out.OriginalDateKnown = g.OriginalDateKnown
+		out.ProtocolRevision = g.ProtocolRevision
+		out.Version.Deleted = out.Version.Deleted || g.Deleted
+		out.Version.ExpiresAt = g.ExpiresAt
+		out.Version.PolicyGeneration = p.Generation
+	}
 	var revision int64
 	e = tx.QueryRowContext(ctx, "SELECT protocol_revision FROM source_tombstones WHERE account=? AND chat=? AND sender=? AND message=? AND from_me=?", key.Account, key.Chat, key.Sender, key.Message, key.FromMe).Scan(&revision)
 	if e == nil {
@@ -140,7 +152,13 @@ func (s *Store) MutationTargets(ctx context.Context, account, chat, message stri
 	if e != nil {
 		return nil, fixedSQLError(e)
 	}
-	rows, e := s.readDB.QueryContext(ctx, "SELECT source_sender,from_me FROM messages WHERE account=? AND source_chat=? AND source_message=? UNION SELECT sender,from_me FROM source_tombstones WHERE account=? AND chat=? AND message=? UNION SELECT sender,from_me FROM source_anchors WHERE account=? AND chat=? AND message=? LIMIT 3", account, chat, message, account, chat, message, account, chat, message)
+	query := "SELECT source_sender,from_me FROM messages WHERE account=? AND source_chat=? AND source_message=? UNION SELECT sender,from_me FROM source_tombstones WHERE account=? AND chat=? AND message=? UNION SELECT sender,from_me FROM source_anchors WHERE account=? AND chat=? AND message=?"
+	args := []any{account, chat, message, account, chat, message, account, chat, message}
+	if s.rebuild != nil {
+		query += " UNION SELECT COALESCE((SELECT canonical FROM identity_aliases WHERE account=g.account AND alias=g.sender),g.sender),from_me FROM rebuild_guards g WHERE account=? AND COALESCE((SELECT canonical FROM identity_aliases WHERE account=g.account AND alias=g.chat),g.chat)=? AND message=?"
+		args = append(args, account, chat, message)
+	}
+	rows, e := s.readDB.QueryContext(ctx, query+" LIMIT 3", args...)
 	if e != nil {
 		return nil, fixedSQLError(e)
 	}
@@ -192,7 +210,25 @@ func (s *Store) BackfillAnchors(ctx context.Context, account string, limit int) 
 		v.OriginalSentAt = fromMillis(sent)
 		out = append(out, v)
 	}
-	return out, fixedSQLError(rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, fixedSQLError(err)
+	}
+	rows.Close()
+	if s.rebuild != nil {
+		filtered := out[:0]
+		for _, v := range out {
+			g, err := s.RebuildGuard(ctx, v.Key)
+			if err != nil {
+				return nil, err
+			}
+			if g.Deleted || g.ViewOnce || (!g.ExpiresAt.IsZero() && !g.ExpiresAt.After(s.now())) || (!g.ChatClearCutoff.IsZero() && !v.OriginalSentAt.After(g.ChatClearCutoff)) {
+				continue
+			}
+			filtered = append(filtered, v)
+		}
+		out = filtered
+	}
+	return out, nil
 }
 func (s *Store) EligibleMedia(ctx context.Context, key SourceKey, version SourceVersion) (bool, error) {
 	if !validKey(key) {
@@ -698,7 +734,10 @@ func (s *Store) DiagnosticStatus(ctx context.Context) (StatusSnapshot, error) {
 	if e != nil {
 		return StatusSnapshot{}, e
 	}
-	status := StatusSnapshot{Connection: "setup_required", Coverage: "unknown", Keyword: Progress{State: "not_configured"}, Semantic: Progress{State: "not_configured"}, Media: Progress{State: "not_configured"}, Snapshot: ReadSnapshot{PolicyGeneration: p.Generation}}
+	status := StatusSnapshot{Rebuild: s.rebuildStatus(), Connection: "setup_required", Coverage: "unknown", Keyword: Progress{State: "not_configured"}, Semantic: Progress{State: "not_configured"}, Media: Progress{State: "not_configured"}, Snapshot: ReadSnapshot{PolicyGeneration: p.Generation}}
+	if status.Rebuild != nil {
+		status.Coverage = "partial"
+	}
 	if e = s.readDB.QueryRowContext(ctx, "SELECT archive_revision,index_generation,recovery_epoch,recovery_code FROM archive_meta WHERE id=1").Scan(&status.Snapshot.ArchiveRevision, &status.Snapshot.IndexGeneration, &status.Snapshot.RecoveryEpoch, &status.Snapshot.RecoveryCode); e != nil {
 		return status, fixedSQLError(e)
 	}

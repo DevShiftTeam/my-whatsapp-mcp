@@ -19,6 +19,11 @@
   let wizardConfirmation = "";
   let setup = null;
   let status = null;
+  let recoverySnapshot = null;
+  let recoveryBusy = false;
+  let recoveryLoading = false;
+  let recoveryCommand = null;
+  let recoveryVersion = 0;
   let pairingSnapshot = null;
   let chats = [];
   let nextCursor = "";
@@ -100,6 +105,8 @@
     origin_denied: "Open the owner interface directly to make this change.",
     invalid_policy: "Choose an import date and a chat policy before saving.",
     policy_changed: "Your archive settings changed. Reopen settings and try again.",
+    recovery_changed: "Recovery choices changed. Refresh these choices before trying again.",
+    recovery_unavailable: "Recovery is unavailable right now. Check the connection and try again.",
     invalid_query: "Use a shorter search or adjust the date filters.",
     invalid_stats_filter: "Choose a valid date range, chat, and message type.",
     cursor_stale: "New messages or settings changed the archive. Run your search again.",
@@ -224,6 +231,12 @@
     chats = [];
     setup = null;
     status = null;
+    recoverySnapshot = null;
+    recoveryCommand = null;
+    recoveryBusy = false;
+    recoveryLoading = false;
+    recoveryVersion++;
+    renderRecovery();
     statusVersion++;
     pairingSnapshot = null;
     modelVersion++;
@@ -587,6 +600,7 @@
       const hasUnresolvedDeletion = !unsafe && (status.Codes || []).includes("unresolved_deletion");
       const hasRestoredSnapshot = !unsafe && status.Snapshot?.RecoveryCode === "owner_restored_snapshot";
       const historicalSnapshot = document.documentElement?.dataset?.historicalSnapshot === "true";
+      const liveRebuild = !unsafe && status.live_rebuild?.mode === "live_rebuild";
       $("messages-count").textContent = unsafe ? "—" : count.toLocaleString();
       $("coverage-status").textContent = unsafe ? "Archive checks required" : hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
       $("history-detail").textContent = unsafe ? "Message counts are unavailable while this archive is paused." : count ? "Only the history delivered by WhatsApp is included." : "Messages appear here after WhatsApp sends them.";
@@ -608,7 +622,12 @@
         $("connection-open").hidden = true;
         $("keyword-detail").textContent = "Search your saved historical message text.";
       }
+      if (liveRebuild) {
+        $("coverage-status").textContent = "Live archive · partial recovery";
+        $("history-detail").textContent = "New messages and freshly returned phone copies are included. Current phone history remains unknown.";
+      }
       const notices = [];
+      if (liveRebuild) notices.push("Live sync and AI connections use this archive. Earlier history appears only when the phone returns an eligible fresh copy; your date selection does not guarantee a complete import.");
       if (hasRestoredSnapshot) notices.push("You restored this stored archive after an interrupted import. Messages, edits, or deletions during the interruption may be missing. Current WhatsApp state is unverified; known unavailable sources remain withheld.");
       if (hasStateSyncGap) notices.push(stateSyncGapText(status));
       if (hasMessageGap) notices.push("Some WhatsApp messages were unavailable, could not be decrypted, or had conflicting updates. Affected messages are withheld; other readable messages can still be imported and searched. Received history is incomplete." + ((status.Codes || []).includes("undecryptable_message") ? " WhatsApp may retry delivery." : ""));
@@ -622,6 +641,7 @@
       $("status-notice").hidden = !notices.length;
       $("status-notice").classList.toggle("warning", hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot);
       renderStatsStatus();
+      if ($("settings-dialog").open && liveRebuildSettings()) refreshRecovery();
       if (changed && activeView === "stats" && !unsafe) refreshStats();
       if ($("connection-dialog").open) renderConnectionPresentation({...pairingSnapshot,state:status.Connection});
       const policy = setup?.Policy || setup?.policy;
@@ -2031,6 +2051,72 @@
     }
   }
 
+  function liveRebuildSettings() {
+    return setup?.live_rebuild?.mode === "live_rebuild" || status?.live_rebuild?.mode === "live_rebuild";
+  }
+
+  function renderRecovery() {
+    const p = recoverySnapshot;
+    $("recovery-panel").hidden = authExpired || !liveRebuildSettings() || !p;
+    if (!p || authExpired) {
+      for (const id of ["recovery-state", "recovery-summary", "recovery-budget", "recovery-feedback"]) $(id).textContent = "";
+      for (const action of ["pause", "resume", "extend", "cancel"]) $("recovery-" + action).disabled = true;
+      return;
+    }
+    const states = {running:"Recovering in the background", paused:"Recovery paused", cancelled:"Recovery cancelled", exhausted:"Request allowance exhausted", waiting_phone:"Waiting for more phone history", waiting_transport:"Waiting for source address information", waiting_for_older_anchor:"Waiting for older history", no_anchor:"No eligible history anchors yet", queue_full:"Discovery metadata limit reached"};
+    const target = p.target_start && !p.target_start.startsWith("0001-") ? dateText(p.target_start) : "all available history";
+    $("recovery-state").textContent = (states[p.state] || "Recovery remains partial") + ". Requested range: " + target + ".";
+    if (p.oldest_observed && !p.oldest_observed.startsWith("0001-")) $("recovery-state").textContent += " Oldest observed metadata: " + dateText(p.oldest_observed) + ".";
+    if (p.queue_full) $("recovery-state").textContent += " Discovery metadata is at capacity; known copies and live messages can still be processed.";
+    $("recovery-summary").textContent = statsNumber(p.accepted) + " accepted copies · " + statsNumber(p.queued) + " queued · " + statsNumber(p.pending) + " pending or outcome unknown · " + statsNumber(p.stale) + " from earlier choices · " + statsNumber(p.deferred) + " temporarily deferred before requesting.";
+    $("recovery-budget").textContent = statsNumber(p.copy_spent) + " of " + statsNumber(p.copy_limit) + " copy attempts used · " + statsNumber(p.discovery_spent) + " of " + statsNumber(p.discovery_limit) + " discovery requests used. " + statsNumber(p.discovered) + " known candidates.";
+    const stopped = p.state === "paused" || p.state === "cancelled";
+    for (const action of ["pause", "resume", "extend", "cancel"]) {
+      let allowed = action === "resume" ? p.state === "paused" : action === "pause" ? !stopped : action === "extend" ? p.state === "exhausted" : p.state !== "cancelled";
+      if (recoveryCommand) allowed = recoveryCommand.action === action;
+      $("recovery-" + action).disabled = recoveryBusy || !allowed;
+    }
+  }
+
+  async function refreshRecovery() {
+    if (authExpired || recoveryBusy || recoveryLoading || !liveRebuildSettings() || !$("settings-dialog").open) return;
+    const epoch = authEpoch, version = recoveryVersion;
+    recoveryLoading = true;
+    try {
+      const next = await api("/api/recovery");
+      assertOwner(epoch);
+      if (version !== recoveryVersion || !$("settings-dialog").open) return;
+      recoverySnapshot = next;
+      renderRecovery();
+    } catch (error) {
+      if (epoch === authEpoch && version === recoveryVersion && !authExpired) feedback("recovery-feedback", error.message, true);
+    } finally { if (epoch === authEpoch) recoveryLoading = false; }
+  }
+
+  async function controlRecovery(action) {
+    if (authExpired || recoveryBusy || !liveRebuildSettings() || !recoverySnapshot || $("recovery-" + action).disabled) return;
+    const epoch = authEpoch;
+    const version = ++recoveryVersion;
+    if (!recoveryCommand) recoveryCommand = {expected_revision:recoverySnapshot.revision, command_id:crypto.randomUUID(), action};
+    recoveryBusy = true;
+    renderRecovery();
+    feedback("recovery-feedback", "Updating recovery…");
+    try {
+      const next = await api("/api/recovery/control", "POST", recoveryCommand);
+      assertOwner(epoch);
+      if (version !== recoveryVersion) return;
+      recoverySnapshot = next;
+      recoveryCommand = null;
+      feedback("recovery-feedback", "Recovery choice saved. Coverage remains partial.");
+    } catch (error) {
+      if (epoch !== authEpoch || authExpired || version !== recoveryVersion) return;
+      if (error.status >= 400 && error.status < 500) recoveryCommand = null;
+      feedback("recovery-feedback", error.message + (recoveryCommand ? " Retry the same action to check its result without adding another allowance." : ""), true);
+    } finally {
+      if (epoch === authEpoch && version === recoveryVersion) { recoveryBusy = false; renderRecovery(); }
+    }
+  }
+
   function historicalSettings() {
     return document.documentElement?.dataset?.historicalSnapshot === "true" || !!setup?.historical_snapshot;
   }
@@ -2052,6 +2138,10 @@
       const nextSetup = await api("/api/setup");
       assertOwner(epoch);
       setup = nextSetup;
+      recoveryVersion++;
+      recoveryBusy = false;
+      recoverySnapshot = setup.recovery || null;
+      renderRecovery();
       if (typeof expectedPairingVersion === "number" && (expectedPairingVersion !== pairingVersion || !$("connection-dialog").open)) return false;
       if (typeof expectedPairingVersion === "number" && (status?.ReconciliationRequired || status?.Connection === "reconciliation_required")) return false;
       const policy = setup.Policy || setup.policy;
@@ -2067,6 +2157,7 @@
       const discoveryFirst = !setup.configured && !setup.demo;
       document.querySelector("input[name=chat-mode][value='" + (discoveryFirst || policy.ChatMode === "selective" ? "selective" : "all") + "']").checked = true;
       $("settings-intro").textContent = historical ? historicalSettingsNotice() : discoveryFirst ? "Link WhatsApp to discover your chats, then choose which messages to keep. No chat message bodies are saved until you select chats." : "Choose the import range and chats to keep. These choices also apply after linking WhatsApp.";
+      if (liveRebuildSettings()) $("settings-intro").textContent += " The saved device requires an explicit session ownership transition before deleting this recovery profile.";
       $("settings-title").textContent = discoveryFirst ? "Set up your archive" : "Chats and dates";
       $("chat-policy-fieldset").hidden = discoveryFirst;
       $("save-policy").textContent = historical ? "Read-only snapshot" : discoveryFirst ? "Link WhatsApp to discover chats" : "Save choices";
@@ -2074,6 +2165,7 @@
       $("settings-close").hidden = !setup.configured;
       $("policy-change-notice").hidden = historical || !setup.configured;
       for (const id of ["save-policy", "import-start", "retention-days", "refresh-chats", "delete-open"]) $(id).disabled = historical;
+      $("delete-open").disabled = historical || liveRebuildSettings();
       for (const input of document.querySelectorAll("input[name=date-mode], input[name=chat-mode]")) input.disabled = historical;
       updatePolicyFields(); feedback("policy-feedback", "");
       $("chat-choices").replaceChildren();
@@ -2436,6 +2528,7 @@
   });
   $("policy-form").addEventListener("change",updatePolicyFields);
   $("policy-form").addEventListener("submit",savePolicy);
+  for (const action of ["pause", "resume", "extend", "cancel"]) $("recovery-" + action).addEventListener("click", () => controlRecovery(action));
   $("settings-open").addEventListener("click",openSettings);
   $("models-open").addEventListener("click",()=>{if(!authExpired){feedback("models-feedback","Checking model state…");updateVoiceRetryControls();$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();}});
   $("models-close").addEventListener("click",()=>$("models-dialog").close());
@@ -2516,10 +2609,10 @@
   $("search-form").addEventListener("submit",event=>{event.preventDefault();runSearch();});
   $("search-more").addEventListener("click",()=>runSearch(true));
   $("context-copy").addEventListener("click",async()=>{const epoch=authEpoch;try{assertOwner(epoch);await navigator.clipboard.writeText(visibleMessages.map(message=>(message.SenderName||"Unknown sender")+" · "+dateText(message.SentAt)+"\n"+(message.Body||"")+(message.Caption?"\n"+message.Caption:"")+(message.Derived||[]).map(excerpt=>"\n"+extractionLabel(excerpt)+"\n"+excerpt.Text).join("")).join("\n\n"));assertOwner(epoch);feedback("context-feedback","Visible messages copied in their original text order.");}catch{if(epoch===authEpoch&&!authExpired)feedback("context-feedback","Select the message text and copy it with your keyboard.");}});
-  $("delete-open").addEventListener("click",()=>{if(historicalSettings())return;$("delete-confirmation").value="";$("delete-confirm").disabled=true;feedback("delete-feedback","");$("delete-dialog").showModal();});
+  $("delete-open").addEventListener("click",()=>{if(historicalSettings()||liveRebuildSettings())return;$("delete-confirmation").value="";$("delete-confirm").disabled=true;feedback("delete-feedback","");$("delete-dialog").showModal();});
   $("delete-cancel").addEventListener("click",()=>$("delete-dialog").close());
   $("delete-confirmation").addEventListener("input",()=>{$("delete-confirm").disabled=$("delete-confirmation").value!=="DELETE LOCAL DATA";});
-  $("delete-form").addEventListener("submit",async event=>{event.preventDefault();if(authExpired||historicalSettings()||$("delete-confirmation").value!=="DELETE LOCAL DATA")return;const epoch=authEpoch;$("delete-confirm").disabled=true;try{await api("/api/data/delete","POST",{confirmation:$("delete-confirmation").value});assertOwner(epoch);expireAuth();$("auth-message").textContent="Local data deleted. Restart the app to create a new archive.";}catch(error){if(epoch===authEpoch&&!authExpired){feedback("delete-feedback",error.message,true);$("delete-confirm").disabled=false;}}});
+  $("delete-form").addEventListener("submit",async event=>{event.preventDefault();if(authExpired||historicalSettings()||liveRebuildSettings()||$("delete-confirmation").value!=="DELETE LOCAL DATA")return;const epoch=authEpoch;$("delete-confirm").disabled=true;try{await api("/api/data/delete","POST",{confirmation:$("delete-confirmation").value});assertOwner(epoch);expireAuth();$("auth-message").textContent="Local data deleted. Restart the app to create a new archive.";}catch(error){if(epoch===authEpoch&&!authExpired){feedback("delete-feedback",error.message,true);$("delete-confirm").disabled=false;}}});
   $("admin-login-form").addEventListener("submit", loginRemote);
   $("admin-logout").addEventListener("click", logoutRemote);
 

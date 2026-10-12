@@ -156,6 +156,7 @@ type progressDTO struct {
 	Code     string                `json:"code,omitempty"`
 }
 type statusDTO struct {
+	Rebuild            *archive.RebuildStatus      `json:"live_rebuild,omitempty"`
 	HistoricalSnapshot *archive.HistoricalSnapshot `json:"historical_snapshot,omitempty"`
 	contentLabel
 	Connection             archive.ConnectionState `json:"connection"`
@@ -340,7 +341,7 @@ func newToolServer(c Config, reader guardedReader, credentials Credentials) *mcp
 			p.Semantic = archive.Progress{State: "unavailable", Code: "historical_snapshot_read_only"}
 			p.Media = archive.Progress{State: "unavailable", Code: "historical_snapshot_read_only"}
 		}
-		return statusDTO{c.HistoricalSnapshot, sourceLabel(p.Snapshot), p.Connection, p.Paused, p.ReconciliationRequired, p.Coverage, chatDTOs(p.Chats), p.Messages, progress(p.Keyword), progress(p.Semantic), progress(p.Media), p.Codes}, g, nil
+		return statusDTO{p.Rebuild, c.HistoricalSnapshot, sourceLabel(p.Snapshot), p.Connection, p.Paused, p.ReconciliationRequired, p.Coverage, chatDTOs(p.Chats), p.Messages, progress(p.Keyword), progress(p.Semantic), progress(p.Media), p.Codes}, g, nil
 	})
 	addAttachmentTools(c, add)
 	if c.Outbound != nil {

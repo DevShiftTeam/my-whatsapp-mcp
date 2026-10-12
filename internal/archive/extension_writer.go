@@ -42,6 +42,9 @@ func (s *Store) submitExtension(ctx context.Context, c extensionCommand, bytes i
 	return s.submit(ctx, c, c.account(), c.priority(), bytes)
 }
 func commandSourceSensitive(payload any, control bool) bool {
+	if _, ok := payload.(rebuildRestrictionCommand); ok {
+		return true
+	}
 	if _, ok := payload.(extensionCommand); ok {
 		return false
 	}

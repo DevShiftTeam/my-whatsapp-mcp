@@ -28,6 +28,8 @@ type Application interface {
 }
 
 type SetupState struct {
+	Recovery           *archive.RebuildProgress    `json:"recovery,omitempty"`
+	Rebuild            *archive.RebuildStatus      `json:"live_rebuild,omitempty"`
 	HistoricalSnapshot *archive.HistoricalSnapshot `json:"historical_snapshot,omitempty"`
 	Configured         bool                        `json:"configured"`
 	Policy             archive.ArchivePolicy       `json:"policy"`

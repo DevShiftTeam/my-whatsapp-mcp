@@ -25,30 +25,32 @@ var (
 )
 
 type options struct {
-	historicalSnapshotAt string
-	container            bool
-	browserOrigin        string
-	dockerContainerName  string
-	connect              string
-	command              string
-	profile              string
-	config               string
-	listen               string
-	dataDir              string
-	backupDir            string
-	demo                 bool
-	demoAcceptance       bool
-	noOpen               bool
-	openExisting         bool
-	help                 bool
-	originalBudget       *int64
-	mcpListen            string
-	mcpPublicURL         string
-	mcpHeaderAuth        bool
-	adminListen          string
-	adminPublicURL       string
-	adminEnvFile         string
-	transcriptionEnvFile string
+	rebuildAncestorLockFDs []int
+	rebuildSourceLockFD    *int
+	historicalSnapshotAt   string
+	container              bool
+	browserOrigin          string
+	dockerContainerName    string
+	connect                string
+	command                string
+	profile                string
+	config                 string
+	listen                 string
+	dataDir                string
+	backupDir              string
+	demo                   bool
+	demoAcceptance         bool
+	noOpen                 bool
+	openExisting           bool
+	help                   bool
+	originalBudget         *int64
+	mcpListen              string
+	mcpPublicURL           string
+	mcpHeaderAuth          bool
+	adminListen            string
+	adminPublicURL         string
+	adminEnvFile           string
+	transcriptionEnvFile   string
 }
 
 // Supplied values never form part of an error or the flag parser's output.
@@ -75,6 +77,8 @@ func parseArgs(args []string) (options, error) {
 		opts.command = args[0]
 	case "doctor":
 		opts.command = "doctor"
+	case "rebuild-live":
+		opts.command = "rebuild_live"
 	case "recover-snapshot":
 		opts.command = "recover_snapshot"
 	case "recover-original-cache":
@@ -98,7 +102,8 @@ func parseArgs(args []string) (options, error) {
 	flags := flag.NewFlagSet(opts.command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var originalBudget string
-	if opts.command == "mcp_stdio" {
+	var rebuildSourceFD int
+	if opts.command == "mcp_stdio" || opts.command == "rebuild_live" {
 		flags.StringVar(&opts.config, "config", "", "")
 	} else {
 		flags.StringVar(&opts.dataDir, "data-dir", "", "")
@@ -118,6 +123,15 @@ func parseArgs(args []string) (options, error) {
 		}
 	}
 	if opts.command == "serve" {
+		flags.IntVar(&rebuildSourceFD, "rebuild-source-lock-fd", -1, "")
+		flags.Func("rebuild-ancestor-lock-fd", "", func(raw string) error {
+			fd, err := strconv.Atoi(raw)
+			if err != nil || fd < 3 || fd > 1048576 || len(opts.rebuildAncestorLockFDs) >= 1 {
+				return errArguments
+			}
+			opts.rebuildAncestorLockFDs = append(opts.rebuildAncestorLockFDs, fd)
+			return nil
+		})
 		flags.StringVar(&opts.historicalSnapshotAt, "historical-snapshot-at", "", "")
 		flags.BoolVar(&opts.demoAcceptance, "demo-acceptance-fixtures", false, "")
 		flags.StringVar(&opts.mcpListen, "mcp-listen", "", "")
@@ -154,7 +168,7 @@ func parseArgs(args []string) (options, error) {
 	if opts.demoAcceptance && !opts.demo {
 		return options{}, errArguments
 	}
-	if opts.command == "mcp_stdio" && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
+	if (opts.command == "mcp_stdio" || opts.command == "rebuild_live") && (!filepath.IsAbs(opts.config) || filepath.Clean(opts.config) != opts.config) {
 		return options{}, errArguments
 	}
 	if (opts.command == "recover_snapshot" || opts.command == "recover_original_cache") && (!filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir) {
@@ -231,6 +245,23 @@ func parseArgs(args []string) (options, error) {
 	if snapshotExplicit {
 		at, err := time.Parse(time.RFC3339, opts.historicalSnapshotAt)
 		if err != nil || at.IsZero() || at.After(time.Now()) || !filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir || opts.demo || opts.openExisting || opts.originalBudget != nil {
+			return options{}, errArguments
+		}
+	}
+	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "rebuild-source-lock-fd" {
+			fd := rebuildSourceFD
+			opts.rebuildSourceLockFD = &fd
+		}
+	})
+	if opts.rebuildSourceLockFD != nil && (*opts.rebuildSourceLockFD < 3 || *opts.rebuildSourceLockFD > 1048576 || !filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir || opts.demo || opts.openExisting || snapshotExplicit) {
+		return options{}, errArguments
+	}
+	if len(opts.rebuildAncestorLockFDs) != 0 {
+		if !filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir || opts.demo || opts.openExisting || snapshotExplicit {
+			return options{}, errArguments
+		}
+		if opts.rebuildSourceLockFD != nil && *opts.rebuildSourceLockFD == opts.rebuildAncestorLockFDs[0] {
 			return options{}, errArguments
 		}
 	}
