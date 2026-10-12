@@ -207,17 +207,32 @@ type ownerInterfaceBinding struct {
 // first exit cancels the others, and their independent shutdowns join before
 // composition may close the archive or release the instance lease.
 func serveOwnerInterfaces(ctx context.Context, bindings []ownerInterfaceBinding) error {
+	budget := newServeShutdown(serveShutdownBudget)
+	defer budget.close()
+	return serveOwnerInterfacesWithShutdown(ctx, bindings, budget.begin)
+}
+
+func serveOwnerInterfacesWithShutdown(ctx context.Context, bindings []ownerInterfaceBinding, shutdown func() context.Context) error {
 	serving, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, len(bindings))
 	for _, binding := range bindings {
-		go func(binding ownerInterfaceBinding) { done <- binding.server.Serve(serving, binding.listener) }(binding)
+		go func(binding ownerInterfaceBinding) {
+			if server, ok := binding.server.(interface {
+				ServeWithShutdown(context.Context, net.Listener, func() context.Context) error
+			}); ok {
+				done <- server.ServeWithShutdown(serving, binding.listener, shutdown)
+			} else {
+				done <- binding.server.Serve(serving, binding.listener)
+			}
+		}(binding)
 	}
 	var result error
 	for range bindings {
 		err := <-done
+		shutdown()
 		cancel()
-		if result == nil && err != nil {
+		if errors.Is(err, localui.ErrShutdownIncomplete) || (result == nil && err != nil) {
 			result = err
 		}
 	}

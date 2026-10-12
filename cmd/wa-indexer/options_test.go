@@ -59,6 +59,9 @@ func TestParseArgsRejectsWithoutLeakingValues(t *testing.T) {
 	cases := [][]string{
 		{secret}, {"serve", secret}, {"serve", "--" + secret},
 		{"serve", "--no-open=" + secret}, {"serve", "--demo=" + secret},
+		{"serve", "--container=" + secret},
+		{"serve", "--container", "--browser-origin=" + secret},
+		{"serve", "--container", "--docker-container-name=../" + secret},
 		{"serve", "--listen"}, {"serve", "--data-dir"}, {"serve", "--data-dir="},
 		{"serve", "--listen", "127.0.0.1:0", secret},
 	}

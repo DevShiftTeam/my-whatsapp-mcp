@@ -17,7 +17,7 @@ func TestLauncherBuildsOnlyAppAndForwardsArguments(t *testing.T) {
 	root := t.TempDir()
 	toolsDir := filepath.Join(root, "tools")
 	scriptsDir := filepath.Join(root, "scripts", "app")
-	for _, dir := range []string{toolsDir, scriptsDir} {
+	for _, dir := range []string{toolsDir, scriptsDir, filepath.Join(root, "scripts", "package"), filepath.Join(root, "packaging", "cloudflared-notices")} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -29,10 +29,28 @@ func TestLauncherBuildsOnlyAppAndForwardsArguments(t *testing.T) {
 		}
 		writeTestExecutable(t, filepath.Join(scriptsDir, name), string(data))
 	}
+	for _, name := range []string{"LICENSE", "THIRD_PARTY_NOTICES", "packaging/cloudflared-manifest.json", "packaging/cloudflared-notices/LICENSE", "scripts/package/verify_cloudflared.py"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("synthetic packaging fixture\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The fake packaging command admits only the existing pinned-helper call.
+	// It performs no network, provider login or real helper verification.
+	writeTestExecutable(t, filepath.Join(toolsDir, "python3"), `#!/bin/sh
+[ "$#" = 5 ] || exit 71
+[ "$1" = scripts/package/verify_cloudflared.py ] && [ "$2" = packaging/cloudflared-manifest.json ] && [ "$3" = darwin/arm64 ] && [ "$5" = --probe ] || exit 72
+case "$4" in "$PWD"/bin/.cloudflared.*/cloudflared) ;; *) exit 73 ;; esac
+[ -f "$1" ] && [ -f "$2" ] || exit 74
+printf '#!/bin/sh\nexit 0\n' > "$4"
+chmod 700 "$4"
+`)
 	writeTestExecutable(t, filepath.Join(toolsDir, "go"), `#!/bin/sh
 [ "$CGO_ENABLED" = 1 ] || exit 62
+if [ "$#" = 2 ] && [ "$1" = env ]; then
+ case "$2" in GOOS) printf 'darwin\n'; exit 0 ;; GOARCH) printf 'arm64\n'; exit 0 ;; *) exit 69 ;; esac
+fi
 [ "$#" = 7 ] || exit 63
-[ "$1" = build ] && [ "$2" = -tags ] && [ "$3" = fts5,sqlite_fts5 ] || exit 64
+[ "$1" = build ] && [ "$2" = -tags ] && [ "$3" = fts5,sqlite_fts5,ts_omit_logtail ] || exit 64
 [ "$4" = -trimpath ] && [ "$5" = -o ] && [ "$6" = bin/wa-indexer ] && [ "$7" = ./cmd/wa-indexer ] || exit 65
 [ ! -d .artifacts ] || exit 66
 cat > bin/wa-indexer <<'BIN'
@@ -47,6 +65,8 @@ chmod 700 bin/wa-indexer
 	command.Env = append(os.Environ(),
 		"PATH="+toolsDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GO="+filepath.Join(toolsDir, "go"),
+		"PYTHON="+filepath.Join(toolsDir, "python3"),
+		"WA_INDEXER_CLOUDFLARED_ASSET=",
 	)
 	output, err := command.CombinedOutput()
 	if err != nil || string(output) != "launcher-ok\n" {

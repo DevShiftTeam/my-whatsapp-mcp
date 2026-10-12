@@ -18,6 +18,8 @@ import (
 // always uses the protected Unix socket; remote HTTP is explicit.
 type MCPConfig struct{ Remote *RemoteMCPConfig }
 type RemoteMCPConfig struct {
+	// Managed routes are served by the provider manager and never bind Listen.
+	Managed             bool
 	Listen              string
 	Server              mcpserver.Config
 	PublicURL           string
@@ -200,6 +202,12 @@ func (a *Application) startLocalMCP(ctx context.Context) error {
 func (a *Application) startRemoteMCP(ctx context.Context) error {
 	m := a.mcp
 	if remote := a.mcpConfig.Remote; remote != nil {
+		if remote.Managed {
+			if remote.Listen != "" {
+				return errMCPListener
+			}
+			return a.startManagedMCP(ctx)
+		}
 		if m.remoteStarted && !a.remoteRecoveryPending && !a.authState.RemoteInvalid {
 			return nil
 		}

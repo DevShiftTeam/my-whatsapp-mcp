@@ -19,6 +19,11 @@ import (
 
 const demoOCRCanary = "SYNTHETIC_OCR_ACCEPTANCE"
 const demoTranscriptCanary = "SYNTHETIC_TRANSCRIPT_ACCEPTANCE"
+const demoDocumentCanary = "SYNTHETIC_DOCUMENT_ACCEPTANCE"
+
+func demoAcceptanceDocument() []byte {
+	return []byte("%PDF-1.7\n% SYNTHETIC_DOCUMENT_ACCEPTANCE\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
+}
 
 var errDemoAcceptance = errors.New("demo_acceptance_unavailable")
 
@@ -86,6 +91,9 @@ func demoAcceptanceEvent(id string, kind archive.MessageKind, size int64) archiv
 	mime := "audio/wav"
 	if kind == archive.MessageImage {
 		mime = "image/png"
+	}
+	if kind == archive.MessageDocument {
+		mime = "application/pdf"
 	}
 	return archive.SourceEvent{Key: archive.SourceKey{Account: demoAccount, Chat: "demo-acceptance-media", Sender: "demo-author", Message: id},
 		Kind: archive.EventOriginal, OriginalSentAt: time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC), OriginalDateKnown: true,
@@ -251,6 +259,13 @@ func prepareDemoAcceptance(ctx context.Context, a *Application, generation archi
 		if err := owner.publish(ctx, a, id, fixture.data, fixture.job, fixture.text); err != nil {
 			return owner, err
 		}
+	}
+	document := demoAcceptanceDocument()
+	event := demoAcceptanceEvent("acceptance-document", archive.MessageDocument, int64(len(document)))
+	event.Caption = demoDocumentCanary
+	event.Media[0].Filename = "synthetic-acceptance.pdf"
+	if _, err := owner.admit(ctx, a, generation, event, document, false); err != nil {
+		return owner, err
 	}
 	budget, err := a.store.GetOriginalBudget(ctx)
 	if err != nil {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"time"
 )
 
@@ -23,4 +25,75 @@ func drainApplication(owner applicationCleanup) error {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// Serve reserves two seconds inside the delivery image's ten-second stop
+// envelope. One deadline covers native HTTP, provider/helper and archive joins.
+const serveShutdownBudget = 8 * time.Second
+
+var errServeShutdown = errors.New("serve_shutdown_incomplete")
+
+type serveShutdown struct {
+	once     sync.Once
+	duration time.Duration
+	ctx      context.Context
+	cancel   context.CancelFunc
+}
+
+func newServeShutdown(d time.Duration) *serveShutdown { return &serveShutdown{duration: d} }
+func (b *serveShutdown) begin() context.Context {
+	b.once.Do(func() { b.ctx, b.cancel = context.WithTimeout(context.Background(), b.duration) })
+	return b.ctx
+}
+func (b *serveShutdown) close() { b.begin(); b.cancel() }
+func drainServeApplication(ctx context.Context, owner applicationCleanup) error {
+	if ctx.Err() != nil {
+		return errServeShutdown
+	}
+	return waitServeCleanup(ctx, startServeCleanup(ctx, owner))
+}
+func waitServeCleanup(ctx context.Context, done <-chan error) error {
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return errServeShutdown
+	}
+}
+func startServeCleanup(ctx context.Context, owner applicationCleanup) <-chan error {
+	// Exactly one retained worker owns handoff removal and sequential Close
+	// attempts. If a callee ignores cancellation, the caller still has a total
+	// bound; no second Close races it, and no lease is released by the caller.
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		var handoffErr error
+		if handoff, ok := owner.(interface{ RemoveOwnerURL() error }); ok {
+			handoffErr = handoff.RemoveOwnerURL()
+		}
+		for {
+			if ctx.Err() != nil {
+				done <- errServeShutdown
+				return
+			}
+			closeErr := owner.Close(ctx)
+			if owner.CleanupComplete() {
+				if closeErr != nil || handoffErr != nil {
+					done <- errServeShutdown
+				} else {
+					done <- nil
+				}
+				return
+			}
+			timer := time.NewTimer(25 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				done <- errServeShutdown
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+	return done
 }

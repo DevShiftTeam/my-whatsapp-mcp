@@ -107,13 +107,41 @@ func newAttachmentService(c attachmentServiceConfig) (*attachmentService, error)
 	if c.root == nil || attachmentNil(c.archive) || attachmentNil(c.originals) || c.current == nil {
 		return nil, mcpserver.ErrConfiguration
 	}
-	if c.publicURL != "" {
-		u, err := url.Parse(c.publicURL)
-		if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Path != "/mcp" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.String() != c.publicURL {
-			return nil, mcpserver.ErrConfiguration
-		}
+	if !validAttachmentPublicURL(c.publicURL) {
+		return nil, mcpserver.ErrConfiguration
 	}
 	return &attachmentService{root: c.root, archive: c.archive, originals: c.originals, publicURL: c.publicURL, nativeClients: c.nativeClients, remoteClients: c.remoteClients, current: c.current, queue: c.queue, slots: make(chan struct{}, 2), tickets: make(map[string]attachmentTicket), now: time.Now, random: rand.Reader}, nil
+}
+
+func validAttachmentPublicURL(value string) bool {
+	if value == "" {
+		return true
+	}
+	u, err := url.Parse(value)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Path == "/mcp" && u.RawPath == "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && u.String() == value
+}
+
+// All transports retain this service. Rebinding its authority atomically clears
+// tickets without replacing the instance captured by native MCP handlers.
+func (s *attachmentService) setPublicURL(value string) error {
+	if !validAttachmentPublicURL(value) {
+		return mcpserver.ErrConfiguration
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.invalidated {
+		return mcpserver.ErrUnavailable
+	}
+	if s.publicURL != value {
+		clear(s.tickets)
+		s.publicURL = value
+	}
+	return nil
+}
+func (s *attachmentService) hasPublicURL() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.invalidated && s.publicURL != ""
 }
 
 func attachmentNil(value any) bool {
@@ -275,7 +303,7 @@ func (s *attachmentService) Prepare(ctx context.Context, grant archive.Credentia
 	if err = s.checkAttachment(ctx, grant, guard, view.Snapshot); err != nil {
 		return fail(err)
 	}
-	if s.publicURL != "" {
+	if s.hasPublicURL() {
 		delivery.DownloadURL, delivery.ExpiresAt, err = s.mintTicket(grant, guard, metadata, view.Filename, view.Snapshot)
 		if err != nil {
 			return fail(err)
@@ -328,12 +356,12 @@ func cloneAttachmentGuard(guard archive.ResponseGuard) archive.ResponseGuard {
 }
 
 func (s *attachmentService) mintTicket(grant archive.CredentialGrant, guard archive.ResponseGuard, metadata media.OriginalMetadata, filename string, snapshot archive.ReadSnapshot) (string, time.Time, error) {
-	if s.publicURL == "" || !validAttachmentMetadata(metadata) {
+	if !validAttachmentMetadata(metadata) {
 		return "", time.Time{}, mcpserver.ErrUnavailable
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.invalidated {
+	if s.invalidated || s.publicURL == "" {
 		return "", time.Time{}, mcpserver.ErrUnavailable
 	}
 	now := s.now()
@@ -390,7 +418,7 @@ func (s *attachmentService) ServeDownload(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, `{"error":"attachment_unavailable"}`)
 	}
-	if s.publicURL == "" || r.Method != http.MethodGet || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
+	if !s.hasPublicURL() || r.Method != http.MethodGet || r.URL.RawPath != "" || r.URL.RawQuery != "" || r.URL.ForceQuery {
 		deny()
 		return
 	}
@@ -442,6 +470,14 @@ func (s *attachmentService) ServeDownload(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err = s.checkAttachment(ctx, ticket.grant, ticket.guard, ticket.snapshot); err != nil || !s.now().Before(ticket.expires) {
+		deny()
+		return
+	}
+	// Keep authority stable through the bounded response flush. A reconnect
+	// clears the map before any old ticket can authorize a later response.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.tickets[token]; s.invalidated || !exists || !s.now().Before(ticket.expires) {
 		deny()
 		return
 	}

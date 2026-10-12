@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
@@ -20,12 +21,16 @@ import (
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/mcpserver"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/remoteaccess"
 )
 
 var errStartup = errors.New("application_unavailable")
 var errRestartRequired = errors.New("restart_required")
 
 const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir DIRECTORY] [--no-open]
+       wa-indexer serve --container [--listen 0.0.0.0:8123] [--browser-origin http://127.0.0.1:8123] [--docker-container-name NAME]
+       wa-indexer owner-link [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
+       wa-indexer health [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
        wa-indexer demo [--data-dir DIRECTORY] [--no-open]
        wa-indexer doctor [--data-dir DIRECTORY]
        wa-indexer recover-snapshot --data-dir ABSOLUTE_PRIVATE_PROFILE
@@ -33,7 +38,11 @@ const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir 
        wa-indexer models install|verify PROFILE [--data-dir DIRECTORY]
        wa-indexer mcp stdio --config ABSOLUTE_PRIVATE_CONFIG
 
-The listener must use a literal loopback address. The app opens a private
+Native listeners use a literal loopback address. Explicit --container allows an
+internal wildcard listener with a canonical HTTP loopback browser origin.
+Container mode never opens a browser. Run owner-link explicitly for a fresh
+single-use login URL (30-second expiry); health checks readiness before pairing.
+Helpers default to 127.0.0.1:8123; use --connect for other ports. The app opens a private
 owner link on this computer. Demo uses a separate synthetic-data archive.
 Use --originals-budget INTEGERMiB or INTEGERGiB to explicitly change the
 persisted originals budget (64MiB..1024GiB); omission preserves it.
@@ -156,6 +165,9 @@ func startupErrorMessage(err error) string {
 
 func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result error) {
 	if opts.openExisting {
+		if opts.container {
+			return errStartup
+		}
 		if opts.adminListen != "" || opts.adminPublicURL != "" || opts.adminEnvFile != "" || opts.mcpListen != "" || opts.mcpPublicURL != "" || opts.mcpHeaderAuth || opts.originalBudget != nil || opts.demoAcceptance || opts.transcriptionEnvFile != "" {
 			return errStartup
 		}
@@ -173,9 +185,16 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err != nil {
 		return err
 	}
+	launch, err := ownerLaunchConfig(opts)
+	if err != nil {
+		return errStartup
+	}
 	// Bind before opening any local data, including a WhatsApp session store.
-	listener, err := bindLoopback(ctx, opts.listen)
+	listener, err := bindOwner(ctx, launch)
 	if errors.Is(err, errListenOccupied) {
+		if opts.container {
+			return errStartup
+		}
 		if opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
@@ -202,11 +221,18 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	shutdown := newServeShutdown(serveShutdownBudget)
+	defer shutdown.close()
+	stopWatch := context.AfterFunc(serveCtx, func() { shutdown.begin() })
+	defer stopWatch()
 	executable, err := os.Executable()
 	if err != nil {
 		return errStartup
 	}
-	cfg := app.Config{DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig}
+	cfg := app.Config{DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
+	if adminConfig != nil {
+		cfg.ReservedRemoteOrigins = []string{adminConfig.Origin}
+	}
 	if opts.mcpListen != "" {
 		cfg.MCP, err = remoteLaunchConfig(opts)
 		if err != nil {
@@ -221,6 +247,9 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		}
 	}
 	if errors.Is(err, appdata.ErrInstanceAlreadyRunning) {
+		if opts.container {
+			return errStartup
+		}
 		if opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
@@ -239,18 +268,24 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err != nil {
 		return err
 	}
+	ownersJoined := true
 	defer func() {
+		budget := shutdown.begin()
 		cancel()
-		// Serve has joined its HTTP shutdown before this deferred cleanup runs.
-		// Remove the capability while the application still holds its lease.
-		if err := application.RemoveOwnerURL(); err != nil {
-			result = errStartup
+		if !ownersJoined {
+			result = errServeShutdown
+			return
 		}
-		if err := drainApplication(application); err != nil {
-			result = errStartup
+		if err := drainServeApplication(budget, application); err != nil {
+			result = errServeShutdown
 		}
 	}()
-	server, err := localui.New(localui.Config{Origin: "http://" + listener.Addr().String(), Demo: opts.demo}, application)
+	uiConfig := localui.Config{Origin: "http://" + listener.Addr().String(), Demo: opts.demo}
+	if launch.Container {
+		uiConfig.Origin = launch.Origin
+		uiConfig.ContainerListen = launch.Listen
+	}
+	server, err := localui.New(uiConfig, application)
 	if err != nil {
 		return errStartup
 	}
@@ -273,6 +308,25 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	if err := application.WriteOwnerURL(server.AttachURL()); err != nil {
 		return errStartup
 	}
+	if opts.mcpListen == "" {
+		_, remoteErr := application.NewDefaultRemoteAccessManager(func(ctx context.Context, _ remoteaccess.Intent, origin string, generation uint64) (http.Handler, error) {
+			if adminConfig != nil && origin == adminConfig.Origin {
+				return nil, errAdminConfig
+			}
+			auth, err := application.RemoteOwnerAuthenticator()
+			if err != nil {
+				return nil, err
+			}
+			remote, err := localui.NewManagedRemote(localui.ManagedRemoteConfig{Context: ctx, Origin: origin, Generation: generation, Authenticator: auth}, application)
+			if err != nil {
+				return nil, err
+			}
+			return remote.Handler(), nil
+		})
+		if remoteErr != nil {
+			fmt.Fprintln(stderr, "Managed remote access is unavailable. The local archive remains available.")
+		}
+	}
 	fmt.Fprintln(stdout, "My WhatsApp is running. Open the private owner link on this computer.")
 	if !opts.noOpen {
 		openCtx, openCancel := context.WithTimeout(serveCtx, 5*time.Second)
@@ -282,7 +336,8 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 			fmt.Fprintln(stderr, "The browser could not open. Open the private owner link on this computer.")
 		}
 	}
-	if err := serveOwnerInterfaces(serveCtx, bindings); err != nil {
+	if err := serveOwnerInterfacesWithShutdown(serveCtx, bindings, shutdown.begin); err != nil {
+		ownersJoined = !errors.Is(err, localui.ErrShutdownIncomplete)
 		return errStartup
 	}
 	return nil
@@ -292,6 +347,10 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 // an Application, opens WhatsApp, or starts native model ownership.
 func execute(ctx context.Context, opts options, stdout, stderr io.Writer) (result error) {
 	switch opts.command {
+	case "owner-link":
+		return ownerLink(ctx, opts, stdout)
+	case "health":
+		return health(ctx, opts, stdout)
 	case "recover_original_cache":
 		receipt, err := app.RecoverOriginalCache(ctx, opts.dataDir, opts.backupDir)
 		if err != nil {

@@ -28,6 +28,8 @@ type Config struct {
 	Transcription          *transcription.Options
 	MCP                    *MCPConfig
 	ExecutablePath         string
+	DockerContainerName    string
+	ReservedRemoteOrigins  []string
 	OriginalBudgetBytes    *int64
 	BackfillRequests       int
 	instanceGuard          *appdata.InstanceLock
@@ -49,6 +51,9 @@ type runtimeFactory func(ingestion.Config, archive.ConnectorStore, ingestion.Cal
 // Application serializes lifecycle mutations separately from callbacks. Callbacks
 // never acquire ops or data, so stopping a connector can safely wait for them.
 type Application struct {
+	ownerAuth                     ownerPasswordLifetime
+	remoteLifecycle               remoteLifecycle
+	managedMCP                    managedMCP
 	ops                           sync.Mutex
 	data                          sync.RWMutex
 	stateMu                       sync.Mutex
@@ -68,6 +73,8 @@ type Application struct {
 	mcpConfig                     MCPConfig
 	mcpEnabled                    bool
 	executablePath                string
+	dockerContainerName           string
+	reservedRemoteOrigins         []string
 	recoveryOwner                 recoveryLifecycle
 	localAI                       *localAIOwner
 	backfillRequests              int
@@ -197,7 +204,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	queries, cancel := context.WithCancel(context.Background())
 	cfg.instanceGuard = lease
-	a := &Application{paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
+	a := &Application{paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
 	a.resources, err = open(ctx, paths, store, cfg, state.Paused)
 	startupResources = a.resources
 	if err != nil {
@@ -597,9 +604,20 @@ func (a *Application) DeleteLocalData(ctx context.Context, confirmed bool) error
 	if !confirmed {
 		return archive.ErrInvalidPolicy
 	}
+	if err := a.beginRemoteOperation(true); err != nil {
+		return err
+	}
+	resetComplete := false
+	defer func() { a.endRemoteOperation(resetComplete) }()
+	// Recovery can hold data.RLock through a bounded dial. Cancel and join it
+	// after fencing remote admission, before remote release needs data.Lock.
 	if err := a.stopConnectionRecovery(ctx); err != nil {
 		return err
 	}
+	if err := a.stopRemoteAccess(ctx); err != nil {
+		return err
+	}
+	a.closeOwnerPassword()
 	if err := a.stopRecovery(ctx); err != nil {
 		return err
 	}
@@ -683,6 +701,11 @@ func (a *Application) DeleteLocalData(ctx context.Context, confirmed bool) error
 	// action constructs a connector; no deleted WhatsApp session is reused.
 	a.startRecoveryAndBackground(resetConfig)
 	a.startLocalAI(resetConfig)
+	if a.mcpConfig.Remote != nil && a.mcpConfig.Remote.Managed {
+		a.mcpConfig.Remote = nil
+	}
+	a.remoteRecoveryPending = false
+	resetComplete = true
 	return nil
 }
 
@@ -711,9 +734,19 @@ func (a *Application) stopRuntime(ctx context.Context) error {
 }
 
 func (a *Application) Close(ctx context.Context) error {
+	if err := a.beginRemoteOperation(true); err != nil {
+		return err
+	}
+	defer a.endRemoteOperation(false)
+	// Recovery can hold data.RLock through a bounded dial. Cancel and join it
+	// after fencing remote admission, before remote release needs data.Lock.
 	if err := a.stopConnectionRecovery(ctx); err != nil {
 		return err
 	}
+	if err := a.stopRemoteAccess(ctx); err != nil {
+		return err
+	}
+	a.closeOwnerPassword()
 	if err := a.stopRecovery(ctx); err != nil {
 		return err
 	}

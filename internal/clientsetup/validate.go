@@ -31,18 +31,33 @@ func normalizedConfig(client Client, mode Mode, cfg SetupConfig) (SetupConfig, e
 		return SetupConfig{}, ErrInvalidConfig
 	}
 	fields := []string{cfg.ExecutablePath, cfg.LocalConfigPath, cfg.LocalCredentialID, cfg.RemoteURL, cfg.BearerTokenEnv, cfg.CredentialID, cfg.BearerURL, cfg.OAuthURL}
+	if cfg.Docker != nil {
+		value := *cfg.Docker
+		cfg.Docker = &value
+		fields = append(fields, value.Container)
+	}
 	for _, value := range fields {
 		if !safeText(value, 4096) || (cfg.Token != "" && strings.Contains(value, cfg.Token)) {
 			return SetupConfig{}, ErrInvalidConfig
 		}
 	}
 	if mode == Local {
-		if cfg.Auth != "" || cfg.RemoteURL != "" || cfg.BearerURL != "" || cfg.OAuthURL != "" || cfg.BearerTokenEnv != "" || cfg.CredentialID != "" || !validPath(cfg.ExecutablePath) || !validConfigPath(cfg.LocalConfigPath) || filepath.Clean(cfg.ExecutablePath) == filepath.Clean(cfg.LocalConfigPath) || !validCredentialID(cfg.LocalCredentialID) {
+		if cfg.Auth != "" || cfg.RemoteURL != "" || cfg.BearerURL != "" || cfg.OAuthURL != "" || cfg.BearerTokenEnv != "" || cfg.CredentialID != "" || !validConfigPath(cfg.LocalConfigPath) || !validCredentialID(cfg.LocalCredentialID) {
+			return SetupConfig{}, ErrInvalidConfig
+		}
+		if cfg.Docker != nil {
+			if cfg.ExecutablePath != "" {
+				return SetupConfig{}, ErrInvalidConfig
+			}
+			if _, _, err := DockerStdioCommand(cfg.Docker.Container, cfg.LocalConfigPath); err != nil {
+				return SetupConfig{}, err
+			}
+		} else if !validPath(cfg.ExecutablePath) || filepath.Clean(cfg.ExecutablePath) == filepath.Clean(cfg.LocalConfigPath) {
 			return SetupConfig{}, ErrInvalidConfig
 		}
 		return cfg, nil
 	}
-	if cfg.ExecutablePath != "" || cfg.LocalConfigPath != "" || cfg.LocalCredentialID != "" || (cfg.Auth != Bearer && cfg.Auth != OAuth) {
+	if cfg.Docker != nil || cfg.ExecutablePath != "" || cfg.LocalConfigPath != "" || cfg.LocalCredentialID != "" || (cfg.Auth != Bearer && cfg.Auth != OAuth) {
 		return SetupConfig{}, ErrInvalidConfig
 	}
 	endpoint, host, err := normalizeRemoteURL(cfg.RemoteURL)

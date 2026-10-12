@@ -196,7 +196,7 @@ func (a *Application) CreateConnection(ctx context.Context, request localui.Conn
 	if request.Mode == "remote" && request.Client == string(clientsetup.ClaudeConnectors) && !a.mcpConfig.Remote.HeaderAuthAvailable {
 		return localui.Connection{}, localui.ErrConnectionUnsupported
 	}
-	if request.Mode == "local" && request.Client == string(clientsetup.ClaudeCode) && (strings.Contains(a.executablePath, "${") || strings.Contains(a.paths.ClientDir, "${")) {
+	if request.Mode == "local" && request.Client == string(clientsetup.ClaudeCode) && (a.dockerContainerName == "" && strings.Contains(a.executablePath, "${") || strings.Contains(a.paths.ClientDir, "${")) {
 		return localui.Connection{}, localui.ErrConnectionUnsupported
 	}
 	policy := archive.CredentialPolicy{AllChats: request.AllChats, Chats: append([]archive.ChatID(nil), request.Chats...)}
@@ -289,7 +289,12 @@ func (a *Application) ConnectionGuide(ctx context.Context, request localui.Conne
 		if err != nil || id != record.CredentialID || config.NativeSocketPath != a.nativeEndpoint.SocketPath || config.Endpoint != mcpserver.NativeAdapterEndpoint {
 			return clientsetup.Guide{}, localui.ErrConnectionRecovery
 		}
-		guide, err := clientsetup.Render(clientsetup.Client(request.Client), clientsetup.Local, clientsetup.SetupConfig{ExecutablePath: a.executablePath, LocalConfigPath: filepath.Join(a.paths.ClientDir, record.ConfigName), LocalCredentialID: string(record.CredentialID), Token: config.Token})
+		setup := clientsetup.SetupConfig{ExecutablePath: a.executablePath, LocalConfigPath: filepath.Join(a.paths.ClientDir, record.ConfigName), LocalCredentialID: string(record.CredentialID), Token: config.Token}
+		if a.dockerContainerName != "" {
+			setup.ExecutablePath = ""
+			setup.Docker = &clientsetup.DockerRunner{Container: a.dockerContainerName}
+		}
+		guide, err := clientsetup.Render(clientsetup.Client(request.Client), clientsetup.Local, setup)
 		if errors.Is(err, clientsetup.ErrUnsupported) {
 			return guide, localui.ErrConnectionUnsupported
 		}

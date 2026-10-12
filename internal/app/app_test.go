@@ -561,6 +561,14 @@ func TestAcceptedDemoReplaySurvivesCallerCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This fixture replaces the store to inject a cancellation clock. Join the
+	// background owners before replacing resources they otherwise may read.
+	if err = a.stopRecovery(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.stopLocalAI(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if err = a.store.Close(); err != nil {
 		t.Fatal(err)
 	}

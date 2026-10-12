@@ -14,7 +14,7 @@ import (
 var _ localui.RemoteCredentialApplication = (*Application)(nil)
 
 func (a *Application) remoteRouteReady() bool {
-	if a.mcp == nil || a.mcpConfig.Remote == nil || a.mcpConfig.Remote.Server.Mode != mcpserver.Bearer || a.remoteRecoveryPending || a.authState.RemoteInvalid {
+	if a.remoteShutdownPending() || a.mcp == nil || a.mcpConfig.Remote == nil || a.mcpConfig.Remote.Server.Mode != mcpserver.Bearer || a.remoteRecoveryPending || a.authState.RemoteInvalid {
 		return false
 	}
 	_, state := a.mcp.status()

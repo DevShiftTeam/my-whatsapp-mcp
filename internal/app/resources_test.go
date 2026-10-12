@@ -120,7 +120,24 @@ func TestShutdownRetainsInstanceAndArchiveUntilNativeCleanupAcknowledgement(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := a.Close(cleanupCtx); err != nil {
+			t.Errorf("fixture application cleanup: %v", err)
+		}
+	})
+	// New starts a local-AI owner which can drain native resources. Join it
+	// before installing the test-controlled owner used by the shutdown assertions.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if err := a.stopLocalAI(stopCtx); err != nil {
+		t.Fatal(err)
+	}
 	native := &delayedNativeCleanup{done: make(chan struct{})}
+	acknowledge := sync.OnceFunc(func() { close(native.done) })
+	// This runs before application cleanup, including after an assertion fails.
+	t.Cleanup(acknowledge)
 	a.resources.native = native
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
@@ -137,7 +154,7 @@ func TestShutdownRetainsInstanceAndArchiveUntilNativeCleanupAcknowledgement(t *t
 		lease.Close()
 		t.Fatal("another instance acquired native-owned data")
 	}
-	close(native.done)
+	acknowledge()
 	if err = a.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +199,29 @@ func TestShutdownRetainsInstanceUntilIndexRunJoined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if e := a.Close(ctx); e != nil {
+			t.Errorf("fixture application cleanup: %v", e)
+		}
+	})
+	// Join actual startup/index owners before replacing channels they may read.
+	// This is the same acknowledged-owner fixture pattern used by the native test.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if e := a.stopRecovery(stopCtx); e != nil {
+		t.Fatal(e)
+	}
+	if e := a.stopLocalAI(stopCtx); e != nil {
+		t.Fatal(e)
+	}
+	if e := a.resources.drainAI(stopCtx); e != nil {
+		t.Fatal(e)
+	}
 	done := make(chan struct{})
+	acknowledge := sync.OnceFunc(func() { close(done) })
+	t.Cleanup(acknowledge) // Before application cleanup, even after a failed assertion.
 	a.resources.runDone = done
 	a.resources.runCancel = func() {}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -193,7 +232,7 @@ func TestShutdownRetainsInstanceUntilIndexRunJoined(t *testing.T) {
 	if a.store == nil || a.closed {
 		t.Fatal("live indexing released archive")
 	}
-	close(done)
+	acknowledge()
 	if err = a.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +253,29 @@ func TestShutdownRetainsArchiveUntilExtractionCleanupAcknowledged(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if e := a.Close(ctx); e != nil {
+			t.Errorf("fixture application cleanup: %v", e)
+		}
+	})
+	// Join actual startup/index owners before replacing channels they may read.
+	// This is the same acknowledged-owner fixture pattern used by the native test.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopCancel()
+	if e := a.stopRecovery(stopCtx); e != nil {
+		t.Fatal(e)
+	}
+	if e := a.stopLocalAI(stopCtx); e != nil {
+		t.Fatal(e)
+	}
+	if e := a.resources.drainAI(stopCtx); e != nil {
+		t.Fatal(e)
+	}
 	e := &delayedExtractionCleanup{done: make(chan struct{})}
+	acknowledge := sync.OnceFunc(func() { close(e.done) })
+	t.Cleanup(acknowledge) // Release the fake before application cleanup.
 	a.resources.extraction = e
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
@@ -224,7 +285,7 @@ func TestShutdownRetainsArchiveUntilExtractionCleanupAcknowledged(t *testing.T) 
 	if a.store == nil || a.closed {
 		t.Fatal("extraction released archive ownership")
 	}
-	close(e.done)
+	acknowledge()
 	if err = a.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}

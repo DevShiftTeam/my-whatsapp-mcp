@@ -62,7 +62,11 @@ func (p *bridgeUploadProvider) SendMessage(_ context.Context, _ types.JID, _ *wa
 
 func outboundBridgeFixture(t *testing.T) (*Application, localui.Connection, archive.CredentialGrant, string, archive.ChatID) {
 	t.Helper()
-	a := remoteConnectionTestApp(t)
+	return outboundBridgeFixtureWithApp(t, remoteConnectionTestApp(t))
+}
+
+func outboundBridgeFixtureWithApp(t *testing.T, a *Application) (*Application, localui.Connection, archive.CredentialGrant, string, archive.ChatID) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	policy, err := a.store.Policy(ctx)

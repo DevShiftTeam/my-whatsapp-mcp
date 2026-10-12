@@ -14,6 +14,7 @@ import (
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"github.com/Bodokh/my-whatsapp-mcp/internal/clientsetup"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/localui"
 )
 
 var (
@@ -23,6 +24,10 @@ var (
 )
 
 type options struct {
+	container            bool
+	browserOrigin        string
+	dockerContainerName  string
+	connect              string
 	command              string
 	profile              string
 	config               string
@@ -64,6 +69,8 @@ func parseArgs(args []string) (options, error) {
 	case "demo":
 		explicitDemo = true
 		opts.demo = true
+	case "owner-link", "health":
+		opts.command = args[0]
 	case "doctor":
 		opts.command = "doctor"
 	case "recover-snapshot":
@@ -96,8 +103,16 @@ func parseArgs(args []string) (options, error) {
 		if opts.command == "recover_original_cache" {
 			flags.StringVar(&opts.backupDir, "backup-dir", "", "")
 		}
-		if opts.command != "recover_snapshot" && opts.command != "recover_original_cache" {
+		if opts.command != "recover_snapshot" && opts.command != "recover_original_cache" && opts.command != "owner-link" && opts.command != "health" {
 			flags.StringVar(&originalBudget, "originals-budget", "", "")
+		}
+	}
+	if opts.command == "owner-link" || opts.command == "health" {
+		flags.BoolVar(&opts.demo, "demo", false, "")
+		flags.StringVar(&opts.connect, "connect", "127.0.0.1:8123", "")
+		for _, name := range []string{"connect", "data-dir", "demo"} {
+			value := flags.Lookup(name)
+			value.Value = &ownerFlagValue{Value: value.Value, boolean: name == "demo"}
 		}
 	}
 	if opts.command == "serve" {
@@ -110,6 +125,7 @@ func parseArgs(args []string) (options, error) {
 		flags.StringVar(&opts.mcpPublicURL, "mcp-public-url", "", "")
 		flags.BoolVar(&opts.mcpHeaderAuth, "mcp-header-auth-available", false, "")
 		flags.StringVar(&opts.listen, "listen", "127.0.0.1:64165", "")
+		addContainerFlags(flags, &opts)
 		if !explicitDemo {
 			flags.BoolVar(&opts.demo, "demo", false, "")
 		}
@@ -123,7 +139,13 @@ func parseArgs(args []string) (options, error) {
 		}
 		return options{}, errArguments
 	}
+	if (opts.command == "owner-link" || opts.command == "health") && !localui.ValidOwnerConnect(opts.connect) {
+		return options{}, errArguments
+	}
 	if flags.NArg() != 0 {
+		return options{}, errArguments
+	}
+	if err := configureContainerOptions(flags, &opts); err != nil {
 		return options{}, errArguments
 	}
 	if opts.demoAcceptance && !opts.demo {
@@ -194,7 +216,7 @@ func parseArgs(args []string) (options, error) {
 	if transcriptionExplicit && (!filepath.IsAbs(opts.transcriptionEnvFile) || filepath.Clean(opts.transcriptionEnvFile) != opts.transcriptionEnvFile) {
 		return options{}, errArguments
 	}
-	if opts.openExisting && (adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
+	if opts.openExisting && (opts.container || adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
 		return options{}, errArguments
 	}
 	return opts, nil
