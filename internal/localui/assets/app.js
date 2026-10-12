@@ -28,6 +28,8 @@
   let recoveryLoading = false;
   let recoveryCommand = null;
   let recoveryVersion = 0;
+  let historyImportStatusUnavailable = false;
+  let historyImportPanel = null;
   let pairingSnapshot = null;
   let chats = [];
   let nextCursor = "";
@@ -247,6 +249,8 @@
     recoveryBusy = false;
     recoveryLoading = false;
     recoveryVersion++;
+    historyImportStatusUnavailable = false;
+    renderHistoryImport();
     renderRecovery();
     statusVersion++;
     pairingSnapshot = null;
@@ -308,6 +312,7 @@
     pollingTimer = window.setInterval(() => {
       if (remoteSecretExpiry && remoteSecretExpiry <= Date.now()) clearRemoteSecret();
       if (!document.hidden && !authExpired) {
+        renderHistoryImport();
         refreshStatus(); refreshPairing(); refreshModels(); refreshLocalAI(); refreshConnections(); refreshBudget();
         if (activeView === "stats") refreshStats();
       }
@@ -601,6 +606,8 @@
         feedback("search-feedback", next.ReconciliationRequired ? "" : "The archive changed. Run your search again to see current messages.");
       }
       status = next;
+      historyImportStatusUnavailable = false;
+      renderHistoryImport();
       if (status.ConnectionDiagnostic) pairingSnapshot = {...pairingSnapshot,state:status.Connection,connection_diagnostic:status.ConnectionDiagnostic};
       const connectionView = connectionPresentation({...pairingSnapshot,state:status.Connection}, status);
       $("connection-status").textContent = connectionView.busy ? connectionView.title : connectionView.ended ? "Session ended" : codeText(status.Connection || "setup_required");
@@ -661,7 +668,7 @@
         chatDiscoveryBusy = true;
         try { await loadChats(); } finally { if (epoch === authEpoch) chatDiscoveryBusy = false; }
       }
-    } catch (error) { if (version === statusVersion && !authExpired) { $("status-notice").textContent = error.message; $("status-notice").hidden = false; } }
+    } catch (error) { if (version === statusVersion && !authExpired) { historyImportStatusUnavailable = true; renderHistoryImport(); $("status-notice").textContent = error.message; $("status-notice").hidden = false; } }
   }
 
   function statsCount(value) {
@@ -1623,6 +1630,7 @@
     $("archive-source").value = archiveSource;
     $("archive-source-note").textContent = archiveSource === "historical" ? "Captured " + (meta?.captured_at || "") + ". Read-only · partial history · current phone state unknown. Later phone changes are not reflected here. Settings, syncing and send permissions always apply to Live." : "Live archive. Settings, syncing and send permissions always apply to Live.";
     refreshSelects("archive-source");
+    renderHistoryImport();
   }
 
   async function selectArchiveSource() {
@@ -2106,6 +2114,87 @@
 
   function liveRebuildSettings() {
     return setup?.live_rebuild?.mode === "live_rebuild" || status?.live_rebuild?.mode === "live_rebuild";
+  }
+
+  function createHistoryImportPanel() {
+    const panel = document.createElement("section");
+    panel.id = "history-import-progress";
+    panel.className = "history-import-progress";
+    panel.setAttribute("aria-labelledby", "history-import-title");
+    const body = document.createElement("div"), heading = document.createElement("div");
+    body.className = "history-import-body";
+    heading.className = "history-import-heading";
+    const spinner = document.createElement("span");
+    spinner.id = "history-import-spinner";
+    spinner.className = "history-import-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    spinner.hidden = true;
+    const title = document.createElement("h2");
+    title.id = "history-import-title";
+    title.setAttribute("role", "status");
+    title.setAttribute("aria-live", "polite");
+    title.setAttribute("aria-atomic", "true");
+    heading.append(spinner, title);
+    body.append(heading);
+    for (const name of ["summary", "requests", "help"]) {
+      const paragraph = document.createElement("p");
+      paragraph.id = "history-import-" + name;
+      body.append(paragraph);
+    }
+    const details = document.createElement("button");
+    details.id = "history-import-details";
+    details.type = "button";
+    details.className = "secondary";
+    details.textContent = "Import details";
+    details.setAttribute("aria-haspopup", "dialog");
+    details.setAttribute("aria-controls", "settings-dialog");
+    details.addEventListener("click", () => openSettings());
+    panel.append(body, details);
+    // Create this beside existing owner controls so a static-asset update also
+    // works with the existing embedded HTML, without a second import endpoint.
+    $("workspace").insertBefore(panel, $("unknown-history-notice"));
+    return panel;
+  }
+
+  function renderHistoryImport() {
+    let panel = historyImportPanel;
+    const visible = !authExpired && !historicalSettings() && liveRebuildSettings();
+    if (!visible) {
+      if (!panel) return;
+      panel.hidden = true;
+      $("history-import-spinner").hidden = true;
+      $("history-import-details").disabled = true;
+      for (const name of ["title", "summary", "requests", "help"]) $("history-import-" + name).textContent = "";
+      return;
+    }
+    if (!panel) panel = historyImportPanel = createHistoryImportPanel();
+    panel.hidden = false;
+    const p = status?.recovery;
+    const unavailable = historyImportStatusUnavailable || !p || statsUnavailable();
+    let title = "History import status unavailable", active = false;
+    if (!unavailable) {
+      const states = {paused:"Earlier history import paused", cancelled:"Earlier history recovery cancelled", exhausted:"History request allowance exhausted", waiting_phone:"Waiting for earlier history from your phone", waiting_transport:"Waiting for WhatsApp chat details", waiting_for_older_anchor:"Waiting for older history", no_anchor:"Waiting for eligible history", queue_full:"History discovery limit reached"};
+      if (p.state === "paused" || p.state === "cancelled") title = states[p.state];
+      else if (status.Paused) title = "Earlier history import paused";
+      else if (p.state === "exhausted") title = states[p.state];
+      else if (!["connected", "discovery", "importing"].includes(status.Connection)) title = "Waiting for your WhatsApp connection";
+      else if (p.state === "running") {
+        const attempted = typeof p.last_attempt_at === "string" && !p.last_attempt_at.startsWith("0001-") ? Date.parse(p.last_attempt_at) : NaN;
+        const age = Date.now() - attempted;
+        // This is recent request activity, not proof of message delivery.
+        active = Number.isFinite(age) && age >= -5000 && age <= 90000;
+        title = active ? "Requesting earlier messages" : Number.isFinite(attempted) ? "No recent request activity — waiting for phone history" : "Preparing earlier history requests";
+      } else title = states[p.state] || "Earlier history recovery remains partial";
+    }
+    const titleNode = $("history-import-title");
+    if (titleNode.textContent !== title) titleNode.textContent = title;
+    $("history-import-spinner").hidden = !active;
+    $("history-import-details").disabled = unavailable;
+    $("history-import-summary").textContent = unavailable ? "Keep the app running. Status will refresh automatically while this page is visible." : statsNumber(p.accepted) + " accepted history copies · " + statsNumber(status.Messages) + " readable messages in Live";
+    const currentPending = unavailable ? 0 : Math.max(0, statsCount(p.pending) - statsCount(p.stale));
+    $("history-import-requests").textContent = unavailable ? "" : statsNumber(currentPending) + " current requests awaiting phone replies or outcome unknown" + (statsCount(p.stale) ? " · " + statsNumber(p.stale) + " earlier requests no longer valid under current choices" : "") + " · " + statsNumber(p.queued) + " eligible copies queued";
+    const range = !unavailable && typeof p.target_start === "string" && !p.target_start.startsWith("0001-") ? " Requested from " + dateText(p.target_start) + "." : "";
+    $("history-import-help").textContent = (archiveSource === "historical" ? "This captured historical view remains unchanged. Recovery updates Live separately. " : "") + "Phone history remains partial; older messages and a finish time are not guaranteed." + range;
   }
 
   function renderRecovery() {

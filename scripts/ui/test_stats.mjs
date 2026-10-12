@@ -41,12 +41,15 @@ class FakeNode {
   set textContent(value) { this._text = String(value); this.children = []; }
   get value() { return this.tagName === 'PROGRESS' ? Number(this._value) : this._value; }
   set value(value) { this._value = String(value); }
+  get id() { return this.attributes.id ?? ''; }
+  set id(value) { this.attributes.id = String(value); }
   get options() { return this.children.filter(child => child.tagName === 'OPTION'); }
   get selectedIndex() { return this.options.findIndex(option => option.value === this.value); }
   get parentElement() { return this.parent ?? new FakeNode(); }
   get tabIndex() { return Number(this.attributes.tabindex ?? (['BUTTON','SELECT','INPUT','TEXTAREA','SUMMARY'].includes(this.tagName) ? 0 : -1)); }
   set tabIndex(value) { this.attributes.tabindex = String(value); }
   append(...nodes) { for (const node of nodes) { const child = typeof node === 'string' ? textNode(node) : node; child.parent = this; this.children.push(child); } }
+  insertBefore(node,before) { const index=this.children.indexOf(before); node.parent=this; this.children.splice(index<0 ? this.children.length : index,0,node); return node; }
   replaceChildren(...nodes) { this.children = []; this._text = ''; this.append(...nodes); }
   setAttribute(key,value) { this.attributes[key] = String(value); if (key.startsWith('data-')) this.dataset[key.slice(5).replace(/-([a-z])/g,(_,char)=>char.toUpperCase())]=value; }
   removeAttribute(key) { delete this.attributes[key]; }
@@ -92,7 +95,7 @@ function pageSnapshot(page=1,total=23,pageSize=10,name='Synthetic page row') {
   const first=(page-1)*pageSize;
   return {...snapshot(total*10),chats:total,sent:total*2,received:total*8,top_chats:Array.from({length:Math.min(8,total)},(_,index)=>({id:'synthetic-row-'+index,name:name+' '+(index+1),messages:10})),breakdown:{dimension:'chats',page,page_size:pageSize,total,sort:'messages',rows:Array.from({length:Math.max(0,Math.min(pageSize,total-first))},(_,index)=>({id:'synthetic-row-'+(first+index),name:name+' '+(first+index+1),messages:10,sent:2,received:8,chats:1,last_message_at:1791711300-first-index}))}};
 }
-function harness() {
+function harness(clock = null) {
   const nodes = new Map([...html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"/gi)].map(match => [match[2],new FakeNode(match[1])]));
   const selectors = new Map([['.skip-link',new FakeNode('a')],['.stats-update',new FakeNode()]]);
   const policyRadios = [...html.matchAll(/<input\b[^>]*name="(date-mode|chat-mode)"[^>]*value="([^"]+)"[^>]*>/g)].map(match => {
@@ -105,13 +108,14 @@ function harness() {
   let nextTimer = 1;
   const document = {
     hidden:false,documentElement:{dataset:{remoteAdmin:'false'}},activeElement:null,
-    getElementById:id => { assert.ok(nodes.has(id),'real HTML must contain ID ' + id); return nodes.get(id); },
+    getElementById:id => { const node=nodes.get(id) ?? descendants(nodes.get('workspace')).find(node=>node.id===id); assert.ok(node || id==='history-import-progress','real or dynamically created node must contain ID '+id); return node ?? null; },
     createElement:tag => { const node=new FakeNode(tag); node.ownerDocument=document; return node; },createElementNS:(_,tag) => { const node=new FakeNode(tag); node.ownerDocument=document; return node; },createTextNode:textNode,
     querySelector:selector => { const radio=selector.match(/^input\[name=(date-mode|chat-mode)\](?::checked|\[value=['"]([^'"]+)['"]\])$/); if (radio) return policyRadios.find(node=>node.name===radio[1]&&(radio[2] ? node.value===radio[2] : node.checked)); if (!selectors.has(selector)) selectors.set(selector,new FakeNode()); return selectors.get(selector); },
     querySelectorAll:selector => selector === 'input[name=date-mode], input[name=chat-mode]' ? policyRadios : [],
     addEventListener:(name,callback) => { if (!docListeners.has(name)) docListeners.set(name,[]); docListeners.get(name).push(callback); },
   };
   for (const node of nodes.values()) node.ownerDocument=document;
+  for (const id of ['progress-link','progress-choose','progress-import']) { const marker=new FakeNode('span'); marker.className='step-marker'; nodes.get(id).append(marker); }
   for (const id of ['stats-range','stats-kind','stats-chat','stats-breakdown-sort','stats-breakdown-size']) nodes.get(id).tagName = 'SELECT';
   nodes.get('stats-range').append(option('All saved history','all'),option('Last 7 days','7'),option('Custom dates','custom'));
   nodes.get('stats-kind').append(option('All message types','all'),option('Voice notes','voice'));
@@ -128,10 +132,11 @@ function harness() {
     setInterval:callback => { const id=nextTimer++; intervals.set(id,callback); return id; },clearInterval:id => intervals.delete(id),
   };
   const fetch = (path,options={}) => new Promise((resolve,reject) => { requests.push({path,options,resolve:(value,status=200) => resolve({ok:status>=200&&status<300,status,json:async()=>value}),resolveJSON:json => resolve({ok:true,status:200,json}),reject}); });
-  const expose = `  globalThis.__test = {requestAPI:api,openSettings,savePolicy,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
+  const expose = `  globalThis.__test = {requestAPI:api,openSettings,savePolicy,refreshStatus,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;}};\n})();`;
-  const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date,Intl,URLSearchParams,crypto:crypto.webcrypto,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},history:{replaceState(){}},console});
+  const ClockDate = clock ? class extends Date { static now() { return clock.now; } } : Date;
+  const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date:ClockDate,Intl,URLSearchParams,crypto:crypto.webcrypto,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},history:{replaceState(){}},console});
   vm.runInContext(source.replace(ending,expose),context,{timeout:5000});
   assert.equal(requests.length,0,'test loading must not start network requests');
   const api = context.__test;
@@ -142,6 +147,120 @@ function harness() {
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const cases = [];
 async function check(name,body) { await body(); cases.push(name); }
+
+function recoveryStatus(overrides={},statusOverrides={}) {
+  return {Connection:'connected',Paused:false,Messages:219,Keyword:{State:'ready',Complete:219,Pending:0,Failed:0},Media:{State:'not_configured'},Semantic:{State:'not_configured'},Codes:[],live_rebuild:{mode:'live_rebuild',coverage:'partial',current_phone_state:'unknown'},
+    recovery:{operation_id:'synthetic-operation',generation:'synthetic-generation',revision:3,policy_generation:4,state:'running',target_start:'2026-01-01T00:00:00Z',copy_limit:10000,copy_spent:115,discovery_limit:512,discovery_spent:44,discovered:8058,queued:7500,pending:106,accepted:9,stale:97,deferred:0,last_attempt_at:new Date(Date.now()-15000).toISOString(),oldest_observed:'2026-01-01T01:00:00Z',queue_full:false,...overrides},...statusOverrides};
+}
+async function statusPoll(h,next) {
+  const polling=h.api.refreshStatus();
+  assert.equal(h.requests.at(-1).path,'/api/status','progress uses the existing owner status request');
+  h.requests.at(-1).resolve(next); await polling;
+}
+
+await check('history import activity is visible without opening Settings and keeps accepted copies separate',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  const panel=h.document.getElementById('history-import-progress');
+  assert.ok(panel,'history activity must be visible in the main workspace'); assert.equal(panel.hidden,false);
+  assert.equal(h.nodes.get('settings-dialog').open,false);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,false,h.nodes.get('status-notice').textContent);
+  assert.match(h.document.getElementById('history-import-title').textContent,/requesting.*earlier/i);
+  assert.match(h.document.getElementById('history-import-summary').textContent,/9 accepted history copies.*219 readable messages in Live/);
+  assert.match(h.document.getElementById('history-import-requests').textContent,/9 current requests.*unknown.*97 earlier requests no longer valid under current choices.*7,500.*queued/);
+  assert.doesNotMatch(panel.textContent,/%|complete|minutes remaining|hours remaining/i);
+  h.api.selectWorkspaceView('archive'); assert.equal(panel.hidden,false);
+  assert.equal(h.requests.filter(request=>request.path==='/api/recovery').length,0,'no extra recovery polling endpoint');
+});
+await check('history request activity stops animating for waiting, old attempts, pause and disconnection',async()=>{
+  const h=harness();
+  for(const [progress,connection,title] of [
+    [{state:'waiting_phone'}, {}, /waiting.*phone/i],
+    [{last_attempt_at:new Date(Date.now()-180000).toISOString()}, {}, /waiting.*phone|no recent request activity/i],
+    [{state:'paused'}, {}, /paused/i],
+    [{state:'running'}, {Paused:true}, /paused/i],
+    [{state:'running'}, {Connection:'disconnected'}, /waiting.*connection/i],
+    [{state:'exhausted',copy_spent:10000}, {}, /allowance.*exhausted/i],
+    [{state:'queue_full',queue_full:true}, {}, /discovery.*limit/i],
+    [{state:'no_anchor',discovered:0,queued:0}, {}, /waiting.*history/i],
+    [{state:'waiting_transport'}, {}, /waiting.*chat details/i],
+    [{state:'cancelled'}, {}, /cancelled/i],
+    [{state:'running',last_attempt_at:'0001-01-01T00:00:00Z'}, {}, /preparing|waiting/i],
+    [{state:'running',last_attempt_at:'invalid-time'}, {}, /preparing|waiting/i],
+    [{state:'running',last_attempt_at:new Date(Date.now()+300000).toISOString()}, {}, /waiting|no recent request activity/i],
+    [{state:'unexpected_state'}, {}, /unavailable|partial/i],
+  ]) {
+    await statusPoll(h,recoveryStatus(progress,connection));
+    assert.equal(h.document.getElementById('history-import-spinner').hidden,true,JSON.stringify([progress,connection]));
+    assert.match(h.document.getElementById('history-import-title').textContent,title);
+  }
+});
+await check('history request animation expires on the polling clock when every later status request hangs',async()=>{
+  const clock={now:Date.now()},h=harness(clock);
+  await statusPoll(h,recoveryStatus({last_attempt_at:new Date(clock.now).toISOString()}));
+  h.api.selectWorkspaceView('archive'); h.api.startPolling();
+  assert.equal(h.intervals.size,1,'reuse the existing polling interval');
+  const tick=[...h.intervals.values()][0];
+  clock.now+=45000; tick(); await flush();
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,false,'recent activity remains visible while a request is unresolved');
+  clock.now+=50000; tick(); await flush();
+  assert.equal(h.requests.filter(request=>request.path==='/api/status').length,3,'both later status requests remain unresolved');
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true,'elapsed activity cannot depend on the unresolved fetch returning');
+  assert.match(h.document.getElementById('history-import-title').textContent,/no recent request activity/i);
+  h.api.stopPolling();
+});
+await check('status failure removes stale import counts and animation until a fresh owner status succeeds',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  const failed=h.api.refreshStatus(); h.requests.at(-1).reject(new Error('synthetic status connection failure')); await failed;
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+  assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i);
+  assert.doesNotMatch(h.document.getElementById('history-import-summary').textContent,/219|9 accepted/);
+  await statusPoll(h,recoveryStatus({accepted:12},{Messages:230}));
+  assert.match(h.document.getElementById('history-import-summary').textContent,/12 accepted.*230 readable/);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,false);
+});
+await check('unavailable or unsafe recovery clears previously readable progress instead of claiming continued imports',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  for (const overrides of [{recovery:null},{ReconciliationRequired:true,Connection:'reconciliation_required'}]) {
+    await statusPoll(h,recoveryStatus({},overrides));
+    assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+    assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i);
+    assert.doesNotMatch(h.document.getElementById('history-import-summary').textContent,/219|9 accepted/);
+  }
+});
+await check('history import details opens the existing owner controls without changing recovery or date choices',async()=>{
+  const h=harness(); const status=recoveryStatus(); await statusPoll(h,status);
+  h.document.getElementById('history-import-details').click();
+  assert.equal(h.requests.at(-1).path,'/api/setup');
+  h.requests.at(-1).resolve({configured:true,live_rebuild:status.live_rebuild,recovery:status.recovery,Policy:{DateMode:'since',ImportStart:new Date(2026,0,1).toISOString(),ChatMode:'all',RollingRetention:0}}); await flush();
+  assert.equal(h.requests.at(-1).path,'/api/chats?limit=100'); h.requests.at(-1).resolve({Chats:[]}); await flush();
+  assert.equal(h.nodes.get('settings-dialog').open,true);
+  assert.equal(h.nodes.get('recovery-panel').hidden,false);
+  assert.equal(h.nodes.get('save-policy').disabled,false);
+  assert.equal(h.nodes.get('import-start').value,'2026-01-01');
+  assert.ok(h.requests.every(request=>!request.options.method || request.options.method==='GET'),'viewing details never sends a mutation');
+});
+await check('history progress cannot reappear after logout or from an older status response',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  const old=h.api.refreshStatus(),oldRequest=h.requests.at(-1);
+  await statusPoll(h,recoveryStatus({state:'paused'}));
+  oldRequest.resolve(recoveryStatus()); await old;
+  assert.match(h.document.getElementById('history-import-title').textContent,/paused/i);
+  const late=h.api.refreshStatus(),lateRequest=h.requests.at(-1); h.api.expireAuth();
+  const panel=h.document.getElementById('history-import-progress'); assert.equal(panel.hidden,true);
+  assert.equal(h.document.getElementById('history-import-summary').textContent,'');
+  lateRequest.resolve(recoveryStatus({accepted:999})); await late; assert.equal(panel.hidden,true);
+});
+await check('history indicator remains specific to Live when viewing a captured archive',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  h.api.setSetup({configured:true,archive_view:{source:'historical',captured_at:'2026-01-02T03:04:05Z'},Policy:{ChatMode:'all'}});
+  h.nodes.get('archive-source').value='historical'; h.nodes.get('archive-source').dispatch('change');
+  assert.match(h.document.getElementById('history-import-help').textContent,/historical view.*unchanged.*live/i);
+  h.api.expireAuth();
+  const ordinary=harness(); await statusPoll(ordinary,{Connection:'connected',Messages:219,Codes:[]});
+  assert.equal(ordinary.document.getElementById('history-import-progress'),null,'ordinary profiles do not receive a rebuild banner');
+  const snapshotOnly=harness(); snapshotOnly.document.documentElement.dataset.historicalSnapshot='true'; await statusPoll(snapshotOnly,recoveryStatus());
+  assert.equal(snapshotOnly.document.getElementById('history-import-progress'),null,'standalone historical snapshots cannot imply active import');
+});
 
 await check('partial-history warning persists across Stats and Archive without locking live date settings',async()=>{
  const h=harness();
