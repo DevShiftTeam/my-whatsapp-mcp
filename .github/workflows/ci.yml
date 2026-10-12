@@ -40,8 +40,8 @@ jobs:
           import os
           import tempfile
 
-          runner_temp = os.path.realpath(os.environ["RUNNER_TEMP"])
-          test_temp = tempfile.mkdtemp(prefix="wa-indexer-tests-", dir=runner_temp)
+          system_temp = os.path.realpath(tempfile.gettempdir())
+          test_temp = tempfile.mkdtemp(prefix="wa-indexer-tests-", dir=system_temp)
           os.chmod(test_temp, 0o700)
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
               environment.write(f"TMPDIR={test_temp}\n")
