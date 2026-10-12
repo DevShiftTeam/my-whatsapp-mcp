@@ -301,6 +301,15 @@ func policyPermits(p archive.IngestionPolicy, e archive.SourceEvent, now time.Ti
 	return false
 }
 func (r *Runtime) apply(ctx context.Context, e archive.SourceEvent) (archive.ApplyResult, error) {
+	if e.DeliveredHistory != nil {
+		// Authenticated chunk admission is immutable. Never refresh a rejected
+		// positive's policy through the ordinary live retry loop.
+		result, err := r.store.ApplySourceEvent(ctx, e, e.DeliveredHistory.PolicyGeneration)
+		if err == archive.ErrPolicyChanged {
+			return archive.ApplyResult{Outcome: archive.OutcomeFiltered}, nil
+		}
+		return result, sourceOperationFailure(ctx, "source_apply", err)
+	}
 	for tries := 0; tries < 2; tries++ {
 		policy, err := r.store.SourcePolicy(ctx, e.Key.Account)
 		if err != nil {
@@ -346,6 +355,9 @@ func (r *Runtime) aliasAt(ctx context.Context, stage, a, b string, provenance ar
 	return sourceOperationFailure(ctx, stage, err)
 }
 func (r *Runtime) message(ctx context.Context, event *events.Message) error {
+	return r.messageWithDeliveredAdmission(ctx, event, nil)
+}
+func (r *Runtime) messageWithDeliveredAdmission(ctx context.Context, event *events.Message, delivered *archive.DeliveredHistoryAdmission) error {
 	if r.Status().ReconciliationRequired {
 		return archive.ErrReconciliationRequired
 	}
@@ -392,6 +404,14 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 		if err != nil {
 			return err
 		}
+		if delivered != nil && e.Kind != archive.EventDelete {
+			if err = r.sourceExpiry(ctx, &e, event); err != nil {
+				return err
+			}
+			if err = r.recordRebuildRestriction(ctx, &e, event); err != nil {
+				return err
+			}
+		}
 		if _, err = r.apply(ctx, e); err != nil {
 			if err != archive.ErrSourceRevisionConflict {
 				r.failClosed("archive_unavailable")
@@ -433,7 +453,12 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 	if err != nil {
 		return sourceOperationFailure(ctx, "source_policy", err)
 	}
-	allowed, err := r.rebuildAdmission(ctx, &e, event, policy)
+	var allowed bool
+	if delivered != nil {
+		allowed, err = r.deliveredAdmission(ctx, &e, event, delivered)
+	} else {
+		allowed, err = r.rebuildAdmission(ctx, &e, event, policy)
+	}
 	if err != nil {
 		return err
 	}
@@ -441,7 +466,7 @@ func (r *Runtime) message(ctx context.Context, event *events.Message) error {
 		return nil
 	}
 	var pending *pendingMedia
-	if policyPermits(policy, e, time.Now()) {
+	if (delivered == nil || policy.Generation == delivered.PolicyGeneration) && policyPermits(policy, e, time.Now()) {
 		if event.IsViewOnce {
 			r.projectViewOnce(&e, body)
 		} else {

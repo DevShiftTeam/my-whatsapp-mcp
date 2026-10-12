@@ -51,25 +51,33 @@ const DefaultRebuildDiscoveryLimit int64 = 512
 const MaxRebuildMetadata int64 = 1000000
 
 type RebuildProgress struct {
-	OperationID      string     `json:"operation_id"`
-	Generation       string     `json:"generation"`
-	Revision         uint64     `json:"revision"`
-	PolicyGeneration Generation `json:"policy_generation"`
-	TargetStart      time.Time  `json:"target_start"`
-	State            string     `json:"state"`
-	CopyLimit        int64      `json:"copy_limit"`
-	CopySpent        int64      `json:"copy_spent"`
-	DiscoveryLimit   int64      `json:"discovery_limit"`
-	DiscoverySpent   int64      `json:"discovery_spent"`
-	Discovered       int64      `json:"discovered"`
-	Queued           int64      `json:"queued"`
-	Pending          int64      `json:"pending"`
-	Accepted         int64      `json:"accepted"`
-	Stale            int64      `json:"stale"`
-	Deferred         int64      `json:"deferred"`
-	LastAttemptAt    time.Time  `json:"last_attempt_at"`
-	OldestObserved   time.Time  `json:"oldest_observed"`
-	QueueFull        bool       `json:"queue_full"`
+	Strategy          RebuildHistoryPolicy `json:"strategy"`
+	StrategyEpoch     uint64               `json:"strategy_epoch"`
+	DeliveredAccepted int64                `json:"delivered_accepted"`
+	DeliveredLimit    int64                `json:"delivered_limit"`
+	ReadableMessages  int64                `json:"readable_messages"`
+	DeliveredOldest   time.Time            `json:"delivered_oldest"`
+	PageAttempts      int64                `json:"page_attempts"`
+	PageState         string               `json:"page_state"`
+	OperationID       string               `json:"operation_id"`
+	Generation        string               `json:"generation"`
+	Revision          uint64               `json:"revision"`
+	PolicyGeneration  Generation           `json:"policy_generation"`
+	TargetStart       time.Time            `json:"target_start"`
+	State             string               `json:"state"`
+	CopyLimit         int64                `json:"copy_limit"`
+	CopySpent         int64                `json:"copy_spent"`
+	DiscoveryLimit    int64                `json:"discovery_limit"`
+	DiscoverySpent    int64                `json:"discovery_spent"`
+	Discovered        int64                `json:"discovered"`
+	Queued            int64                `json:"queued"`
+	Pending           int64                `json:"pending"`
+	Accepted          int64                `json:"accepted"`
+	Stale             int64                `json:"stale"`
+	Deferred          int64                `json:"deferred"`
+	LastAttemptAt     time.Time            `json:"last_attempt_at"`
+	OldestObserved    time.Time            `json:"oldest_observed"`
+	QueueFull         bool                 `json:"queue_full"`
 }
 type RebuildControl struct {
 	ExpectedRevision uint64 `json:"expected_revision"`

@@ -109,19 +109,28 @@ func unknownHistoryGapSnapshot(ctx context.Context, q sqlQuerier, account string
 	if version >= 14 && version <= 16 {
 		return nil
 	}
-	if version != 17 {
+	if version != 17 && version != 18 {
 		return ErrSchemaChanged
 	}
 	var epoch uint64
 	err := q.QueryRowContext(ctx, "SELECT epoch FROM unknown_history_coverage WHERE account=?", account).Scan(&epoch)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return readError(ctx, err)
 	}
 	snapshot.CoverageEpoch = epoch
 	snapshot.UnknownHistoryGap = epoch != 0
+	if version == 18 {
+		var strategy uint64
+		err = q.QueryRowContext(ctx, "SELECT epoch FROM rebuild_history_selection WHERE account=?", account).Scan(&strategy)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return readError(ctx, err)
+		}
+		snapshot.DeliveredHistorySnapshot = strategy != 0
+		if strategy > math.MaxUint64-snapshot.CoverageEpoch {
+			return ErrReconciliationRequired
+		}
+		snapshot.CoverageEpoch += strategy
+	}
 	return nil
 }
 
@@ -141,7 +150,7 @@ func (s *Store) UnknownHistoryGapDiagnostics(ctx context.Context, account string
 		return nil, err
 	}
 	out := &UnknownHistoryGapDiagnostics{CoverageEpoch: snapshot.CoverageEpoch, Codes: []UnknownHistoryGapCount{}}
-	if snapshot.CoverageEpoch == 0 {
+	if !snapshot.UnknownHistoryGap {
 		return out, nil
 	}
 	if err = tx.QueryRowContext(bounded, "SELECT total_observations FROM unknown_history_coverage WHERE account=?", account).Scan(&out.TotalObservations); err != nil {

@@ -26,9 +26,11 @@ const (
 )
 
 type Config struct {
-	UnknownHistoryPolicy UnknownHistoryPolicy
-	Rebuild              *RebuildConfig
-	DiagnosticDir        string // private body-free mutation witnesses
+	rebuildHistorySelection *archive.RebuildHistorySelection
+	RebuildHistoryPolicy    archive.RebuildHistoryPolicy
+	UnknownHistoryPolicy    UnknownHistoryPolicy
+	Rebuild                 *RebuildConfig
+	DiagnosticDir           string // private body-free mutation witnesses
 
 	SessionDir, TemporaryDir string
 	BackfillRequests         int // zero explicitly disables history requests

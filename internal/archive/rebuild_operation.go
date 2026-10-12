@@ -192,6 +192,9 @@ func (s *Store) nextRebuildAnchors(ctx context.Context, q sqlQuerier, o rebuildO
 	return out, nil
 }
 func (s *Store) NextRebuildCandidates(ctx context.Context, limit int) ([]SourceAnchor, error) {
+	if selected := s.historySelection.Load(); selected != nil && selected.Policy == RebuildHistoryDelivered {
+		return nil, nil
+	}
 	if s.rebuild == nil {
 		return nil, nil
 	}
@@ -215,6 +218,9 @@ func (s *Store) NextRebuildCandidates(ctx context.Context, limit int) ([]SourceA
 	return s.nextRebuildAnchors(ctx, tx, o, limit, false)
 }
 func (s *Store) NextRebuildDiscovery(ctx context.Context) (*RebuildDiscovery, error) {
+	if selected := s.historySelection.Load(); selected != nil && selected.Policy == RebuildHistoryDelivered {
+		return nil, nil
+	}
 	if s.rebuild == nil {
 		return nil, nil
 	}
@@ -248,9 +254,18 @@ func (s *Store) rebuildProgressQuery(ctx context.Context, q sqlQuerier) (*Rebuil
 	if err != nil {
 		return nil, err
 	}
-	where, args := s.rebuildAnchorFilter(o, false)
-	if err = q.QueryRowContext(ctx, "SELECT count(*) FROM "+rebuildAnchorTables+" WHERE "+where, args...).Scan(&o.Queued); err != nil {
-		return nil, fixedSQLError(err)
+	selection, err := s.loadHistorySelection(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	delivered := selection.Policy == RebuildHistoryDelivered
+	// Exact-copy selection is inactive in delivered mode. Retain its durable
+	// receipts and spend below, without evaluating its candidate/discovery SQL.
+	if !delivered {
+		where, args := s.rebuildAnchorFilter(o, false)
+		if err = q.QueryRowContext(ctx, "SELECT count(*) FROM "+rebuildAnchorTables+" WHERE "+where, args...).Scan(&o.Queued); err != nil {
+			return nil, fixedSQLError(err)
+		}
 	}
 	var oldest int64
 	if err = q.QueryRowContext(ctx, "SELECT count(*),COALESCE(min(original_sent_at),0) FROM source_anchors WHERE account=? AND date_known=1", s.rebuild.Account).Scan(&o.Discovered, &oldest); err != nil {
@@ -263,7 +278,7 @@ func (s *Store) rebuildProgressQuery(ctx context.Context, q sqlQuerier) (*Rebuil
 	if err = q.QueryRowContext(ctx, "SELECT COALESCE(sum(state='pending'),0),COALESCE(sum(state='consumed'),0),COALESCE(sum(state='pending' AND policy_generation<>?),0) FROM rebuild_requests WHERE generation=?", o.PolicyGeneration, o.Generation).Scan(&o.Pending, &o.Accepted, &o.Stale); err != nil {
 		return nil, fixedSQLError(err)
 	}
-	if o.State == "running" {
+	if !delivered && o.State == "running" {
 		discovery, err := s.nextRebuildAnchors(ctx, q, o, 1, true)
 		if err != nil {
 			return nil, err
@@ -284,6 +299,9 @@ func (s *Store) rebuildProgressQuery(ctx context.Context, q sqlQuerier) (*Rebuil
 		}
 	}
 	p := o.RebuildProgress
+	if err = s.deliveredProgress(ctx, q, &p, true); err != nil {
+		return nil, fixedSQLError(err)
+	}
 	return &p, nil
 }
 func (s *Store) RebuildProgress(ctx context.Context) (*RebuildProgress, error) {
@@ -313,6 +331,9 @@ func (s *Store) RebuildDispatchState(ctx context.Context) (*RebuildProgress, err
 		return nil, err
 	}
 	p := o.RebuildProgress
+	if err = s.deliveredProgress(ctx, s.readDB, &p, false); err != nil {
+		return nil, fixedSQLError(err)
+	}
 	return &p, nil
 }
 
@@ -360,6 +381,19 @@ func (c rebuildControlCommand) run(s *Store, ctx context.Context) (any, error) {
 			if copyLimit > maxRebuildCopyLimit-DefaultRebuildCopyLimit || discoveryLimit > maxRebuildDiscoveryLimit-DefaultRebuildDiscoveryLimit {
 				return ErrLimitExceeded
 			}
+			var bodyLimit int64
+			bodyErr := tx.QueryRowContext(ctx, "SELECT body_limit FROM rebuild_history_selection WHERE id=1").Scan(&bodyLimit)
+			if bodyErr != nil && !errors.Is(bodyErr, sql.ErrNoRows) {
+				return bodyErr
+			}
+			if bodyErr == nil {
+				if bodyLimit > maxRebuildCopyLimit-DefaultDeliveredHistoryLimit {
+					return ErrLimitExceeded
+				}
+				if _, err = tx.ExecContext(ctx, "UPDATE rebuild_history_selection SET body_limit=body_limit+? WHERE id=1", DefaultDeliveredHistoryLimit); err != nil {
+					return err
+				}
+			}
 			copyLimit += DefaultRebuildCopyLimit
 			discoveryLimit += DefaultRebuildDiscoveryLimit
 			state = "running"
@@ -404,13 +438,21 @@ func (s *Store) reviseRebuildPolicy(ctx context.Context, tx *sql.Tx, p ArchivePo
 	return err
 }
 func checkRebuildDispatch(o rebuildOperation, id string, revision uint64, policy Generation, now time.Time, discovery bool) error {
+	return checkRebuildDispatchInterval(o, id, revision, policy, now, discovery, rebuildCadence)
+}
+
+func checkRebuildDispatchInterval(o rebuildOperation, id string, revision uint64, policy Generation, now time.Time, discovery bool, interval time.Duration) error {
+	if interval != rebuildCadence && interval != DeliveredHistoryRequestInterval {
+		return ErrInvalidEvent
+	}
+
 	if o.OperationID != id || o.Revision != revision || o.PolicyGeneration != policy {
 		return ErrPolicyChanged
 	}
 	if o.State != "running" {
 		return ErrSourceUnavailable
 	}
-	if !o.LastAttemptAt.IsZero() && now.Before(o.LastAttemptAt.Add(rebuildCadence)) {
+	if !o.LastAttemptAt.IsZero() && now.Before(o.LastAttemptAt.Add(interval)) {
 		return ErrQueueLimitExceeded
 	}
 	if (discovery && o.QueueFull) || (discovery && o.DiscoverySpent >= o.DiscoveryLimit) || (!discovery && o.CopySpent >= o.CopyLimit) {

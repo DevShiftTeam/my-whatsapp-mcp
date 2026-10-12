@@ -4,6 +4,8 @@
 
 ### Added
 
+- Add explicit rebuilt-profile delivered-history import with bounded page and body budgets, durable startup selection, preserved client/session authority and negative controls, and honest partial-snapshot labels. Individually correlated recovery remains the default; no full-history guarantee is implied.
+
 - Show earlier-history import activity in Archive and Stats, with accepted copies separate from readable Live messages, explicit waiting and paused states, and reduced-motion support. Progress does not imply a complete import or reliable finish time.
 
 - Add explicit `serve --unknown-history-policy partial` opt-in with strict mode remaining the default and persistent account-wide warnings about potentially missed edits, deletions and retention changes. Add separate protected offline `recover-partial-history --config` acceptance of an eligible committed partial snapshot; preserve current sessions, AI-client grants, known controls and spent allowances without claiming recovery of the unvisited remainder or current phone state.

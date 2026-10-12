@@ -72,6 +72,16 @@ Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmle
 
 Stop the app with Ctrl+C, start it again with `./bin/wa-indexer serve`, and repeat the search. This checks fresh import, search, and local persistence. Older history is still limited to what WhatsApp delivered.
 
+## Choose a rebuild history strategy
+
+Rebuilt profiles default to `serve --rebuild-history-policy selected-original`. This strategy admits older message bodies only through individually correlated recovery requests. A trusted operator can instead explicitly select `--rebuild-history-policy delivered-history` at startup to import validated history pages delivered through the linked session. Keep the same profile, linked-device session, client grants and existing launch arguments.
+
+Delivered history is a **partial snapshot**, without individual request proof or a guarantee of current phone state. Known deletions, edits, expiry, view-once restrictions and current chat/date permissions still apply. This setting is independent of the unknown-history policy below; it does not make malformed or unsupported control records acceptable.
+
+The selection is recorded before connection and cannot change through a browser, MCP call or attachment to an existing process. Restart with the explicit delivered-history flag after selecting it; omitting the flag must not silently change a stored selection. Explicitly switching back to selected-original retains the partial-snapshot warning and prior accounting.
+
+Paging starts from the newest usable anchor for each selected chat and requests up to 500 messages per page, with at least one second between serial page requests. The linked phone may return fewer messages or respond slowly; these request settings do not guarantee import throughput. Requests and accepted historical bodies have finite, persisted budgets. Existing exact-message requests and spent credits remain intact; a restart does not refund them. Owner progress distinguishes readable messages, delivered bodies and page attempts from individually recovered copies. Missing anchors, a stalled page, exhaustion or reaching the selected date do not establish complete coverage. WhatsApp may deliver less history than requested, and no date setting guarantees a full-year import.
+
 ## Choose an unknown-history policy
 
 `serve --unknown-history-policy strict` is the default. A trusted operator may explicitly choose `--unknown-history-policy partial` on the existing `serve` launch. Keep the current data directory, linked-device session, AI-client configuration and other launch arguments. Changing this option requires stopping and restarting the app; there is no browser or MCP toggle.

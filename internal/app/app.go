@@ -19,6 +19,7 @@ import (
 )
 
 type Config struct {
+	RebuildHistoryPolicy   archive.RebuildHistoryPolicy
 	UnknownHistoryPolicy   ingestion.UnknownHistoryPolicy
 	RebuildAncestorLockFDs []int
 	HistoricalView         *HistoricalViewConfig
@@ -56,6 +57,7 @@ type runtimeFactory func(ingestion.Config, archive.ConnectorStore, ingestion.Cal
 // Application serializes lifecycle mutations separately from callbacks. Callbacks
 // never acquire ops or data, so stopping a connector can safely wait for them.
 type Application struct {
+	rebuildHistoryPolicy          archive.RebuildHistoryPolicy
 	unknownHistoryPolicy          ingestion.UnknownHistoryPolicy
 	historicalView                *historicalViewOwner
 	snapshot                      *SnapshotConfig
@@ -116,6 +118,12 @@ func newApplication(ctx context.Context, cfg Config, factory runtimeFactory) (*A
 
 func newApplicationWithResources(ctx context.Context, cfg Config, factory runtimeFactory, open func(context.Context, appdata.Paths, *archive.Store, Config, bool) (*resources, error)) (*Application, error) {
 	cfg = copyApplicationConfig(cfg)
+	if cfg.RebuildHistoryPolicy != "" && cfg.RebuildHistoryPolicy != archive.RebuildHistorySelectedOriginal && cfg.RebuildHistoryPolicy != archive.RebuildHistoryDelivered {
+		return nil, archive.ErrInvalidPolicy
+	}
+	if cfg.RebuildHistoryPolicy == archive.RebuildHistoryDelivered && (cfg.Demo || cfg.Snapshot != nil) {
+		return nil, archive.ErrInvalidPolicy
+	}
 	if cfg.UnknownHistoryPolicy != ingestion.UnknownHistoryStrict && cfg.UnknownHistoryPolicy != ingestion.UnknownHistoryPartial {
 		return nil, archive.ErrInvalidPolicy
 	}
@@ -245,6 +253,19 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	if rebuild != nil && (cfg.Demo || cfg.Snapshot != nil || rebuildSourceLease == nil) {
 		return cleanup(archive.ErrReconciliationRequired)
 	}
+	historyPolicy := archive.RebuildHistorySelectedOriginal
+	if cfg.Snapshot == nil {
+		selection, selectionErr := store.SelectRebuildHistoryPolicy(ctx, archive.RebuildHistorySelectionOptions{
+			Policy:                  cfg.RebuildHistoryPolicy,
+			AcceptDeliveredSnapshot: cfg.RebuildHistoryPolicy == archive.RebuildHistoryDelivered,
+		})
+		if selectionErr != nil {
+			return cleanup(selectionErr)
+		}
+		if selection != nil {
+			historyPolicy = selection.Policy
+		}
+	}
 	account, err := store.BoundAccount(ctx)
 	if err != nil {
 		return cleanup(err)
@@ -269,7 +290,7 @@ func newApplicationWithResources(ctx context.Context, cfg Config, factory runtim
 	}
 	queries, cancel := context.WithCancel(context.Background())
 	cfg.instanceGuard = lease
-	a := &Application{unknownHistoryPolicy: cfg.UnknownHistoryPolicy, snapshot: cfg.Snapshot, rebuild: rebuild, rebuildSourceLease: rebuildSourceLease, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
+	a := &Application{rebuildHistoryPolicy: historyPolicy, unknownHistoryPolicy: cfg.UnknownHistoryPolicy, snapshot: cfg.Snapshot, rebuild: rebuild, rebuildSourceLease: rebuildSourceLease, paths: paths, lease: lease, store: store, factory: factory, openResources: openResources, demo: cfg.Demo, offline: cfg.Offline, paused: state.Paused, nativeCredentialID: state.NativeCredentialID, authState: state, queryContext: queries, queryCancel: cancel, mcpEnabled: !cfg.Offline, executablePath: cfg.ExecutablePath, dockerContainerName: cfg.DockerContainerName, reservedRemoteOrigins: cfg.ReservedRemoteOrigins, mcpConfig: copyMCPConfig(cfg.MCP), backfillRequests: cfg.BackfillRequests, transcriptionConfig: cfg.Transcription, connectionWake: make(chan struct{}, 1)}
 	a.historicalView, err = openHistoricalView(ctx, paths, store, cfg, rebuildSourceLease)
 	startupHistorical = a.historicalView
 	if err != nil {
@@ -335,7 +356,7 @@ func (a *Application) makeRuntime() (connector, error) {
 	if a.snapshot != nil {
 		return nil, archive.ErrHistoricalSnapshotReadOnly
 	}
-	return a.factory(ingestion.Config{UnknownHistoryPolicy: a.unknownHistoryPolicy, SessionDir: a.paths.SessionDir, TemporaryDir: a.paths.WorkingDir, BackfillRequests: a.backfillRequests, Rebuild: a.rebuild, DiagnosticDir: a.paths.WorkingDir}, a.store, ingestion.Callbacks{QRChanged: a.qrChanged, StatusChanged: a.statusChanged, MediaAdmitter: a.resources.admitMedia})
+	return a.factory(ingestion.Config{RebuildHistoryPolicy: a.rebuildHistoryPolicy, UnknownHistoryPolicy: a.unknownHistoryPolicy, SessionDir: a.paths.SessionDir, TemporaryDir: a.paths.WorkingDir, BackfillRequests: a.backfillRequests, Rebuild: a.rebuild, DiagnosticDir: a.paths.WorkingDir}, a.store, ingestion.Callbacks{QRChanged: a.qrChanged, StatusChanged: a.statusChanged, MediaAdmitter: a.resources.admitMedia})
 }
 
 func resolveDataRoot(cfg Config) (string, error) {

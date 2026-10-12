@@ -158,6 +158,51 @@ async function statusPoll(h,next) {
   h.requests.at(-1).resolve(next); await polling;
 }
 
+function deliveredStatus(progress={},statusOverrides={}) {
+  return recoveryStatus({strategy:'delivered-history',strategy_epoch:5,delivered_accepted:2500,delivered_limit:10000,readable_messages:2300,delivered_oldest:'2026-02-03T04:05:06Z',page_attempts:20,page_state:'waiting_phone',discovery_spent:64,...progress},{Snapshot:{UnknownHistoryGap:false,DeliveredHistorySnapshot:true},...statusOverrides});
+}
+await check('delivered history progress separates snapshot acceptance and readable messages from individual copies and page credits',async()=>{
+  const h=harness(); await statusPoll(h,deliveredStatus());
+  const panel=h.document.getElementById('history-import-progress'); assert.equal(panel.hidden,false);
+  assert.match(h.document.getElementById('history-import-summary').textContent,/2,500.*snapshot.*accepted.*2,300.*readable.*9.*individual.*copies/i);
+  assert.match(h.document.getElementById('history-import-requests').textContent,/20 page attempts.*448.*credits.*10,000.*allowance/i);
+  assert.match(h.document.getElementById('history-import-title').textContent,/waiting.*phone/i);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true,'awaiting the phone is not confirmed ongoing dispatch');
+  assert.match(h.nodes.get('coverage-status').textContent,/delivered history snapshot/i);
+  assert.doesNotMatch(panel.textContent,/%|complete|strategy_epoch|synthetic-operation|synthetic-generation/i);
+  await statusPoll(h,deliveredStatus({state:'exhausted',discovery_spent:512}));
+  assert.match(h.document.getElementById('history-import-title').textContent,/allowance.*exhausted/i);
+  assert.match(h.document.getElementById('history-import-requests').textContent,/0.*credits/i);
+  await statusPoll(h,deliveredStatus({page_state:'future_unrecognized_state'}));
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+  assert.match(h.document.getElementById('history-import-title').textContent,/partial|unavailable/i);
+});
+await check('delivered snapshot warnings are independent of unknown records and stay visible across owner read surfaces',async()=>{
+  const h=harness(); await statusPoll(h,deliveredStatus());
+  const warning=h.nodes.get('unknown-history-notice'); assert.equal(warning.hidden,false);
+  assert.match(warning.textContent,/delivered history snapshot.*current phone state.*unknown/i);
+  assert.doesNotMatch(warning.textContent,/unsupported records/i,'snapshot-only uncertainty does not invent an unknown-record event');
+  h.api.selectWorkspaceView('archive'); assert.equal(warning.hidden,false);
+  const old=h.api.requestAPI('/api/status'); h.requests.at(-1).resolve({Snapshot:{UnknownHistoryGap:false,DeliveredHistorySnapshot:false}});await old;
+  assert.match(warning.textContent,/delivered history snapshot/i,'an older response cannot clear snapshot uncertainty');
+  const gaps=h.api.requestAPI('/api/search','POST',{query:'synthetic'});h.requests.at(-1).resolve({Snapshot:{UnknownHistoryGap:true},Hits:[]});await gaps;
+  assert.match(warning.textContent,/unsupported.*edit.*delet.*retention/i);
+  const later=h.api.requestAPI('/api/context','POST',{message_id:'synthetic'});h.requests.at(-1).resolve({Snapshot:{DeliveredHistorySnapshot:true},Messages:[]});await later;
+  assert.match(warning.textContent,/unsupported.*edit.*delet.*retention/i,'delivered warning cannot replace the stricter unknown-record warning');
+  const stats=harness();const pending=stats.api.refreshStats();stats.requests[0].resolve({...snapshot(),delivered_history_snapshot:true,unknown_history_gap:false});await pending;
+  assert.match(stats.nodes.get('unknown-history-notice').textContent,/delivered history snapshot.*phone state.*unknown/i);
+  const search=harness();const read=search.api.requestAPI('/api/search','POST',{query:'synthetic'});search.requests[0].resolve({Snapshot:{DeliveredHistorySnapshot:true},Hits:[]});await read;
+  assert.match(search.nodes.get('unknown-history-notice').textContent,/delivered history snapshot/i);
+});
+await check('delivered history date describes current readable Live messages rather than received coverage or inherited metadata',async()=>{
+  const h=harness();await statusPoll(h,deliveredStatus());
+  const help=h.document.getElementById('history-import-help');
+  assert.match(help.textContent,/oldest readable message in Live/i);
+  assert.doesNotMatch(help.textContent,/oldest received|oldest observed metadata|complete/i);
+  await statusPoll(h,deliveredStatus({readable_messages:0,delivered_oldest:'0001-01-01T00:00:00Z'}));
+  assert.doesNotMatch(help.textContent,/oldest readable/i,'an empty readable archive has no date boundary');
+});
+
 await check('history import activity is visible without opening Settings and keeps accepted copies separate',async()=>{
   const h=harness(); await statusPoll(h,recoveryStatus());
   const panel=h.document.getElementById('history-import-progress');

@@ -55,6 +55,7 @@ func (a *Application) ReadLiveArchive(ctx context.Context, q localui.ArchiveRead
 			}
 			empty := archive.EmptyStatsSnapshot(q.Stats, time.Now().UTC())
 			empty.UnknownHistoryGap = diagnostic.Snapshot.UnknownHistoryGap
+			empty.DeliveredHistorySnapshot = diagnostic.Snapshot.DeliveredHistorySnapshot
 			value = empty
 			checkSource = func(c context.Context) error { return a.store.CheckOwnerMetadataSnapshot(c, diagnostic.Snapshot) }
 		} else {

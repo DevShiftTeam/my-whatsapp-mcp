@@ -30,6 +30,7 @@ var errRestartRequired = errors.New("restart_required")
 
 const usage = `Usage: wa-indexer [serve] [--listen 127.0.0.1:64165] [--data-dir DIRECTORY] [--no-open]
        wa-indexer serve --unknown-history-policy strict|partial
+       wa-indexer serve --rebuild-history-policy selected-original|delivered-history
        wa-indexer serve --container [--listen 0.0.0.0:8123] [--browser-origin http://127.0.0.1:8123] [--docker-container-name NAME]
        wa-indexer owner-link [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
        wa-indexer health [--data-dir DIRECTORY] [--demo] [--connect LITERAL_LOOPBACK:PORT]
@@ -184,6 +185,9 @@ func startupErrorMessage(err error) string {
 
 func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result error) {
 	if opts.openExisting {
+		if opts.rebuildHistoryPolicyExplicit {
+			return errRestartRequired
+		}
 		if opts.historicalSnapshotAt != "" {
 			return errArguments
 		}
@@ -217,7 +221,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.unknownHistoryPolicyExplicit || opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.rebuildHistoryPolicyExplicit || opts.unknownHistoryPolicyExplicit || opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {
@@ -256,6 +260,9 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		unknownPolicy = ingestion.UnknownHistoryPartial
 	}
 	cfg := app.Config{UnknownHistoryPolicy: unknownPolicy, RebuildAncestorLockFDs: opts.rebuildAncestorLockFDs, RebuildSourceLockFD: opts.rebuildSourceLockFD, DataDir: opts.dataDir, Demo: opts.demo, DemoAcceptanceFixtures: opts.demoAcceptance, ExecutablePath: executable, OriginalBudgetBytes: opts.originalBudget, Transcription: voiceConfig, DockerContainerName: opts.dockerContainerName}
+	if opts.rebuildHistoryPolicyExplicit {
+		cfg.RebuildHistoryPolicy = archive.RebuildHistoryPolicy(opts.rebuildHistoryPolicy)
+	}
 
 	cfg.HistoricalView, err = historicalViewOptions(opts, opts.historicalViewDir != "")
 	if err != nil {
@@ -290,7 +297,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 		if opts.container {
 			return errStartup
 		}
-		if opts.unknownHistoryPolicyExplicit || opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
+		if opts.rebuildHistoryPolicyExplicit || opts.unknownHistoryPolicyExplicit || opts.historicalSnapshotAt != "" || opts.historicalViewDir != "" || opts.mcpListen != "" || adminConfig != nil || voiceConfig != nil {
 			return errRestartRequired
 		}
 		if opts.originalBudget != nil {

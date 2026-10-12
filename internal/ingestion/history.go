@@ -47,9 +47,16 @@ func (r *Runtime) historyFrom(ctx context.Context, event *events.Message) error 
 	if notification == nil {
 		return archive.ErrInvalidEvent
 	}
-	return r.history(ctx, notification)
+	delivered, err := r.captureDeliveredHistory(ctx)
+	if err != nil {
+		return err
+	}
+	return r.historyWithDelivered(ctx, notification, delivered)
 }
 func (r *Runtime) history(ctx context.Context, notification *waE2E.HistorySyncNotification) error {
+	return r.historyWithDelivered(ctx, notification, nil)
+}
+func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.HistorySyncNotification, delivered *deliveredHistoryChunk) error {
 	var reader io.Reader
 	var staged *boundedMemoryFile
 	if inline := notification.GetInitialHistBootstrapInlinePayload(); len(inline) > 0 {
@@ -100,7 +107,7 @@ func (r *Runtime) history(ctx context.Context, notification *waE2E.HistorySyncNo
 		_ = staged.Close()
 	}
 	defer clear(raw)
-	if err = r.projectHistory(ctx, raw); err != nil {
+	if err = r.projectHistoryWithDelivered(ctx, raw, delivered); err != nil {
 		return err
 	}
 	r.mu.Lock()
@@ -311,7 +318,10 @@ func walkWire(raw []byte, visit func(protowire.Number, protowire.Type, []byte, u
 	}
 	return nil
 }
-func (r *Runtime) projectHistory(ctx context.Context, raw []byte) (err error) {
+func (r *Runtime) projectHistory(ctx context.Context, raw []byte) error {
+	return r.projectHistoryWithDelivered(ctx, raw, nil)
+}
+func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, delivered *deliveredHistoryChunk) (err error) {
 	first := !r.Status().ReconciliationRequired
 	defer func() {
 		if err != nil {
@@ -376,18 +386,24 @@ func (r *Runtime) projectHistory(ctx context.Context, raw []byte) (err error) {
 		if typ != protowire.BytesType {
 			return errHistoryCorrupt
 		}
-		return r.projectConversationContext(ctx, value, partialContext)
+		return r.projectConversationDelivered(ctx, value, partialContext, delivered)
 	})
 	if err != nil {
 		return historyStage(err, "record_decode", "no_stub")
 	}
-	return historyStage(r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: r.SourceAccount(), CoverageUnknown: true}), "record_projection", "no_stub")
+	if err = r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: r.SourceAccount(), CoverageUnknown: true}); err != nil {
+		return historyStage(err, "record_projection", "no_stub")
+	}
+	return historyStage(r.commitDeliveredFrontiers(ctx, delivered), "record_projection", "no_stub")
 }
 func (r *Runtime) projectConversation(ctx context.Context, raw []byte) error {
 	// A standalone conversation lacks an authenticated complete history context.
 	return r.projectConversationContext(ctx, raw, false)
 }
 func (r *Runtime) projectConversationContext(ctx context.Context, raw []byte, partialContext bool) error {
+	return r.projectConversationDelivered(ctx, raw, partialContext, nil)
+}
+func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, partialContext bool, delivered *deliveredHistoryChunk) error {
 	partialContext = partialContext && partialHistoryWire(ctx, raw, partialHistoryConversation)
 	var chat, name, displayName string
 	if err := walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
@@ -476,6 +492,9 @@ func (r *Runtime) projectConversationContext(ctx context.Context, raw []byte, pa
 		}
 		if err = validateMessageStructure(event); err != nil {
 			return historyStage(err, "record_structure", "no_stub")
+		}
+		if delivered != nil {
+			return historyStage(r.projectDeliveredHistoryMessage(ctx, event, delivered), "record_projection", "no_stub")
 		}
 		// Preserve original protocol authority: the pinned parser replaces edits with
 		// their edited body. RawMessage retains the validated key and mutation order.

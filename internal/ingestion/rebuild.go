@@ -51,7 +51,7 @@ func configureRebuild(ctx context.Context, config *Config, store archive.Connect
 		}
 	}
 	if config.Rebuild == nil {
-		return nil
+		return configureDeliveredHistory(ctx, config, store)
 	}
 	c := config.Rebuild
 	if c.ObservationID == "" || len(c.ObservationID) > 128 || c.Account == "" || c.Boundary.IsZero() || c.Requests < 0 || c.Requests > 32 {
@@ -63,7 +63,7 @@ func configureRebuild(ctx context.Context, config *Config, store archive.Connect
 	// Copy caller-owned configuration before any asynchronous work.
 	copied := *c
 	config.Rebuild = &copied
-	return nil
+	return configureDeliveredHistory(ctx, config, store)
 }
 
 func (r *Runtime) rebuildAdmission(ctx context.Context, e *archive.SourceEvent, event *events.Message, policy archive.IngestionPolicy) (bool, error) {

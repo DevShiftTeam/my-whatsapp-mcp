@@ -28,6 +28,15 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 	if err != nil {
 		return 0, err
 	}
+	if version < 18 {
+		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_delivered_schema"); err != nil {
+			return 0, err
+		}
+		defer dst.ExecContext(ctx, "ROLLBACK TO pre_delivered_schema; RELEASE pre_delivered_schema")
+		if _, err = dst.ExecContext(ctx, "DROP TABLE rebuild_history_frontiers; DROP TABLE rebuild_history_pages; DROP TABLE rebuild_history_bodies; DROP TABLE rebuild_history_selection_audit; DROP TABLE rebuild_history_selection;"); err != nil {
+			return 0, err
+		}
+	}
 	if version < 17 {
 		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_classified_schema"); err != nil {
 			return 0, err

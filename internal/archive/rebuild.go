@@ -217,6 +217,13 @@ func (c rebuildRequestCommand) run(s *Store, ctx context.Context) (any, error) {
 			}
 			return nil
 		}
+		var delivered bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM rebuild_history_selection WHERE id=1 AND mode='delivered-history')").Scan(&delivered); err != nil {
+			return err
+		}
+		if delivered {
+			return ErrSourceUnavailable
+		}
 		r := c.request
 		p, e := s.loadPolicy(ctx, tx)
 		if e != nil {
@@ -277,6 +284,9 @@ func (c rebuildRequestCommand) run(s *Store, ctx context.Context) (any, error) {
 	return full, err
 }
 func (s *Store) PendingRebuildRequest(ctx context.Context, r RebuildRequest) error {
+	if selected := s.historySelection.Load(); selected != nil && selected.Policy == RebuildHistoryDelivered {
+		return ErrSourceUnavailable
+	}
 	if s.rebuild == nil || !validString(r.ID, 128) || !validKey(r.Key) || r.Key.Account != s.rebuild.Account || r.Generation != s.rebuild.Generation || r.CreatedAt.Before(s.rebuild.Boundary) || r.CreatedAt.After(s.now().Add(time.Minute)) || r.PolicyGeneration == 0 {
 		return ErrInvalidEvent
 	}
@@ -298,10 +308,13 @@ func (s *Store) RecordRebuildDiscovery(ctx context.Context, a SourceAnchor) erro
 }
 func rebuildMatchRequest(ctx context.Context, q sqlQuerier, id string, k SourceKey, generation string, policy Generation) (bool, error) {
 	var n int
-	e := q.QueryRowContext(ctx, `SELECT count(*) FROM rebuild_requests r WHERE id=? AND generation=? AND account=? AND COALESCE((SELECT canonical FROM identity_aliases WHERE account=r.account AND alias=r.chat),r.chat)=? AND COALESCE((SELECT canonical FROM identity_aliases WHERE account=r.account AND alias=r.sender),r.sender)=? AND message=? AND from_me=? AND policy_generation=? AND state='pending' AND policy_generation=(SELECT generation FROM archive_policy WHERE id=1) AND EXISTS(SELECT 1 FROM rebuild_operation o WHERE o.operation_id=r.operation_id AND o.generation=r.generation AND o.state<>'cancelled' AND o.policy_generation=r.policy_generation)`, id, generation, k.Account, k.Chat, k.Sender, k.Message, k.FromMe, policy).Scan(&n)
+	e := q.QueryRowContext(ctx, `SELECT count(*) FROM rebuild_requests r WHERE id=? AND generation=? AND account=? AND COALESCE((SELECT canonical FROM identity_aliases WHERE account=r.account AND alias=r.chat),r.chat)=? AND COALESCE((SELECT canonical FROM identity_aliases WHERE account=r.account AND alias=r.sender),r.sender)=? AND message=? AND from_me=? AND policy_generation=? AND state='pending' AND NOT EXISTS(SELECT 1 FROM rebuild_history_selection h WHERE h.id=1 AND h.mode='delivered-history') AND policy_generation=(SELECT generation FROM archive_policy WHERE id=1) AND EXISTS(SELECT 1 FROM rebuild_operation o WHERE o.operation_id=r.operation_id AND o.generation=r.generation AND o.state<>'cancelled' AND o.policy_generation=r.policy_generation)`, id, generation, k.Account, k.Chat, k.Sender, k.Message, k.FromMe, policy).Scan(&n)
 	return n == 1, fixedSQLError(e)
 }
 func (s *Store) MatchRebuildRequest(ctx context.Context, id string, k SourceKey, generation string, policy Generation) (bool, error) {
+	if selected := s.historySelection.Load(); selected != nil && selected.Policy == RebuildHistoryDelivered {
+		return false, nil
+	}
 	if s.rebuild == nil || !validKey(k) || !validString(id, 128) || generation != s.rebuild.Generation {
 		return false, nil
 	}
@@ -321,7 +334,7 @@ func (s *Store) MatchRebuildRequest(ctx context.Context, id string, k SourceKey,
 // reach SQLite. Negative controls remain authoritative without positive proof.
 func (s *Store) rebuildAdmit(ctx context.Context, tx *sql.Tx, e *SourceEvent, policy Generation) (bool, error) {
 	if s.rebuild == nil {
-		return true, nil
+		return e.DeliveredHistory == nil, nil
 	}
 	if e.Key.Account != s.rebuild.Account {
 		return false, ErrUnauthorized
@@ -356,7 +369,13 @@ func (s *Store) rebuildAdmit(ctx context.Context, tx *sql.Tx, e *SourceEvent, po
 	if !g.ExpiresAt.IsZero() && (e.ExpiresAt.IsZero() || e.ExpiresAt.After(g.ExpiresAt)) {
 		e.ExpiresAt = g.ExpiresAt
 	}
+	if e.DeliveredHistory != nil {
+		return s.deliveredHistoryAdmit(ctx, tx, *e, policy)
+	}
 	if e.RebuildRequestID != "" || !e.OriginalDateKnown || e.OriginalSentAt.Before(s.rebuild.Boundary) {
+		if selected := s.historySelection.Load(); selected != nil && selected.Policy == RebuildHistoryDelivered {
+			return false, nil
+		}
 		ok, err := rebuildMatchRequest(ctx, tx, e.RebuildRequestID, e.Key, s.rebuild.Generation, policy)
 		if err != nil || !ok {
 			return false, err

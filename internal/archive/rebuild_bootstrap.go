@@ -161,6 +161,15 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 	if err != nil {
 		return receipt, err
 	}
+	if sourceVersion == 18 {
+		var evidence int
+		if err = src.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM rebuild_history_selection)+(SELECT count(*) FROM rebuild_history_selection_audit)+(SELECT count(*) FROM rebuild_history_bodies)+(SELECT count(*) FROM rebuild_history_pages)+(SELECT count(*) FROM rebuild_history_frontiers)").Scan(&evidence); err != nil {
+			return receipt, err
+		}
+		if evidence != 0 {
+			return receipt, ErrSchemaChanged
+		}
+	}
 	var account string
 	var accounts int
 	if err = src.QueryRowContext(ctx, "SELECT count(*),COALESCE(min(account),'') FROM accounts").Scan(&accounts, &account); err != nil || accounts != 1 || account != o.ExpectedAccount {
@@ -204,7 +213,7 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 		}
 		receipt.Tables[projection.table] = digest
 	}
-	if sourceVersion == 17 {
+	if sourceVersion >= 17 {
 		if err = rebuildCopyUnknownHistoryGaps(ctx, src, tx, account, receipt.Tables); err != nil {
 			return receipt, err
 		}

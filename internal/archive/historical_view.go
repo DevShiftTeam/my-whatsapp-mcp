@@ -17,15 +17,16 @@ type HistoricalView struct {
 }
 
 type historicalRead struct {
-	liveCoverageEpoch     uint64
-	liveUnknownHistoryGap bool
-	view                  *HistoricalView
-	original              ReadScope
-	identity              [32]byte
-	grant                 *CredentialGrant
-	translated            ReadScope
-	liveScope             ReadScope
-	liveMapping           [32]byte
+	liveCoverageEpoch            uint64
+	liveUnknownHistoryGap        bool
+	liveDeliveredHistorySnapshot bool
+	view                         *HistoricalView
+	original                     ReadScope
+	identity                     [32]byte
+	grant                        *CredentialGrant
+	translated                   ReadScope
+	liveScope                    ReadScope
+	liveMapping                  [32]byte
 }
 
 var _ HistoricalReadFactory = (*HistoricalView)(nil)
@@ -116,7 +117,7 @@ func (v *HistoricalView) bind(ctx context.Context, scope ReadScope, grant *Crede
 	}
 	digest := sha256.Sum256(encoded)
 	translated.Principal = "historical:" + hex.EncodeToString(digest[:])
-	r := &historicalRead{view: v, original: scope, identity: identity, grant: grant, translated: translated, liveScope: liveScope, liveMapping: binding.Mapping, liveCoverageEpoch: liveState.coverageEpoch, liveUnknownHistoryGap: liveState.unknownHistoryGap}
+	r := &historicalRead{view: v, original: scope, identity: identity, grant: grant, translated: translated, liveScope: liveScope, liveMapping: binding.Mapping, liveCoverageEpoch: liveState.coverageEpoch, liveUnknownHistoryGap: liveState.unknownHistoryGap, liveDeliveredHistorySnapshot: liveState.deliveredHistorySnapshot}
 	if err = r.checkLive(ctx, scope); err != nil {
 		return nil, err
 	}
@@ -190,6 +191,7 @@ func (r *historicalRead) CheckResponse(ctx context.Context, scope ReadScope, che
 		return ReadSnapshot{}, ErrSourceUnavailable
 	}
 	snapshot.UnknownHistoryGap = snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
+	snapshot.DeliveredHistorySnapshot = snapshot.DeliveredHistorySnapshot || r.liveDeliveredHistorySnapshot
 	return snapshot, nil
 }
 
@@ -222,6 +224,7 @@ func (r *historicalRead) SearchGuarded(ctx context.Context, scope ReadScope, req
 		return SearchPage{}, ResponseGuard{}, err
 	}
 	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
+	page.Snapshot.DeliveredHistorySnapshot = page.Snapshot.DeliveredHistorySnapshot || r.liveDeliveredHistorySnapshot
 	return page, guard, nil
 }
 
@@ -245,6 +248,7 @@ func (r *historicalRead) ContextGuarded(ctx context.Context, scope ReadScope, re
 		return ContextPage{}, ResponseGuard{}, err
 	}
 	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
+	page.Snapshot.DeliveredHistorySnapshot = page.Snapshot.DeliveredHistorySnapshot || r.liveDeliveredHistorySnapshot
 	return page, guard, nil
 }
 
@@ -272,7 +276,8 @@ func (r *historicalRead) ListChatsGuarded(ctx context.Context, scope ReadScope, 
 		return ChatPage{}, ResponseGuard{}, err
 	}
 	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
-	if page.Snapshot.UnknownHistoryGap {
+	page.Snapshot.DeliveredHistorySnapshot = page.Snapshot.DeliveredHistorySnapshot || r.liveDeliveredHistorySnapshot
+	if page.Snapshot.UnknownHistoryGap || page.Snapshot.DeliveredHistorySnapshot {
 		for i := range page.Chats {
 			page.Chats[i].Coverage = "partial"
 		}
@@ -300,7 +305,8 @@ func (r *historicalRead) StatusGuarded(ctx context.Context, scope ReadScope) (St
 		return StatusSnapshot{}, ResponseGuard{}, err
 	}
 	page.Snapshot.UnknownHistoryGap = page.Snapshot.UnknownHistoryGap || r.liveUnknownHistoryGap
-	if page.Snapshot.UnknownHistoryGap {
+	page.Snapshot.DeliveredHistorySnapshot = page.Snapshot.DeliveredHistorySnapshot || r.liveDeliveredHistorySnapshot
+	if page.Snapshot.UnknownHistoryGap || page.Snapshot.DeliveredHistorySnapshot {
 		for i := range page.Chats {
 			page.Chats[i].Coverage = "partial"
 		}
@@ -330,6 +336,7 @@ func (r *historicalRead) StatsGuarded(ctx context.Context, scope ReadScope, requ
 		return StatsSnapshot{}, ResponseGuard{}, err
 	}
 	page.UnknownHistoryGap = page.UnknownHistoryGap || r.liveUnknownHistoryGap
+	page.DeliveredHistorySnapshot = page.DeliveredHistorySnapshot || r.liveDeliveredHistorySnapshot
 	return page, guard, nil
 }
 

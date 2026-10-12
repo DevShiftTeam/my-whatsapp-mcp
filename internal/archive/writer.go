@@ -308,6 +308,10 @@ func (s *Store) ApplySourceEvent(ctx context.Context, e SourceEvent, expected Ge
 		return ApplyResult{}, err
 	}
 	e.Media = cloneMedia(e.Media)
+	if e.DeliveredHistory != nil {
+		admission := *e.DeliveredHistory
+		e.DeliveredHistory = &admission
+	}
 	if e.ReplyTo != nil {
 		k := *e.ReplyTo
 		e.ReplyTo = &k
@@ -819,7 +823,7 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 		if p.Generation == 0 {
 			return ErrInvalidPolicy
 		}
-		if p.Generation != expected {
+		if p.Generation != expected && e.DeliveredHistory == nil {
 			return ErrPolicyChanged
 		}
 		result.PolicyGeneration = p.Generation
@@ -837,6 +841,9 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 		admitted, err := s.rebuildAdmit(ctx, tx, &e, p.Generation)
 		if err != nil {
 			return err
+		}
+		if e.DeliveredHistory != nil && expected != p.Generation {
+			admitted = false
 		}
 		if !admitted {
 			result.Outcome = OutcomeFiltered
@@ -1205,6 +1212,11 @@ func (s *Store) applyEvent(ctx context.Context, e SourceEvent, expected Generati
 		if state == "active" {
 			result.MediaIDs, err = s.extensionAssociateMedia(ctx, tx, SourceRef{Account: k.Account, Version: result.Version, ContentHash: hash}, e.Media)
 			if err != nil {
+				return err
+			}
+		}
+		if state == "active" && outcome == OutcomeApplied {
+			if err = s.recordDeliveredBody(ctx, tx, e); err != nil {
 				return err
 			}
 		}

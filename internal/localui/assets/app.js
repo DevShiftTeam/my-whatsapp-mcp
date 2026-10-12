@@ -30,6 +30,7 @@
   let recoveryVersion = 0;
   let historyImportStatusUnavailable = false;
   let historyImportPanel = null;
+  let unknownHistoryGapObserved = false;
   let pairingSnapshot = null;
   let chats = [];
   let nextCursor = "";
@@ -194,8 +195,13 @@
       throw error;
     }
     if (value?.Snapshot?.UnknownHistoryGap === true || value?.unknown_history_gap === true) {
+      unknownHistoryGapObserved = true;
       const notice = $("unknown-history-notice");
       notice.textContent = "Partial history: unsupported records may leave edits, deletions, or retention changes unreflected. Current phone state is unknown. Known controls and current permissions remain enforced.";
+      notice.hidden = false;
+    } else if (!unknownHistoryGapObserved && (value?.Snapshot?.DeliveredHistorySnapshot === true || value?.delivered_history_snapshot === true)) {
+      const notice = $("unknown-history-notice");
+      notice.textContent = "Delivered history snapshot: imported messages reflect the history returned by WhatsApp. Current phone state is unknown; older messages or later edits, deletions and retention changes may be missing. Known controls and current permissions remain enforced.";
       notice.hidden = false;
     }
     return value;
@@ -620,6 +626,7 @@
       const hasRestoredSnapshot = !unsafe && status.Snapshot?.RecoveryCode === "owner_restored_snapshot";
       const historicalSnapshot = document.documentElement?.dataset?.historicalSnapshot === "true";
       const liveRebuild = !unsafe && status.live_rebuild?.mode === "live_rebuild";
+      const deliveredSnapshot = status.Snapshot?.DeliveredHistorySnapshot === true || status.recovery?.strategy === "delivered-history";
       $("messages-count").textContent = unsafe ? "—" : count.toLocaleString();
       $("coverage-status").textContent = unsafe ? "Archive checks required" : hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
       $("history-detail").textContent = unsafe ? "Message counts are unavailable while this archive is paused." : count ? "Only the history delivered by WhatsApp is included." : "Messages appear here after WhatsApp sends them.";
@@ -642,11 +649,11 @@
         $("keyword-detail").textContent = "Search your saved historical message text.";
       }
       if (liveRebuild) {
-        $("coverage-status").textContent = "Live archive · partial recovery";
-        $("history-detail").textContent = "New messages and freshly returned phone copies are included. Current phone history remains unknown.";
+        $("coverage-status").textContent = deliveredSnapshot ? "Live archive · delivered history snapshot" : "Live archive · partial recovery";
+        $("history-detail").textContent = deliveredSnapshot ? "Phone-delivered history may omit older messages or later changes. Current phone state remains unknown." : "New messages and freshly returned phone copies are included. Current phone history remains unknown.";
       }
       const notices = [];
-      if (liveRebuild) notices.push("Live sync and AI connections use this archive. Earlier history appears only when the phone returns an eligible fresh copy; your date selection does not guarantee a complete import.");
+      if (liveRebuild) notices.push(deliveredSnapshot ? "Live sync and AI connections use this archive. Earlier history is imported as a delivered snapshot without individual fresh-copy confirmation. Your date selection does not guarantee full history or current phone state." : "Live sync and AI connections use this archive. Earlier history appears only when the phone returns an eligible fresh copy; your date selection does not guarantee a complete import.");
       if (hasRestoredSnapshot) notices.push("You restored this stored archive after an interrupted import. Messages, edits, or deletions during the interruption may be missing. Current WhatsApp state is unverified; known unavailable sources remain withheld.");
       if (hasStateSyncGap) notices.push(stateSyncGapText(status));
       if (hasMessageGap) notices.push("Some WhatsApp messages were unavailable, could not be decrypted, or had conflicting updates. Affected messages are withheld; other readable messages can still be imported and searched. Received history is incomplete." + ((status.Codes || []).includes("undecryptable_message") ? " WhatsApp may retry delivery." : ""));
@@ -2171,6 +2178,7 @@
     panel.hidden = false;
     const p = status?.recovery;
     const unavailable = historyImportStatusUnavailable || !p || statsUnavailable();
+    const delivered = p?.strategy === "delivered-history";
     let title = "History import status unavailable", active = false;
     if (!unavailable) {
       const states = {paused:"Earlier history import paused", cancelled:"Earlier history recovery cancelled", exhausted:"History request allowance exhausted", waiting_phone:"Waiting for earlier history from your phone", waiting_transport:"Waiting for WhatsApp chat details", waiting_for_older_anchor:"Waiting for older history", no_anchor:"Waiting for eligible history", queue_full:"History discovery limit reached"};
@@ -2178,6 +2186,7 @@
       else if (status.Paused) title = "Earlier history import paused";
       else if (p.state === "exhausted") title = states[p.state];
       else if (!["connected", "discovery", "importing"].includes(status.Connection)) title = "Waiting for your WhatsApp connection";
+      else if (delivered) title = p.page_state === "waiting_phone" ? "Waiting for earlier history from your phone" : "Delivered history import remains partial";
       else if (p.state === "running") {
         const attempted = typeof p.last_attempt_at === "string" && !p.last_attempt_at.startsWith("0001-") ? Date.parse(p.last_attempt_at) : NaN;
         const age = Date.now() - attempted;
@@ -2190,11 +2199,12 @@
     if (titleNode.textContent !== title) titleNode.textContent = title;
     $("history-import-spinner").hidden = !active;
     $("history-import-details").disabled = unavailable;
-    $("history-import-summary").textContent = unavailable ? "Keep the app running. Status will refresh automatically while this page is visible." : statsNumber(p.accepted) + " accepted history copies · " + statsNumber(status.Messages) + " readable messages in Live";
+    $("history-import-summary").textContent = unavailable ? "Keep the app running. Status will refresh automatically while this page is visible." : delivered ? statsNumber(p.delivered_accepted) + " snapshot messages accepted · " + statsNumber(p.readable_messages) + " readable messages in Live · " + statsNumber(p.accepted) + " earlier individual phone copies accepted" : statsNumber(p.accepted) + " accepted history copies · " + statsNumber(status.Messages) + " readable messages in Live";
     const currentPending = unavailable ? 0 : Math.max(0, statsCount(p.pending) - statsCount(p.stale));
-    $("history-import-requests").textContent = unavailable ? "" : statsNumber(currentPending) + " current requests awaiting phone replies or outcome unknown" + (statsCount(p.stale) ? " · " + statsNumber(p.stale) + " earlier requests no longer valid under current choices" : "") + " · " + statsNumber(p.queued) + " eligible copies queued";
+    $("history-import-requests").textContent = unavailable ? "" : delivered ? statsNumber(p.page_attempts) + " page attempts · " + statsNumber(Math.max(0, statsCount(p.discovery_limit) - statsCount(p.discovery_spent))) + " history request credits remaining · " + statsNumber(p.delivered_limit) + " snapshot message allowance" : statsNumber(currentPending) + " current requests awaiting phone replies or outcome unknown" + (statsCount(p.stale) ? " · " + statsNumber(p.stale) + " earlier requests no longer valid under current choices" : "") + " · " + statsNumber(p.queued) + " eligible copies queued";
     const range = !unavailable && typeof p.target_start === "string" && !p.target_start.startsWith("0001-") ? " Requested from " + dateText(p.target_start) + "." : "";
-    $("history-import-help").textContent = (archiveSource === "historical" ? "This captured historical view remains unchanged. Recovery updates Live separately. " : "") + "Phone history remains partial; older messages and a finish time are not guaranteed." + range;
+    const oldest = !unavailable && delivered && statsCount(p.readable_messages) > 0 && typeof p.delivered_oldest === "string" && !p.delivered_oldest.startsWith("0001-") && Number.isFinite(Date.parse(p.delivered_oldest)) ? " Oldest readable message in Live: " + dateText(p.delivered_oldest) + "." : "";
+    $("history-import-help").textContent = (archiveSource === "historical" ? "This captured historical view remains unchanged. Recovery updates Live separately. " : "") + "Phone history remains partial; older messages and a finish time are not guaranteed." + range + oldest;
   }
 
   function renderRecovery() {

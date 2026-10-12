@@ -36,7 +36,8 @@ type ReadScope struct {
 }
 
 type SourceEvent struct {
-	RebuildRequestID  string // authenticated exact-key peer response, consumed with admission
+	DeliveredHistory  *DeliveredHistoryAdmission `json:"-"`
+	RebuildRequestID  string                     // authenticated exact-key peer response, consumed with admission
 	Key               SourceKey
 	Kind              SourceEventKind // Original, EditInvalidation, EditContent, Delete
 	OriginalSentAt    time.Time
@@ -159,13 +160,14 @@ type SyncUpdate struct {
 type UnsafeReason string  // allowlisted fixed reason code
 type ObservationID string // random, process-owned lifecycle capability
 type ReadSnapshot struct {
-	CoverageEpoch     uint64 `json:"-"`
-	UnknownHistoryGap bool
-	PolicyGeneration  Generation
-	ArchiveRevision   ArchiveRevision
-	IndexGeneration   uint64
-	RecoveryEpoch     uint64
-	RecoveryCode      string
+	DeliveredHistorySnapshot bool
+	CoverageEpoch            uint64 `json:"-"`
+	UnknownHistoryGap        bool
+	PolicyGeneration         Generation
+	ArchiveRevision          ArchiveRevision
+	IndexGeneration          uint64
+	RecoveryEpoch            uint64
+	RecoveryCode             string
 }
 type SearchRequest struct {
 	Query       string

@@ -78,26 +78,27 @@ type StatsBreakdown struct {
 // StatsSnapshot contains readable messages, never a claim of complete phone
 // history. Operational import and worker progress remain in StatusSnapshot.
 type StatsSnapshot struct {
-	UnknownHistoryGap bool            `json:"unknown_history_gap,omitempty"`
-	SampledAt         int64           `json:"sampled_at"`
-	ArchiveRevision   ArchiveRevision `json:"archive_revision"`
-	Messages          int64           `json:"messages"`
-	Chats             int64           `json:"chats"`
-	Sent              int64           `json:"sent"`
-	Received          int64           `json:"received"`
-	FirstMessageAt    int64           `json:"first_message_at"`
-	LastMessageAt     int64           `json:"last_message_at"`
-	ActivityFrom      int64           `json:"activity_from"`
-	ActivityUntil     int64           `json:"activity_until"`
-	ActivityInterval  string          `json:"activity_interval"`
-	ActivityStep      int             `json:"activity_step"`
-	Daily             []StatsActivity `json:"daily"`
-	Kinds             []StatsKind     `json:"kinds"`
-	TopChats          []StatsChat     `json:"top_chats"`
-	Media             StatsMedia      `json:"media"`
-	Insights          StatsInsights   `json:"insights"`
-	Rhythm            []StatsRhythm   `json:"rhythm"`
-	Breakdown         StatsBreakdown  `json:"breakdown"`
+	DeliveredHistorySnapshot bool            `json:"delivered_history_snapshot,omitempty"`
+	UnknownHistoryGap        bool            `json:"unknown_history_gap,omitempty"`
+	SampledAt                int64           `json:"sampled_at"`
+	ArchiveRevision          ArchiveRevision `json:"archive_revision"`
+	Messages                 int64           `json:"messages"`
+	Chats                    int64           `json:"chats"`
+	Sent                     int64           `json:"sent"`
+	Received                 int64           `json:"received"`
+	FirstMessageAt           int64           `json:"first_message_at"`
+	LastMessageAt            int64           `json:"last_message_at"`
+	ActivityFrom             int64           `json:"activity_from"`
+	ActivityUntil            int64           `json:"activity_until"`
+	ActivityInterval         string          `json:"activity_interval"`
+	ActivityStep             int             `json:"activity_step"`
+	Daily                    []StatsActivity `json:"daily"`
+	Kinds                    []StatsKind     `json:"kinds"`
+	TopChats                 []StatsChat     `json:"top_chats"`
+	Media                    StatsMedia      `json:"media"`
+	Insights                 StatsInsights   `json:"insights"`
+	Rhythm                   []StatsRhythm   `json:"rhythm"`
+	Breakdown                StatsBreakdown  `json:"breakdown"`
 }
 
 func ValidStatsKind(kind string) bool {
@@ -165,6 +166,7 @@ func (s *Store) StatsGuarded(ctx context.Context, scope ReadScope, request Stats
 	}
 	page := EmptyStatsSnapshot(request, f.now)
 	page.UnknownHistoryGap = f.snapshot.UnknownHistoryGap
+	page.DeliveredHistorySnapshot = f.snapshot.DeliveredHistorySnapshot
 	page.ArchiveRevision = f.snapshot.ArchiveRevision
 	var first, last, expiry sql.NullInt64
 	err = f.tx.QueryRowContext(f.ctx, `SELECT COUNT(*),COUNT(DISTINCT m.chat_id),

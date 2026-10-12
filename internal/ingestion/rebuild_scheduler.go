@@ -61,8 +61,12 @@ func (r *Runtime) optionalRebuildStep(n *optionalNetwork) bool {
 	if c == nil || c.Requests == 0 || !r.optionalReady() {
 		return false
 	}
+	cadence := optionalCooldown
+	if r.config.RebuildHistoryPolicy == archive.RebuildHistoryDelivered {
+		cadence = archive.DeliveredHistoryRequestInterval
+	}
 	r.optionalMu.Lock()
-	limited := !r.lastRebuildRequest.IsZero() && time.Since(r.lastRebuildRequest) < optionalCooldown
+	limited := !r.lastRebuildRequest.IsZero() && time.Since(r.lastRebuildRequest) < cadence
 	if !limited {
 		r.lastRebuildRequest = time.Now()
 	}
@@ -84,8 +88,11 @@ func (r *Runtime) optionalRebuildStep(n *optionalNetwork) bool {
 		r.optionalOutcome(mediaFailure(err, ErrMediaUnavailable))
 		return false
 	}
-	if p == nil || p.Generation != c.ObservationID || p.State != "running" || !p.LastAttemptAt.IsZero() && time.Since(p.LastAttemptAt) < optionalCooldown {
+	if p == nil || p.Generation != c.ObservationID || p.State != "running" || !p.LastAttemptAt.IsZero() && time.Since(p.LastAttemptAt) < cadence {
 		return false
+	}
+	if r.config.RebuildHistoryPolicy == archive.RebuildHistoryDelivered {
+		return r.optionalDeliveredHistoryStep(ctx, p)
 	}
 	discoveryFirst := (p.CopySpent+p.DiscoverySpent)%2 == 1
 	for pass := 0; pass < 2; pass++ {

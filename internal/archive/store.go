@@ -35,6 +35,7 @@ type Options struct {
 type Store struct {
 	historicalSnapshot      bool
 	rebuild                 *RebuildProvenance
+	historySelection        atomic.Pointer[RebuildHistorySelection]
 	lockFile                *os.File
 	writeDB, readDB         *sql.DB
 	privateDir              string

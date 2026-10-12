@@ -662,6 +662,9 @@ func (s *Store) DiscoveryChats(ctx context.Context, request ChatListRequest) (Di
 		v.ObservedOldest = fromMillis(oldest)
 		v.ObservedLatest = fromMillis(latest)
 		v.Coverage = "unknown"
+		if page.Snapshot.DeliveredHistorySnapshot {
+			v.Coverage = "partial"
+		}
 		if page.Snapshot.UnknownHistoryGap {
 			v.Coverage = "partial"
 			v.GapCodes = append(v.GapCodes, UnknownHistoryGapCode)
@@ -750,6 +753,9 @@ func (s *Store) DiagnosticStatus(ctx context.Context) (StatusSnapshot, error) {
 	}
 	if e = unknownHistoryGapSnapshot(ctx, s.readDB, account, &status.Snapshot); e != nil {
 		return status, e
+	}
+	if status.Snapshot.DeliveredHistorySnapshot {
+		status.Coverage = "partial"
 	}
 	if status.Snapshot.UnknownHistoryGap {
 		status.Coverage = "partial"

@@ -840,6 +840,9 @@ func (f *readFrame) filteredChatViews(limit, offset int, queryKey, chatType stri
 		chat.Latest = fromMillis(latest)
 		chat.Coverage = CoverageState("unknown")
 		chat.GapCodes = []string{}
+		if f.snapshot.DeliveredHistorySnapshot {
+			chat.Coverage = "partial"
+		}
 		if f.snapshot.UnknownHistoryGap {
 			chat.Coverage = "partial"
 			chat.GapCodes = append(chat.GapCodes, UnknownHistoryGapCode)
@@ -956,6 +959,9 @@ func (s *Store) statusPage(ctx context.Context, scope ReadScope, guardOut *Respo
 		return StatusSnapshot{}, err
 	}
 	status := StatusSnapshot{Rebuild: s.rebuildStatus(), Connection: ConnectionState("disconnected"), Coverage: CoverageState("unknown"), Chats: chats, Snapshot: f.snapshot, Keyword: Progress{State: ProgressState("ready")}, Semantic: Progress{State: ProgressState("not_configured")}, Media: Progress{State: ProgressState("not_configured")}, Codes: []string{}}
+	if f.snapshot.DeliveredHistorySnapshot {
+		status.Coverage = "partial"
+	}
 	if f.snapshot.UnknownHistoryGap {
 		status.Coverage = "partial"
 		status.Codes = append(status.Codes, UnknownHistoryGapCode)

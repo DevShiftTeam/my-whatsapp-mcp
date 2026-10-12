@@ -25,6 +25,8 @@ var (
 )
 
 type options struct {
+	rebuildHistoryPolicy         string
+	rebuildHistoryPolicyExplicit bool
 	unknownHistoryPolicy         string
 	unknownHistoryPolicyExplicit bool
 	historicalViewDir            string
@@ -132,6 +134,7 @@ func parseArgs(args []string) (options, error) {
 		}
 	}
 	if opts.command == "serve" {
+		flags.StringVar(&opts.rebuildHistoryPolicy, "rebuild-history-policy", "selected-original", "")
 		flags.StringVar(&opts.unknownHistoryPolicy, "unknown-history-policy", "strict", "")
 		flags.IntVar(&rebuildSourceFD, "rebuild-source-lock-fd", -1, "")
 		flags.Func("rebuild-ancestor-lock-fd", "", func(raw string) error {
@@ -170,6 +173,9 @@ func parseArgs(args []string) (options, error) {
 		return options{}, errArguments
 	}
 	if opts.command == "serve" && opts.unknownHistoryPolicy != "strict" && opts.unknownHistoryPolicy != "partial" {
+		return options{}, errArguments
+	}
+	if opts.command == "serve" && opts.rebuildHistoryPolicy != "selected-original" && opts.rebuildHistoryPolicy != "delivered-history" {
 		return options{}, errArguments
 	}
 	if (opts.command == "owner-link" || opts.command == "health") && !localui.ValidOwnerConnect(opts.connect) {
@@ -253,11 +259,14 @@ func parseArgs(args []string) (options, error) {
 		return options{}, errArguments
 	}
 	flags.Visit(func(value *flag.Flag) {
+		if value.Name == "rebuild-history-policy" {
+			opts.rebuildHistoryPolicyExplicit = true
+		}
 		if value.Name == "unknown-history-policy" {
 			opts.unknownHistoryPolicyExplicit = true
 		}
 	})
-	if opts.openExisting && (opts.unknownHistoryPolicyExplicit || opts.container || adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
+	if opts.openExisting && (opts.rebuildHistoryPolicyExplicit || opts.unknownHistoryPolicyExplicit || opts.container || adminExplicit || remoteExplicit || opts.originalBudget != nil || opts.demoAcceptance || transcriptionExplicit) {
 		return options{}, errArguments
 	}
 	snapshotExplicit := false
@@ -271,6 +280,9 @@ func parseArgs(args []string) (options, error) {
 		if err != nil || at.IsZero() || at.After(time.Now()) || !filepath.IsAbs(opts.dataDir) || filepath.Clean(opts.dataDir) != opts.dataDir || opts.demo || opts.openExisting || opts.originalBudget != nil {
 			return options{}, errArguments
 		}
+	}
+	if opts.rebuildHistoryPolicyExplicit && (opts.demo || snapshotExplicit) {
+		return options{}, errArguments
 	}
 	flags.Visit(func(value *flag.Flag) {
 		if value.Name == "rebuild-source-lock-fd" {
