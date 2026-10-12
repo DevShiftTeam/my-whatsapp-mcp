@@ -34,6 +34,20 @@ jobs:
           node-version: '22'
       - name: Check compiler
         run: cc --version
+      - name: Prepare private test directory
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import tempfile
+
+          runner_temp = os.path.realpath(os.environ["RUNNER_TEMP"])
+          test_temp = tempfile.mkdtemp(prefix="wa-indexer-tests-", dir=runner_temp)
+          os.chmod(test_temp, 0o700)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as environment:
+              environment.write(f"TMPDIR={test_temp}\n")
+          PYTHON
+      - name: Check CI environment
+        run: python3 .github/workflows/tests/test_ci_environment.py
       - name: Check Go formatting
         run: make formatcheck
       - name: Build app
@@ -41,6 +55,9 @@ jobs:
       - name: Vet
         run: make vet
       - name: Test
+        env:
+          GOFLAGS: '-p=1'
+          GOMAXPROCS: '2'
         run: make test
       - name: Test browser logic
         run: make ui-test
