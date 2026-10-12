@@ -84,8 +84,36 @@ test('actual npm preview command binds loopback and rejects host overrides', { t
     assert.equal((await once(child, 'close'))[0], 1);
     assert.match(output, /Usage|port/);
   }
-  const child = spawn(process.execPath, [npmCLI, 'run', 'preview', '--', '--port', '0'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { if (child.exitCode === null) child.kill(); });
+  const env = { ...process.env };
+  if (process.platform !== 'win32') {
+    // Keep a shell parent around the preview process, as hosted Linux npm can
+    // do. Killing only npm must not leave that descendant holding the pipes.
+    const scriptShell = path.join(cwd, 'retained-script-shell.sh');
+    await writeFile(scriptShell, '#!/bin/sh\n/bin/sh "$@" &\nwait "$!"\n', { mode: 0o700 });
+    env.npm_config_script_shell = scriptShell;
+  }
+  const child = spawn(process.execPath, [npmCLI, 'run', 'preview', '--', '--port', '0'], {
+    cwd, env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe']
+  });
+  const closed = once(child, 'close');
+  let stopPromise;
+  const stop = () => stopPromise ??= (async () => {
+    const signal = name => {
+      try {
+        if (process.platform === 'win32') child.kill(name);
+        else process.kill(-child.pid, name);
+      } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    };
+    signal('SIGTERM');
+    let force, deadline;
+    try {
+      force = setTimeout(() => signal('SIGKILL'), 1_000);
+      await Promise.race([closed, new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(new Error('Owned preview process group did not close')), 2_000);
+      })]);
+    } finally { clearTimeout(force); clearTimeout(deadline); }
+  })();
+  t.after(stop);
   let output = '';
   const address = await new Promise((resolve, reject) => {
     child.stdout.on('data', chunk => {
@@ -98,5 +126,5 @@ test('actual npm preview command binds loopback and rejects host overrides', { t
   });
   assert.equal((await get(address, '/my-whatsapp-mcp/install/docker-compose.html')).code, 200);
   assert.equal((await get(address, '/docs/compatibility.json')).code, 404);
-  child.kill(); await once(child, 'close');
+  await stop();
 });
