@@ -106,8 +106,8 @@ func TestClassifiedMigrationPreservesOrdinaryAuditAndConstraints(t *testing.T) {
 	}
 }
 
-func TestClassifiedCompatibilityHistorical14And15RemainReadonly(t *testing.T) {
-	for _, version := range []int{14, 15} {
+func TestClassifiedCompatibilityHistorical14Through16RemainReadonly(t *testing.T) {
+	for _, version := range []int{14, 15, 16} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			dir := classifiedVersionFixture(t, version, rebuildSourceOrdinary)
 			path := filepath.Join(dir, "archive.sqlite")
@@ -130,9 +130,9 @@ func TestClassifiedCompatibilityHistorical14And15RemainReadonly(t *testing.T) {
 			if err != nil || after != before {
 				t.Fatal("historical bytes changed")
 			}
-			if version == 14 {
+			if version < 16 {
 				if err = validateOriginalCacheRecoverySchema(context.Background(), path); err == nil {
-					t.Fatal("writable original-cache accepted old14")
+					t.Fatal("writable original-cache accepted old schema")
 				}
 			}
 		})
@@ -140,7 +140,7 @@ func TestClassifiedCompatibilityHistorical14And15RemainReadonly(t *testing.T) {
 }
 
 func TestClassifiedCompatibilityForwardVersionSchemaPairing(t *testing.T) {
-	for _, version := range []int{14, 15} {
+	for _, version := range []int{14, 15, 16} {
 		for _, variant := range []rebuildSourceVariant{rebuildSourceOrdinary, rebuildSourceLegacy, rebuildSourceContinuation} {
 			t.Run(fmt.Sprintf("%d_%d", version, variant), func(t *testing.T) {
 				dir := classifiedVersionFixture(t, version, variant)
@@ -167,18 +167,26 @@ func TestClassifiedCompatibilityForwardVersionSchemaPairing(t *testing.T) {
 			})
 		}
 	}
-	for _, tamper := range []string{"receipt_mismatch", "extra_ddl"} {
+	for _, tamper := range []string{"receipt_mismatch", "receipt_16_over_15", "extra_ddl"} {
 		t.Run(tamper, func(t *testing.T) {
-			dir := classifiedVersionFixture(t, 14, rebuildSourceOrdinary)
+			version := 14
+			if tamper == "receipt_16_over_15" {
+				version = 15
+			}
+			dir := classifiedVersionFixture(t, version, rebuildSourceOrdinary)
 			source, err := sql.Open("sqlite3", filepath.Join(dir, "archive.sqlite"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer source.Close()
-			if tamper == "receipt_mismatch" {
-				b, _ := migrationFiles.ReadFile("migrations/015_classified_history_recovery.sql")
+			if tamper == "receipt_mismatch" || tamper == "receipt_16_over_15" {
+				name := "migrations/015_classified_history_recovery.sql"
+				if version == 15 {
+					name = "migrations/016_classified_history_username.sql"
+				}
+				b, _ := migrationFiles.ReadFile(name)
 				sum := sha256.Sum256(b)
-				_, err = source.Exec("INSERT INTO schema_migrations VALUES(15,?)", hex.EncodeToString(sum[:]))
+				_, err = source.Exec("INSERT INTO schema_migrations VALUES(?,?)", version+1, hex.EncodeToString(sum[:]))
 			} else {
 				_, err = source.Exec("CREATE TABLE unexpected_object(id INTEGER)")
 			}

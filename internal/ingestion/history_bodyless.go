@@ -307,6 +307,7 @@ func benignHistoryStub(kind waWeb.WebMessageInfo_StubType) bool {
 		waWeb.WebMessageInfo_COMMUNITY_ALLOW_MEMBER_ADDED_GROUPS,
 		waWeb.WebMessageInfo_EMPTY_SUBGROUP_CREATE,
 		waWeb.WebMessageInfo_SUBGROUP_ADMIN_TRIGGERED_AUTO_ADD_RICH,
+		waWeb.WebMessageInfo_CHANGE_USERNAME,
 		waWeb.WebMessageInfo_E2E_IDENTITY_CHANGED,
 		waWeb.WebMessageInfo_E2E_ENCRYPTED,
 		waWeb.WebMessageInfo_E2E_DEVICE_CHANGED,

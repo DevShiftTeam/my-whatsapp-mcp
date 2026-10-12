@@ -4,7 +4,7 @@
 
 ### Added
 
-- Add explicit offline acceptance of a committed partial history snapshot for the narrowly classified known history stub `33`, bound to reviewed private operator evidence; preserve the latest session, grants, send journal and recovery allowances, with current phone state still unverified.
+- Add explicit offline acceptance of a committed partial history snapshot for only the reviewed participant-number-change (`33`/`475`) and username-change (`193`/`411`) notice shapes, bound to fresh per-operation append-only private evidence; retain conflict quarantines and preserve the latest session, grants, send journal and recovery allowances, with current phone state still unverified.
 
 - Add an optional captured historical view alongside Live, with source selection on six existing MCP read tools and Archive/Stats, current live authorization and source-safety checks, and historical IDs excluded from sending and original retrieval. Retain the twelve-tool catalog and live Settings, importing and send controls.
 

@@ -11,6 +11,25 @@ import (
 )
 
 const ClassifiedHistoryGroupParticipantChangeNumber = "v1_group_participant_change_number"
+const ClassifiedHistoryChangeUsername = "v1_noncontent_history_notice"
+
+// ClassifiedHistoryDiagnosticFor defines an exact reviewed diagnostic tuple.
+// It does not classify arbitrary known stubs as safe history.
+func ClassifiedHistoryDiagnosticFor(classification string) (ClassifiedHistoryDiagnostic, bool) {
+	if classification == ClassifiedHistoryGroupParticipantChangeNumber {
+		return ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 33, StubPresent: true, StubKnown: true, Presence: 475}, true
+	}
+	if classification == ClassifiedHistoryChangeUsername {
+		return ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 193, StubPresent: true, StubKnown: true, Presence: 411}, true
+	}
+	return ClassifiedHistoryDiagnostic{}, false
+}
+
+// ClassifiedHistoryConflictProducerSupported limits the reviewed conflict evidence
+// grammar to the two immutable producers qualified for this recovery.
+func ClassifiedHistoryConflictProducerSupported(buildSHA string) bool {
+	return buildSHA == "ff0a3bd06a7f921e50d9b5c6484c481066070db3" || buildSHA == "7a7ca4a2ec0f619c0aff0a25839abcba68805a0a"
+}
 
 type ClassifiedHistoryDiagnostic struct {
 	Event       string `json:"event"`
@@ -31,7 +50,7 @@ func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int,
 	if err := tx.QueryRowContext(ctx, "SELECT max(version) FROM schema_migrations").Scan(&version); err != nil {
 		return 0, fixedSQLError(err)
 	}
-	if version != 14 && version != 15 {
+	if version != 14 && version != 15 && version != 16 {
 		return 0, ErrSchemaChanged
 	}
 	return version, nil
@@ -65,6 +84,7 @@ type ClassifiedHistoryWitness struct {
 	ObservationMarkerIdentity string                      `json:"observation_marker_identity"`
 	UnsafeMarkerSHA256        string                      `json:"unsafe_marker_sha256"`
 	UnsafeMarkerIdentity      string                      `json:"unsafe_marker_identity"`
+	SourceRevisionConflicts   uint32                      `json:"source_revision_conflicts,omitempty"`
 }
 
 // OpenClassifiedHistoryRecovery seals the caller's validated evidence while
@@ -95,7 +115,7 @@ func canonicalClassifiedHistoryWitness(w ClassifiedHistoryWitness) (string, stri
 		v, e := hex.DecodeString(value)
 		return e == nil && len(v) == bytes && strings.ToLower(value) == value
 	}
-	if w.Version != 1 || w.Classification != ClassifiedHistoryGroupParticipantChangeNumber || !validHex(w.RebuildGeneration, 16) || w.UnsafeEpoch == 0 || w.UnsafeEpoch >= 1<<63-1 || w.ArchiveRevision >= 1<<63-1 || w.RecoveryEpoch >= 1<<63-1 || w.RuntimePID <= 0 {
+	if w.Version != 1 || !validHex(w.RebuildGeneration, 16) || w.UnsafeEpoch == 0 || w.UnsafeEpoch >= 1<<63-1 || w.ArchiveRevision >= 1<<63-1 || w.RecoveryEpoch >= 1<<63-1 || w.RuntimePID <= 0 {
 		return "", "", ErrInvalidEvent
 	}
 	if w.LaunchEvidenceKind != "owner_attested_launch_interval_v1" || w.ProcessObservedAt.Before(w.LaunchActionRecordedAt) || w.StoppedAt.Before(w.ProcessObservedAt) {
@@ -117,7 +137,10 @@ func canonicalClassifiedHistoryWitness(w ClassifiedHistoryWitness) (string, stri
 	if (w.ObservationMarkerSHA256 == "") != (w.ObservationMarkerIdentity == "") || (w.ObservationMarkerSHA256 != "" && (!validHex(w.ObservationMarkerSHA256, 32) || !validString(w.ObservationMarkerIdentity, 256))) {
 		return "", "", ErrInvalidEvent
 	}
-	if w.Diagnostic != (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 33, StubPresent: true, StubKnown: true, Presence: 475}) {
+	if expected, known := ClassifiedHistoryDiagnosticFor(w.Classification); !known || w.Diagnostic != expected {
+		return "", "", ErrInvalidEvent
+	}
+	if w.SourceRevisionConflicts > 32 || (w.SourceRevisionConflicts != 0 && (w.Classification != ClassifiedHistoryChangeUsername || !ClassifiedHistoryConflictProducerSupported(w.RuntimeBuildSHA))) {
 		return "", "", ErrInvalidEvent
 	}
 	b, err := json.Marshal(w)

@@ -304,6 +304,11 @@ func (r *Runtime) rebuildHistoryMutation(ctx context.Context, event *events.Mess
 		}
 	}
 	_, err = r.apply(ctx, e)
+	if err == archive.ErrSourceRevisionConflict {
+		// The writer committed this message's quarantine and scoped gap.
+		// Continue unrelated history without admitting the withheld edit body.
+		return nil
+	}
 	return err
 }
 

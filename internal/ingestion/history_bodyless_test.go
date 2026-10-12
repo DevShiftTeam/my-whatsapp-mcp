@@ -718,3 +718,117 @@ func TestHistoryGroupNumberChangePreservesSafetyAndActorFences(t *testing.T) {
 		})
 	}
 }
+
+func TestHistoryUsernameChangeObservedShapeContinuesBodyRevokeAndEdit(t *testing.T) {
+	const chat = "200@s.whatsapp.net"
+	const noticeID = "synthetic-username-change-notice"
+	const oldName = "SYNTHETIC_OLD_USERNAME_CANARY"
+	const newName = "SYNTHETIC_NEW_USERNAME_CANARY"
+	store, dir := durableFixture(t)
+	r := durableRuntime(t, store)
+	ctx := context.Background()
+	target := bodylessHistoryRecord(chat, "username-revoke-target", "usernamerevoketargetreceipt")
+	editTarget := bodylessHistoryRecord(chat, "username-edit-target", "usernameoldeditreceipt")
+	if err := r.projectHistory(ctx, bodylessHistoryWire(t, chat, target, editTarget)); err != nil {
+		t.Fatal(err)
+	}
+	notice := bodylessHistoryStub(chat, noticeID, waWeb.WebMessageInfo_CHANGE_USERNAME)
+	notice.Message.MessageStubParameters = []string{oldName, newName}
+	if got := historyPresence(notice.Message); got != 411 {
+		t.Fatalf("fixture does not match observed presence411: %d", got)
+	}
+	tail := bodylessHistoryRecord(chat, "username-tail", "usernametailreceipt")
+	revoke := bodylessHistoryRecord(chat, "username-revoke", "")
+	revoke.Message.Message = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{Type: waE2E.ProtocolMessage_REVOKE.Enum(), Key: &waCommon.MessageKey{ID: proto.String("username-revoke-target"), RemoteJID: proto.String(chat), FromMe: proto.Bool(false)}}}
+	edit := bodylessHistoryRecord(chat, "username-edit", "")
+	edit.Message.MessageTimestamp = proto.Uint64(2000)
+	edit.Message.Message = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(), Key: &waCommon.MessageKey{ID: proto.String("username-edit-target"), RemoteJID: proto.String(chat), FromMe: proto.Bool(false)}, TimestampMS: proto.Int64(2000123), EditedMessage: &waE2E.Message{Conversation: proto.String("usernameneweditreceipt")}}}
+	if err := r.projectHistory(ctx, bodylessHistoryWire(t, chat, notice, tail, revoke, edit)); err != nil {
+		t.Fatalf("known username notice stopped valid body/control suffix: %v", err)
+	}
+	if r.Status().ReconciliationRequired {
+		t.Fatal("username notice fenced valid history")
+	}
+	queueBurstAssertSearch(t, store, "usernametailreceipt", 1)
+	queueBurstAssertSearch(t, store, "usernamerevoketargetreceipt", 0)
+	queueBurstAssertSearch(t, store, "usernameoldeditreceipt", 0)
+	queueBurstAssertSearch(t, store, "usernameneweditreceipt", 1)
+	metadata, err := store.SourceMetadata(ctx, bodylessHistoryKey(chat, noticeID))
+	if err != nil || metadata.Version.MessageID != "" || metadata.OriginalDateKnown || metadata.Version.Deleted {
+		t.Fatal("username notice fabricated source metadata")
+	}
+	editMetadata, err := store.SourceMetadata(ctx, bodylessHistoryKey(chat, "username-edit-target"))
+	if err != nil || editMetadata.ProtocolRevision != 2000123 || !editMetadata.OriginalSentAt.Equal(time.Unix(1000, 0)) {
+		t.Fatal("following edit lost original date or protocol revision")
+	}
+	anchors, err := store.BackfillAnchors(ctx, durableAccount, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, anchor := range anchors {
+		if anchor.Key.Message == noticeID {
+			t.Fatal("username notice fabricated a cursor")
+		}
+	}
+	if got := bodylessHistoryStatus(t, store).Messages; got != 2 {
+		t.Fatalf("notice created searchable content: %d", got)
+	}
+	durableAssertAbsent(t, dir, oldName, newName, noticeID)
+}
+
+func TestHistoryUsernameChangeDoesNotCreateIdentityAuthority(t *testing.T) {
+	store := fixtureStore()
+	r := testRuntime(store)
+	notice := bodylessHistoryStub("200@s.whatsapp.net", "synthetic-username-only", waWeb.WebMessageInfo_CHANGE_USERNAME)
+	notice.Message.MessageStubParameters = []string{"901@s.whatsapp.net", "902@s.whatsapp.net"}
+	if err := r.projectHistory(context.Background(), bodylessHistoryWire(t, "200@s.whatsapp.net", notice)); err != nil {
+		t.Fatalf("known username metadata was rejected: %v", err)
+	}
+	if len(store.events) != 0 || len(store.aliases) != 0 || len(store.names) != 0 || r.Status().ReconciliationRequired {
+		t.Fatal("username parameters fabricated source, aliases or names")
+	}
+}
+
+func TestHistoryUsernameChangePreservesSafetyAndActorFences(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*waWeb.WebMessageInfo)
+	}{
+		{"invalid_actor", func(m *waWeb.WebMessageInfo) { m.Participant = proto.String("@s.whatsapp.net") }},
+		{"conflicting_actor", func(m *waWeb.WebMessageInfo) {
+			m.Participant = proto.String("200@s.whatsapp.net")
+			m.Key.Participant = proto.String("777@s.whatsapp.net")
+		}},
+		{"invalid_key", func(m *waWeb.WebMessageInfo) { m.Key.ID = proto.String("") }},
+		{"wrong_chat", func(m *waWeb.WebMessageInfo) { m.Key.RemoteJID = proto.String("301@g.us") }},
+		{"expiry_even_zero", func(m *waWeb.WebMessageInfo) { m.EphemeralDuration = proto.Uint32(0) }},
+		{"futureproof", func(m *waWeb.WebMessageInfo) { m.FutureproofData = []byte{1} }},
+		{"keep", func(m *waWeb.WebMessageInfo) { m.KeepInChat = &waWeb.KeepInChat{} }},
+		{"target_control", func(m *waWeb.WebMessageInfo) {
+			m.TargetMessageID = &waCommon.MessageKey{ID: proto.String("synthetic-target")}
+		}},
+		{"unknown_enum", func(m *waWeb.WebMessageInfo) { m.MessageStubType = waWeb.WebMessageInfo_StubType(987654).Enum() }},
+		{"unknown_zero", func(m *waWeb.WebMessageInfo) { m.MessageStubType = waWeb.WebMessageInfo_UNKNOWN.Enum() }},
+		{"individual_number_change", func(m *waWeb.WebMessageInfo) {
+			m.MessageStubType = waWeb.WebMessageInfo_INDIVIDUAL_CHANGE_NUMBER.Enum()
+		}},
+		{"expiry_control", func(m *waWeb.WebMessageInfo) {
+			m.MessageStubType = waWeb.WebMessageInfo_CHANGE_EPHEMERAL_SETTING.Enum()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := fixtureStore()
+			r := testRuntime(store)
+			notice := bodylessHistoryStub("200@s.whatsapp.net", "synthetic-username-change", waWeb.WebMessageInfo_CHANGE_USERNAME)
+			notice.Message.MessageStubParameters = []string{"old-username", "new-username"}
+			tc.mutate(notice.Message)
+			tail := bodylessHistoryRecord("200@s.whatsapp.net", "unsafe-username-tail", "mustnotadmitreceipt")
+			if err := r.projectHistory(context.Background(), bodylessHistoryWire(t, "200@s.whatsapp.net", notice, tail)); err == nil || !r.Status().ReconciliationRequired {
+				t.Fatal("unsafe username notice bypassed fence")
+			}
+			if len(store.events) != 0 || len(store.aliases) != 0 || len(store.names) != 0 {
+				t.Fatal("unsafe username notice fabricated content or identity authority")
+			}
+		})
+	}
+}

@@ -28,12 +28,16 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 	if err != nil {
 		return 0, err
 	}
-	if version == 14 {
+	if version == 14 || version == 15 {
 		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_classified_schema"); err != nil {
 			return 0, err
 		}
 		defer dst.ExecContext(ctx, "ROLLBACK TO pre_classified_schema; RELEASE pre_classified_schema")
-		ddl, err := migrationFiles.ReadFile("migrations/011_snapshot_recovery.sql")
+		schemaFile := "migrations/011_snapshot_recovery.sql"
+		if version == 15 {
+			schemaFile = "migrations/015_classified_history_recovery.sql"
+		}
+		ddl, err := migrationFiles.ReadFile(schemaFile)
 		if err != nil {
 			return 0, ErrSchemaChanged
 		}
@@ -41,7 +45,15 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 		if start < 0 {
 			return 0, ErrSchemaChanged
 		}
-		if _, err = dst.ExecContext(ctx, "DROP INDEX snapshot_recovery_one_prepared; DROP TABLE snapshot_recovery_audit;"+string(ddl[start:])); err != nil {
+		auditDDL := string(ddl[start:])
+		if version == 15 {
+			end := strings.Index(auditDDL, "INSERT INTO snapshot_recovery_audit(")
+			if end < 0 {
+				return 0, ErrSchemaChanged
+			}
+			auditDDL = auditDDL[:end]
+		}
+		if _, err = dst.ExecContext(ctx, "DROP INDEX snapshot_recovery_one_prepared; DROP TABLE snapshot_recovery_audit;"+auditDDL); err != nil {
 			return 0, err
 		}
 	}

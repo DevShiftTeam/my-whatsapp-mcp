@@ -67,7 +67,7 @@ func classifiedIntegrationProfile(t *testing.T, legacy bool) classifiedIntegrati
 		if start < 0 {
 			t.Fatal("missing legacy audit schema")
 		}
-		if _, err = db.Exec("DROP TABLE snapshot_recovery_audit;" + string(raw[start:]) + "; DELETE FROM schema_migrations WHERE version=15"); err != nil {
+		if _, err = db.Exec("DROP TABLE snapshot_recovery_audit;" + string(raw[start:]) + "; DELETE FROM schema_migrations WHERE version>=15"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -281,8 +281,14 @@ func TestClassifiedHistoryProfileRecoveryRejectsBindingDrift(t *testing.T) {
 func classifiedIntegrationAssertUnprepared(t *testing.T, f classifiedIntegrationFixture) {
 	t.Helper()
 	f.assertPreserved(t)
-	if _, err := os.Lstat(filepath.Join(f.paths.WorkingDir, classifiedHistoryBindingFile)); !os.IsNotExist(err) {
-		t.Fatal("rejected recovery persisted an evidence binding", err)
+	entries, err := os.ReadDir(f.paths.WorkingDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "classified-history-recovery.") {
+			t.Fatal("rejected recovery persisted an evidence binding")
+		}
 	}
 	digest, identity := classifiedIntegrationMarker(t, filepath.Join(f.paths.ArchiveDir, "unsafe.marker"))
 	if digest != f.evidence.Witness.UnsafeMarkerSHA256 || identity != f.evidence.Witness.UnsafeMarkerIdentity {
@@ -338,10 +344,10 @@ func TestClassifiedHistoryProfileRecoveryRetriesAfterBindingAndMigration(t *test
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if version != 15 || audits != 0 {
+	if version != 16 || audits != 0 {
 		t.Fatal("interruption was not between migration and recovery prepare", version, audits)
 	}
-	if _, err := os.Stat(filepath.Join(f.paths.WorkingDir, classifiedHistoryBindingFile)); err != nil {
+	if _, err := os.Stat(classifiedHistoryBindingPath(f.paths, e.Witness.EvidenceSHA256)); err != nil {
 		t.Fatal("missing durable pre-migration binding", err)
 	}
 	changed := f.evidence
