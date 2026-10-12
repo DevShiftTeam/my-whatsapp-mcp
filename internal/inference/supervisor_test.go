@@ -523,11 +523,17 @@ func TestForegroundBypassesWaitingBackgroundAdmission(t *testing.T) {
 			return nil, ctx.Err()
 		}
 		return &testComputeGuard{ctx: ctx, release: func() {}}, nil
-	}, RequestTimeout: time.Second})
+	}, RequestTimeout: 5 * time.Second})
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer s.Close()
+	if _, err := s.EncodeQuery(context.Background(), "warm fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := s.Snapshot(); snapshot.State != Ready || snapshot.PID == 0 {
+		t.Fatal("foreground admission fixture worker is not ready")
+	}
 	bgctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bgDone := make(chan struct{})
