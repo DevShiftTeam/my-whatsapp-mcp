@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -641,4 +642,105 @@ func TestAttachmentDownloadWriteAndFlushFailureReleaseOwnership(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A second request must not queue its already-checked authority behind a slow
+// response. Withdrawal while queued cannot be repaired by ticket TTL alone.
+func TestAttachmentFinalGateDeniesContentionAfterAuthorityWithdrawal(t *testing.T) {
+	for _, source := range []bool{false, true} {
+		t.Run(map[bool]string{false: "credential_revocation", true: "source_invalidation"}[source], func(t *testing.T) {
+			s, a, _, _, token := attachmentServiceFixture(t)
+			checked, releaseCheck := make(chan struct{}), make(chan struct{})
+			atGate, releaseGate := make(chan struct{}), make(chan struct{})
+			firstWrite, releaseWrite := make(chan struct{}), make(chan struct{})
+			var checks atomic.Int32
+			var clockGate atomic.Bool
+			a.checkHook = func() {
+				if checks.Add(1) == 1 {
+					close(checked)
+					<-releaseCheck
+					clockGate.Store(true)
+				}
+			}
+			s.now = func() time.Time {
+				if clockGate.Swap(false) {
+					close(atGate)
+					<-releaseGate
+				}
+				return time.Now()
+			}
+			var checkOnce, gateOnce, writeOnce sync.Once
+			allowCheck := func() { checkOnce.Do(func() { close(releaseCheck) }) }
+			allowGate := func() { gateOnce.Do(func() { close(releaseGate) }) }
+			allowWrite := func() { writeOnce.Do(func() { close(releaseWrite) }) }
+			defer allowWrite()
+			defer allowGate()
+			defer allowCheck()
+			second := httptest.NewRecorder()
+			secondDone := make(chan struct{})
+			go func() {
+				defer close(secondDone)
+				s.ServeDownload(second, httptest.NewRequest(http.MethodGet, "https://archive.example/mcp/attachments/"+token, nil))
+			}()
+			select {
+			case <-checked:
+			case <-time.After(time.Second):
+				t.Fatal("second request did not reach final source check")
+			}
+			first := &attachmentBlockedWriter{ResponseRecorder: httptest.NewRecorder(), entered: firstWrite, release: releaseWrite}
+			firstDone := make(chan struct{})
+			go func() {
+				defer close(firstDone)
+				s.ServeDownload(first, httptest.NewRequest(http.MethodGet, "https://archive.example/mcp/attachments/"+token, nil))
+			}()
+			select {
+			case <-firstWrite:
+			case <-time.After(time.Second):
+				t.Fatal("first response did not hold commit gate")
+			}
+			allowCheck()
+			select {
+			case <-atGate:
+			case <-time.After(time.Second):
+				t.Fatal("second response did not finish source authorization")
+			}
+			a.mu.Lock()
+			if source {
+				a.checkErr = archive.ErrSourceUnavailable
+			} else {
+				a.denied = true
+			}
+			a.mu.Unlock()
+			allowGate()
+			deniedWithoutQueue := false
+			select {
+			case <-secondDone:
+				deniedWithoutQueue = true
+			case <-time.After(time.Second):
+			}
+			allowWrite()
+			for _, done := range []<-chan struct{}{firstDone, secondDone} {
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("fixture response failed to join")
+				}
+			}
+			if !deniedWithoutQueue || second.Code != http.StatusNotFound || strings.Contains(second.Body.String(), "%PDF") {
+				t.Fatalf("stale authorization queued behind response: prompt=%v status=%d", deniedWithoutQueue, second.Code)
+			}
+		})
+	}
+}
+
+type attachmentBlockedWriter struct {
+	*httptest.ResponseRecorder
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (w *attachmentBlockedWriter) Write(payload []byte) (int, error) {
+	close(w.entered)
+	<-w.release
+	return w.ResponseRecorder.Write(payload)
 }

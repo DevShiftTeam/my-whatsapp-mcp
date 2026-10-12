@@ -263,7 +263,7 @@ func TestManagedRetainedDocumentFromNativeAndRemoteHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, _, err := a.mcp.attachments.Search(ctx, grant, archive.AttachmentSearchRequest{Query: demoDocumentCanary})
+	page, _, err := a.mcp.attachments.Search(ctx, grant, archive.AttachmentSearchRequest{Filename: "synthetic-acceptance.pdf"})
 	if err != nil || len(page.Attachments) != 1 {
 		t.Fatal("synthetic retained document missing", err)
 	}

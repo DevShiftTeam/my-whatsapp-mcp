@@ -473,9 +473,14 @@ func (s *attachmentService) ServeDownload(w http.ResponseWriter, r *http.Request
 		deny()
 		return
 	}
-	// Keep authority stable through the bounded response flush. A reconnect
-	// clears the map before any old ticket can authorize a later response.
-	s.mu.Lock()
+	// Never queue after the final source/credential fence: another response
+	// can hold this gate through a slow flush while authority is withdrawn.
+	// Deny contention so a retry must perform fresh authorization. Once held,
+	// keep authority stable through the bounded response write and flush.
+	if !s.mu.TryLock() {
+		deny()
+		return
+	}
 	defer s.mu.Unlock()
 	if _, exists := s.tickets[token]; s.invalidated || !exists || !s.now().Before(ticket.expires) {
 		deny()
