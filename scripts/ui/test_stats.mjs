@@ -97,6 +97,7 @@ function pageSnapshot(page=1,total=23,pageSize=10,name='Synthetic page row') {
 }
 function harness(clock = null) {
   const nodes = new Map([...html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"/gi)].map(match => [match[2],new FakeNode(match[1])]));
+  for(const id of ['archive-update','archive-update-text'])if(!nodes.has(id))nodes.set(id,new FakeNode());
   const selectors = new Map([['.skip-link',new FakeNode('a')],['.stats-update',new FakeNode()]]);
   const policyRadios = [...html.matchAll(/<input\b[^>]*name="(date-mode|chat-mode)"[^>]*value="([^"]+)"[^>]*>/g)].map(match => {
     const node=new FakeNode('input'); node.name=match[1]; node.value=match[2]; node.checked=match[0].includes(' checked'); return node;
@@ -142,11 +143,25 @@ function harness(clock = null) {
   const api = context.__test;
   api.setSetup({configured:true,Policy:{ChatMode:'all'}});
   api.setStatus({Connection:'connected',Messages:6,Keyword:{State:'ready',Complete:6,Pending:0,Failed:0},Media:{State:'ready',Complete:1,Pending:1,Failed:0},Semantic:{State:'not_configured'},Codes:[]});
-  return {api,nodes,document,requests,intervals,timers,policyRadios,fire:name => { for(const callback of docListeners.get(name) ?? []) callback(); }};
+  return {api,nodes,document,requests,intervals,timers,policyRadios,selectors,fire:name => { for(const callback of docListeners.get(name) ?? []) callback(); }};
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const cases = [];
 async function check(name,body) { await body(); cases.push(name); }
+
+await check('transient Stats transport failures retain last good counts, rows, focus and filters',async()=>{
+ for(const failure of ['network','timeout','502','body-network']){
+  const h=harness();h.api.renderStats(snapshot());const row=h.nodes.get('stats-aggregate-rows').children[0];const cell=descendants(h.nodes.get('stats-heatmap')).find(node=>node.tagName==='BUTTON');cell.focus();const pending=h.api.refreshStats();const loadingState=h.selectors.get('.stats-update').dataset.state,loadingText=h.nodes.get('stats-updated').textContent;assert.equal(h.nodes.get('stats-message-count').textContent,'6');
+  if(failure==='502')h.requests[0].resolve({},502);else if(failure==='body-network')h.requests[0].resolveJSON(async()=>{throw new TypeError('Synthetic interrupted body');});else {const error=new Error('Synthetic transport failure');if(failure==='timeout')error.name='AbortError';h.requests[0].reject(error);}await pending;
+  assert.equal(h.nodes.get('stats-message-count').textContent,'6');assert.equal(loadingState,'loading');assert.equal(loadingText,'Updating…');assert.equal(h.nodes.get('stats-aggregate-rows').children[0],row);assert.equal(h.document.activeElement,cell);assert.ok(h.nodes.get('stats-heatmap').contains(cell));assert.equal(h.nodes.get('stats-range').value,'all');assert.equal(h.selectors.get('.stats-update').dataset.state,'error');assert.match(h.nodes.get('stats-feedback').textContent,/last.*counts|previous.*counts/i);assert.equal(h.nodes.get('stats-refresh').disabled,false);
+ }
+});
+await check('Stats source invalidation during a request removes loading state and fences late data',async()=>{
+ const h=harness();h.api.renderStats(snapshot());const pending=h.api.refreshStats();const late=h.requests[0];const invalid=h.api.requestAPI('/api/context','POST',{source:'saved',message_id:'synthetic'});h.requests[1].resolve({code:'policy_changed'},409);await assert.rejects(invalid);assert.notEqual(h.selectors.get('.stats-update').dataset.state,'loading');assert.equal(h.nodes.get('stats-message-count').textContent,'—');late.resolve(snapshot(99));await pending;assert.equal(h.nodes.get('stats-message-count').textContent,'—');
+});
+await check('malformed successful JSON is not treated as a transient Stats transport failure',async()=>{
+ const h=harness();h.api.renderStats(snapshot());const pending=h.api.refreshStats();h.requests[0].resolveJSON(async()=>{throw new SyntaxError('Synthetic malformed JSON');});await pending;assert.equal(h.nodes.get('stats-message-count').textContent,'—');assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0);assert.match(h.nodes.get('stats-feedback').textContent,/Stats could not be read/);assert.doesNotMatch(h.nodes.get('stats-feedback').textContent,/counts are kept/);
+});
 
 function recoveryStatus(overrides={},statusOverrides={}) {
   return {Connection:'connected',Paused:false,Messages:219,Keyword:{State:'ready',Complete:219,Pending:0,Failed:0},Media:{State:'not_configured'},Semantic:{State:'not_configured'},Codes:[],live_rebuild:{mode:'live_rebuild',coverage:'partial',current_phone_state:'unknown'},
@@ -178,7 +193,8 @@ await check('partial uncertainty never masks a source reconciliation fence or en
   assert.equal(h.nodes.get('search-content').hidden,true);
   assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
   const before=h.requests.length;await h.api.refreshStats();assert.equal(h.requests.length,before,'unsafe Stats cannot start a read');
-  assert.match(h.nodes.get('stats-feedback').textContent,/unavailable.*requires checks/i);
+  assert.match(h.nodes.get('stats-feedback').textContent,/hidden.*archive safety.*not.*verified/i);
+  assert.match(h.nodes.get('stats-feedback').textContent,/separate from normal syncing or background work/i);
   h.nodes.get('clients-dialog').open=true;const clients=h.api.refreshConnections();h.requests.at(-1).resolve({code:'client_connections_unavailable'},503);await clients;
   assert.equal(h.nodes.get('client-list').textContent,'');assert.match(h.nodes.get('clients-feedback').textContent,/AI connections are unavailable/i);
   const failed=h.api.refreshStatus();h.requests.at(-1).resolve({code:'not_found'},404);await failed;
@@ -468,7 +484,7 @@ await check('hidden page and Archive view abort and cannot publish stale Stats',
   h.document.hidden=false; const second=h.api.refreshStats(); h.api.selectWorkspaceView('archive'); assert.equal(h.requests[1].options.signal.aborted,true); h.requests[1].resolve(snapshot(555,'ARCHIVE_STALE_NAME')); await second; assert.equal(h.api.state().statsSnapshot,null); assert.equal(h.nodes.get('stats-view').hidden,true); assert.equal(h.nodes.get('archive-view').hidden,false);
 });
 await check('unsafe archive hides aggregates without fetching and clears source details',async()=>{
-  const h=harness(); h.api.renderStats(snapshot(6,'PRIVATE_SYNTHETIC_NAME')); h.api.setStatus({Connection:'reconciliation_required',ReconciliationRequired:true,Codes:[]}); await h.api.refreshStats(); assert.equal(h.requests.length,0); assert.equal(h.nodes.get('stats-message-count').textContent,'—'); assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0); assert.equal(h.nodes.get('stats-heatmap').children.length,0); assert.match(h.nodes.get('stats-feedback').textContent,/unavailable/);
+  const h=harness(); h.api.renderStats(snapshot(6,'PRIVATE_SYNTHETIC_NAME')); h.api.setStatus({Connection:'reconciliation_required',ReconciliationRequired:true,Codes:[]}); await h.api.refreshStats(); assert.equal(h.requests.length,0); assert.equal(h.nodes.get('stats-message-count').textContent,'—'); assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0); assert.equal(h.nodes.get('stats-heatmap').children.length,0); assert.match(h.nodes.get('stats-feedback').textContent,/Stats are hidden because archive safety could not be verified.*Your saved files and AI connections are kept/);
 });
 await check('job progress is real completed/pending/failed count with explicit busy status',async()=>{
   const h=harness(); h.api.renderStatsProgress('media',{State:'ready',Code:'transcription_busy',Complete:9,Pending:2,Failed:1}); assert.equal(h.nodes.get('stats-media-progress').value,9); assert.equal(h.nodes.get('stats-media-progress').max,12); assert.equal(h.nodes.get('stats-media-state').textContent,'Transcribing another recording'); assert.equal(h.nodes.get('stats-media-detail').textContent,'9 completed · 2 waiting · 1 failed'); h.api.renderStatsProgress('semantic',{State:'not_configured'}); assert.equal(h.nodes.get('stats-semantic-progress').hidden,true); assert.match(h.nodes.get('stats-semantic-detail').textContent,/Optional/);
@@ -480,7 +496,7 @@ await check('empty filtered dataset presents zero totals and an explicit no-matc
   const h=harness(); h.api.renderStats({...snapshot(0),sent:0,received:0,chats:0,daily:[],top_chats:[],kinds:[],media:{voice_messages:0,retained_voice:0,transcribed_voice:0},insights:{active_days:0,longest_streak_days:0,busiest_date:'',busiest_date_messages:0},rhythm:[],breakdown:{dimension:'chats',page:1,page_size:10,total:0,sort:'messages',rows:[]}}); assert.equal(h.nodes.get('stats-message-count').textContent,'0'); assert.equal(h.nodes.get('stats-chat-count').textContent,'0'); assert.match(h.nodes.get('stats-chart').textContent,/No readable messages match/); assert.equal(h.nodes.get('stats-activity-table').hidden,true); assert.equal(h.nodes.get('stats-transcribed').textContent,'0 / 0'); assert.equal(h.nodes.get('stats-voice-progress').max,1); assert.equal(h.nodes.get('stats-voice-progress').value,0); assert.equal(h.nodes.get('stats-page-prev').disabled,true); assert.equal(h.nodes.get('stats-page-next').disabled,true); assert.equal(h.nodes.get('stats-active-days').textContent,'0'); assert.equal(h.nodes.get('stats-daily-average').textContent,'0');
 });
 await check('aborting a deferred response body retains timeout guidance and releases the request',async()=>{
-  const h=harness(); h.api.renderStats(snapshot(6,'OLD_SYNTHETIC_NAME')); const pending=h.api.refreshStats(); let rejectBody; const body=new Promise((_,reject)=>{rejectBody=reject;}); h.requests[0].resolveJSON(()=>body); await flush(); assert.equal(h.requests[0].options.signal.aborted,false); assert.equal(h.timers.size,1); [...h.timers.values()][0](); assert.equal(h.requests[0].options.signal.aborted,true); const abort=new Error('Synthetic body aborted'); abort.name='AbortError'; rejectBody(abort); await pending; assert.equal(h.api.state().statsController,null); assert.equal(h.nodes.get('stats-data').attributes['aria-busy'],'false'); assert.equal(h.nodes.get('stats-refresh').disabled,false); assert.equal(h.nodes.get('stats-message-count').textContent,'—'); assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0); assert.match(h.nodes.get('stats-feedback').textContent,/Stats took too long/);
+   const h=harness(); h.api.renderStats(snapshot(6,'OLD_SYNTHETIC_NAME')); const pending=h.api.refreshStats(); let rejectBody; const body=new Promise((_,reject)=>{rejectBody=reject;}); h.requests[0].resolveJSON(()=>body); await flush(); assert.equal(h.requests[0].options.signal.aborted,false); assert.equal(h.timers.size,1); [...h.timers.values()][0](); assert.equal(h.requests[0].options.signal.aborted,true); const abort=new Error('Synthetic body aborted'); abort.name='AbortError'; rejectBody(abort); await pending; assert.equal(h.api.state().statsController,null); assert.equal(h.nodes.get('stats-data').attributes['aria-busy'],'false'); assert.equal(h.nodes.get('stats-refresh').disabled,false); assert.equal(h.nodes.get('stats-message-count').textContent,'6'); assert.equal(h.nodes.get('stats-aggregate-rows').children.length,2); assert.match(h.nodes.get('stats-feedback').textContent,/Stats took too long/);
 });
 await check('aggregate paging controls send bounded pages and display a clamped final page',async()=>{
   const h=harness(); h.api.renderStats(pageSnapshot());

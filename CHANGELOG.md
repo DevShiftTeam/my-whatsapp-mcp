@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Let expiry cleanup yield between records when a privacy control is waiting, so background cleanup does not consume that control's deadline. Expired content remains withheld until physical cleanup finishes; genuinely lost controls still pause protected reads.
+
+- Refresh Archive and Stats in place with subtle loading feedback. Keep the selected conversation, loaded pages, filters, focus and scroll during bounded background updates, unless the selected message itself is unavailable; retain the last successful view on transient connection failures while preserving access and archive-safety checks.
+
 - Clarify Docker source-revision labels, the completed synthetic native container checks and the remaining real-account/client limits. Correct setup labels and existing data-directory paths without changing stored data or credentials.
 
 - Test live controls and scoped MCP reads during older-history import, and make the Stats accessibility fixture honor localized weekday names.

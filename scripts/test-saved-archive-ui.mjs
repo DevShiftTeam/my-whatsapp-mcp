@@ -25,6 +25,7 @@ class FakeNode {
     this.open = false;
     this.checked = false;
     this.clientWidth = 650;
+    this.scrollTop = 0;
     this._text = '';
     this._value = '';
     this.defaultValue = '';
@@ -48,9 +49,12 @@ class FakeNode {
   get parentElement() { return this.parent ?? new FakeNode(); }
   get tabIndex() { return Number(this.attributes.tabindex ?? (['BUTTON','SELECT','INPUT','TEXTAREA','SUMMARY'].includes(this.tagName) ? 0 : -1)); }
   set tabIndex(value) { this.attributes.tabindex = String(value); }
-  append(...nodes) { for (const node of nodes) { const child = typeof node === 'string' ? textNode(node) : node; child.parent = this; this.children.push(child); } }
-  insertBefore(node,before) { const index=this.children.indexOf(before); node.parent=this; this.children.splice(index<0 ? this.children.length : index,0,node); return node; }
-  replaceChildren(...nodes) { this.children = []; this._text = ''; this.append(...nodes); }
+  get nextElementSibling() { return this.parent?.children[this.parent.children.indexOf(this)+1] ?? null; }
+  append(...nodes) { for (const node of nodes) { const child = typeof node === 'string' ? textNode(node) : node; if(child.parent) child.parent.children.splice(child.parent.children.indexOf(child),1); child.parent = this; this.children.push(child); } }
+  insertBefore(node,before) { if(node===before)return node; if(node.parent){if(node.contains(node.ownerDocument?.activeElement))node.ownerDocument.activeElement=null;node.parent.children.splice(node.parent.children.indexOf(node),1);} const index=this.children.indexOf(before); node.parent=this; this.children.splice(index<0 ? this.children.length : index,0,node); return node; }
+  remove() { if(this.parent){this.parent.children.splice(this.parent.children.indexOf(this),1);this.parent=null;} if(this.contains(this.ownerDocument?.activeElement))this.ownerDocument.activeElement=null; }
+  replaceChildren(...nodes) { for(const child of [...this.children])child.remove(); this._text = ''; this.append(...nodes); }
+  getBoundingClientRect() { const top=this.parent?.tagName==='OL' ? this.parent.children.indexOf(this)*72-this.parent.scrollTop : 0; return {top,bottom:top+72}; }
   setAttribute(key,value) { this.attributes[key] = String(value); if (key.startsWith('data-')) this.dataset[key.slice(5).replace(/-([a-z])/g,(_,char)=>char.toUpperCase())]=value; }
   removeAttribute(key) { delete this.attributes[key]; }
   getAttribute(key) { return this.attributes[key] ?? null; }
@@ -99,6 +103,9 @@ function pageSnapshot(page=1,total=23,pageSize=10,name='Synthetic page row') {
 }
 function harness(clock = null) {
   const nodes = new Map([...html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"/gi)].map(match => [match[2],new FakeNode(match[1])]));
+  // Parent-owned markup contract; retain the seam while the markup lands in parallel.
+  for(const id of ['archive-update','archive-update-text'])if(!nodes.has(id))nodes.set(id,new FakeNode());
+  nodes.get('archive-update').hidden=true;
   const selectors = new Map([['.skip-link',new FakeNode('a')],['.stats-update',new FakeNode()]]);
   const policyRadios = [...html.matchAll(/<input\b[^>]*name="(date-mode|chat-mode)"[^>]*value="([^"]+)"[^>]*>/g)].map(match => {
     const node=new FakeNode('input'); node.name=match[1]; node.value=match[2]; node.checked=match[0].includes(' checked'); return node;
@@ -135,7 +142,7 @@ function harness(clock = null) {
   };
   const fetch = (path,options={}) => new Promise((resolve,reject) => { requests.push({path,options,resolve:(value,status=200) => resolve({ok:status>=200&&status<300,status,json:async()=>value}),resolveJSON:json => resolve({ok:true,status:200,json}),reject}); });
   const expose = `  globalThis.__test = {requestAPI:api,refreshVoiceRecovery,retryVoiceDownloads,stopVoiceRecovery,runSearch,showContext,addMessage,initializeWorkspace,clearResults,renderArchiveSource,invalidateSavedChats,loadSavedChats,openSettings,savePolicy,refreshStatus,refreshConnections,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
-    state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode,searching,searchVersion,searchRequest,nextCursor,archiveRefreshNeeded,savedChats,archiveSourceVersion,savedChatRefreshNeeded}),
+     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode,searching,searchVersion,searchRequest,nextCursor,archiveRefreshNeeded,savedChats,archiveSourceVersion,savedChatRefreshNeeded,selectedMessage,visibleMessages}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;},setCSRF:value=>{csrf=value;}};\n})();`;
   const ClockDate = clock ? class extends Date { static now() { return clock.now; } } : Date;
   const context = vm.createContext({document,window:fakeWindow,fetch,AbortController,Option:option,Date:ClockDate,Intl,URLSearchParams,crypto:crypto.webcrypto,localStorage:{getItem(){return '';},removeItem(){},setItem(){}},navigator:{clipboard:{}},location:{hash:'',pathname:'/'},matchMedia:()=>({matches:false}),history:{replaceState(){}},console});
@@ -154,6 +161,59 @@ const body=request=>JSON.parse(request.options.body);
 async function check(name,fn){await fn();cases.push(name);}
 function fireRefreshTimers(h){for(const [id,callback] of [...h.timers]) if(callback.timerDelay===1000){h.timers.delete(id);callback();}}
 async function browse(h,page=savedPage()){h.api.setView('archive');const pending=h.api.runSearch();h.requests.at(-1).resolve(page);await pending;}
+const pageHits=(page)=>Array.from({length:50},(_,index)=>hit('synthetic-'+((page-1)*50+index),'Synthetic message '+((page-1)*50+index)));
+async function loadPages(h,count){await browse(h,savedPage(pageHits(1),'s1.page-2'));for(let page=2;page<=count;page++){const pending=h.api.runSearch(true);h.requests.at(-1).resolve(savedPage(pageHits(page),'s1.page-'+(page+1)));await pending;}}
+async function openConversation(h,id='synthetic-60'){const button=h.nodes.get('search-results').querySelectorAll('button').find(node=>node.dataset.messageId===id);const pending=h.api.showContext(hit(id),button);h.requests.at(-1).resolve({Messages:[{ID:id,SenderName:'Synthetic sender',Body:'Kept conversation',Kind:'text'}]});await pending;return button;}
+await check('ordinary refresh retains selection, context, focused nodes, filters and every loaded page atomically',async()=>{
+ const h=harness();h.nodes.get('search-chat').value='synthetic-chat';await loadPages(h,2);const button=await openConversation(h);button.focus();h.nodes.get('search-results').scrollTop=4320;h.nodes.get('conversation-messages').scrollTop=30;const contextNode=h.nodes.get('conversation-messages').children[0];
+ const pending=h.api.runSearch(false,true);assert.equal(h.nodes.get('search-results').children.length,100);assert.equal(h.nodes.get('context-copy').hidden,false);
+ h.requests.at(-1).resolve(savedPage(pageHits(1),'s1.fresh-2'));await flush();assert.equal(h.nodes.get('search-results').children.length,100,'first rebuilt page must not publish');assert.equal(h.nodes.get('archive-update').hidden,false);assert.equal(h.nodes.get('archive-update-text').textContent,'Updating…');assert.equal(body(h.requests.at(-1)).cursor,'s1.fresh-2');h.requests.at(-1).resolve(savedPage(pageHits(2),'s1.fresh-3'));await flush();
+ assert.equal(h.requests.at(-1).path,'/api/context');h.requests.at(-1).resolve({Messages:[{ID:'synthetic-60',SenderName:'Synthetic sender',Body:'Kept conversation',Kind:'text'}]});await pending;
+ assert.equal(h.nodes.get('search-results').children.length,100);assert.equal(h.api.state().nextCursor,'s1.fresh-3');assert.equal(h.api.state().selectedMessage,'synthetic-60');assert.equal(button.getAttribute('aria-pressed'),'true');assert.equal(h.document.activeElement,button);assert.ok(h.nodes.get('search-results').contains(button));assert.equal(h.nodes.get('search-results').scrollTop,4320);assert.equal(h.nodes.get('conversation-messages').scrollTop,30);assert.equal(h.nodes.get('conversation-messages').children[0],contextNode);assert.equal(h.nodes.get('search-chat').value,'synthetic-chat');assert.equal(h.nodes.get('archive-update').hidden,true);
+});
+await check('initial loader hides on success and transient refresh failure retains the reading state',async()=>{
+ const h=harness();h.api.setView('archive');const initial=h.api.runSearch();assert.equal(h.nodes.get('archive-update-text').textContent,'Loading messages…');h.requests.at(-1).resolve(savedPage());await initial;const button=await openConversation(h,'synthetic-live');button.focus();const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve({code:'proxy_unavailable'},502);await pending;
+ assert.equal(h.nodes.get('archive-update').hidden,true);assert.equal(h.nodes.get('archive-update-text').textContent,'');assert.equal(h.nodes.get('search-results').children.length,1);assert.equal(h.api.state().selectedMessage,'synthetic-live');assert.match(h.nodes.get('conversation-messages').textContent,/Kept conversation/);assert.equal(h.document.activeElement,button);assert.match(h.nodes.get('search-feedback').textContent,/kept|last.*update/i);
+});
+await check('stale continuation rebuilds the accumulated range before publishing any replacement',async()=>{
+ const h=harness();await loadPages(h,2);const button=await openConversation(h);button.focus();const pending=h.api.runSearch(true);h.requests.at(-1).resolve({code:'saved_cursor_stale'},409);await flush();assert.equal(body(h.requests.at(-1)).cursor,'');h.requests.at(-1).resolve(savedPage(pageHits(1),'s1.retry-2'));await flush();assert.equal(h.nodes.get('search-results').children.length,100);h.requests.at(-1).resolve(savedPage(pageHits(2),'s1.retry-3'));await flush();assert.equal(h.nodes.get('search-results').children.length,100);h.requests.at(-1).resolve(savedPage(pageHits(3),'s1.retry-4'));await flush();h.requests.at(-1).resolve({Messages:[{ID:'synthetic-60',SenderName:'Synthetic sender',Body:'Kept conversation',Kind:'text'}]});await pending;
+ assert.equal(h.nodes.get('search-results').children.length,150);assert.equal(h.api.state().selectedMessage,'synthetic-60');assert.equal(h.document.activeElement,button);assert.equal(h.api.state().nextCursor,'s1.retry-4');
+});
+await check('failed rebuilt suffix and repeated stale cursors never publish a partial range or clear context',async()=>{
+ for(const failure of ['archive_busy','saved_cursor_stale']){const h=harness();await loadPages(h,2);await openConversation(h);const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage([hit('new','Unpublished new row')],'s1.fresh-2'));await flush();h.requests.at(-1).resolve({code:failure},failure==='archive_busy'?503:409);await flush();if(failure==='archive_busy'){fireRefreshTimers(h);await flush();}h.requests.at(-1).resolve({code:failure},failure==='archive_busy'?503:409);await pending;await flush();assert.equal(h.nodes.get('search-results').children.length,100);assert.doesNotMatch(h.nodes.get('search-results').textContent,/Unpublished/);assert.match(h.nodes.get('conversation-messages').textContent,/Kept conversation/);assert.equal(h.nodes.get('archive-update').hidden,true);const count=h.requests.length;fireRefreshTimers(h);assert.equal(h.requests.length,count);}
+});
+await check('deep background views show an honest stale hint without silently truncating or unbounded reads',async()=>{
+ const h=harness();await loadPages(h,5);const button=await openConversation(h);button.focus();const count=h.requests.length;await h.api.runSearch(false,true);assert.equal(h.requests.length,count);assert.equal(h.nodes.get('search-results').children.length,250);assert.equal(h.document.activeElement,button);assert.match(h.nodes.get('search-feedback').textContent,/kept.*(?:search|submit)|(?:search|submit).*kept/i);assert.match(h.nodes.get('search-feedback').textContent,/changed|not.*updated|older/i);assert.equal(h.nodes.get('archive-update').hidden,true);
+});
+await check('explicit successful query transition resets context but not before replacement succeeds',async()=>{
+ const h=harness();await browse(h);await openConversation(h,'synthetic-live');h.nodes.get('search-query').value='new query';const pending=h.api.runSearch();assert.match(h.nodes.get('conversation-messages').textContent,/Kept conversation/);h.requests.at(-1).resolve(savedPage([hit('new')]));await pending;assert.equal(h.api.state().selectedMessage,'');assert.equal(h.nodes.get('conversation-messages').children.length,0);
+});
+await check('malformed successful archive pages cannot silently replace the accumulated range',async()=>{
+ const h=harness();await loadPages(h,2);const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve({Hits:'not a page',NextCursor:''});await pending;assert.equal(h.nodes.get('search-results').children.length,100);assert.match(h.nodes.get('search-feedback').textContent,/could not be read|invalid/i);assert.equal(h.nodes.get('archive-update').hidden,true);
+});
+await check('changed rows keep their keyed button, fresh click data and scroll anchor when reordered',async()=>{
+ const h=harness();await browse(h,savedPage([hit('a','First'),hit('b','Second'),hit('c','Third')]));const button=await openConversation(h,'b');button.focus();const list=h.nodes.get('search-results');list.scrollTop=72;const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage([hit('b','Updated second'),hit('new','New arrival'),hit('a','First'),hit('c','Third')]));await flush();h.requests.at(-1).resolve({Messages:[{ID:'b',SenderName:'Synthetic sender',Body:'Kept conversation',Kind:'text'}]});await pending;
+ assert.ok(h.document.activeElement===button,'keyed reordering must retain focus');assert.ok(list.children[0].querySelector('button')===button);assert.match(button.textContent,/Updated second/);assert.equal(list.scrollTop,0,'the previously visible row remains at the same reading position');button.click();assert.equal(body(h.requests.at(-1)).message_id,'b');h.requests.at(-1).resolve({Messages:[]});await flush();
+});
+await check('refresh source failure during context revalidation clears all staged and displayed content',async()=>{
+ const h=harness();await loadPages(h,2);await openConversation(h);const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage(pageHits(1),'s1.guarded-2'));await flush();h.requests.at(-1).resolve(savedPage(pageHits(2),'s1.guarded-3'));await flush();const context=h.requests.at(-1);assert.equal(context.path,'/api/context');const failed=h.api.requestAPI('/api/stats','POST',{source:'saved'});h.requests.at(-1).resolve({code:'historical_source_unavailable'},503);await assert.rejects(failed);assert.equal(h.nodes.get('search-results').children.length,0);assert.equal(h.nodes.get('conversation-messages').children.length,0);assert.equal(h.nodes.get('archive-update').hidden,true);context.resolve({Messages:[{ID:'synthetic-60',Body:'LATE_SYNTHETIC_BODY'}]});await pending;assert.equal(h.nodes.get('search-results').children.length,0);assert.doesNotMatch(h.nodes.get('conversation-messages').textContent,/LATE_SYNTHETIC_BODY/);
+});
+await check('newer query and selection cannot be overwritten by a pending rebuilt range or context',async()=>{
+ const h=harness();await loadPages(h,2);await openConversation(h);const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage(pageHits(1),'s1.pending-2'));await flush();const suffix=h.requests.at(-1);h.nodes.get('search-query').value='new query';const newer=h.api.runSearch();const current=h.requests.at(-1);assert.equal(suffix.options.signal.aborted,true);suffix.resolve(savedPage(pageHits(2),'s1.old-3'));await pending;assert.equal(h.nodes.get('search-results').children.length,100);assert.equal(h.nodes.get('archive-update').hidden,false);current.resolve(savedPage([hit('new-query'),hit('other')]));await newer;assert.equal(h.nodes.get('search-results').children.length,2);assert.equal(h.api.state().selectedMessage,'');
+ await openConversation(h,'new-query');const refresh=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage([hit('new-query'),hit('other')]));await flush();const oldContext=h.requests.at(-1);assert.equal(oldContext.path,'/api/context');await openConversation(h,'other');oldContext.resolve({Messages:[{ID:'new-query',Body:'STALE_SYNTHETIC_SELECTION'}]});await refresh;assert.equal(h.api.state().selectedMessage,'other');assert.match(h.nodes.get('conversation-messages').textContent,/Kept conversation/);assert.doesNotMatch(h.nodes.get('conversation-messages').textContent,/STALE_SYNTHETIC_SELECTION/);
+});
+await check('a range batch has one total deadline and never publishes a body delivered after timeout',async()=>{
+ const h=harness();await loadPages(h,2);const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage(pageHits(1),'s1.slow-2'));await flush();const suffix=h.requests.at(-1);const deadlines=[...h.timers.values()].filter(fn=>fn.timerDelay===15000);assert.equal(deadlines.length,1);deadlines[0]();assert.equal(suffix.options.signal.aborted,true);suffix.resolve(savedPage([hit('late','LATE_SYNTHETIC_ROW')]));await pending;assert.equal(h.nodes.get('search-results').children.length,100);assert.doesNotMatch(h.nodes.get('search-results').textContent,/LATE_SYNTHETIC_ROW/);assert.equal(h.nodes.get('archive-update').hidden,true);assert.match(h.nodes.get('search-feedback').textContent,/too long/);
+});
+await check('refresh preserves the selected excerpt when several search rows share a message handle',async()=>{
+ const h=harness();const hits=[{...hit('shared'),DocumentID:'synthetic-document-a'},{...hit('shared'),DocumentID:'synthetic-document-b'}];await browse(h,savedPage(hits));const buttons=h.nodes.get('search-results').querySelectorAll('button');const opening=h.api.showContext(hits[1],buttons[1]);h.requests.at(-1).resolve({Messages:[{ID:'shared',Body:'Synthetic shared message',Kind:'text'}]});await opening;const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage(hits));await flush();h.requests.at(-1).resolve({Messages:[{ID:'shared',Body:'Synthetic shared message',Kind:'text'}]});await pending;assert.equal(buttons[0].getAttribute('aria-pressed'),'false');assert.equal(buttons[1].getAttribute('aria-pressed'),'true');
+});
+await check('four-page revalidation retries one stale context atomically within a bounded read budget',async()=>{
+ const h=harness();await loadPages(h,4);await openConversation(h);const before=h.requests.length,pending=h.api.runSearch(false,true);for(let page=1;page<=4;page++){h.requests.at(-1).resolve({...savedPage(pageHits(page),'s1.first-'+(page+1)),Snapshot:{ArchiveRevision:2}});await flush();}assert.equal(h.requests.at(-1).path,'/api/context');h.requests.at(-1).resolve({Messages:[{ID:'synthetic-60',Body:'Unpublished context'}],Snapshot:{ArchiveRevision:3}});await flush();assert.equal(h.nodes.get('search-results').children.length,200);for(let page=1;page<=4;page++){h.requests.at(-1).resolve({...savedPage(pageHits(page),'s1.final-'+(page+1)),Snapshot:{ArchiveRevision:3}});await flush();}assert.equal(h.requests.at(-1).path,'/api/context');h.requests.at(-1).resolve({Messages:[{ID:'synthetic-60',Body:'Fresh guarded context',Kind:'text'}],Snapshot:{ArchiveRevision:3}});await pending;assert.equal(h.requests.length-before,10);assert.equal(h.nodes.get('search-results').children.length,200);assert.match(h.nodes.get('conversation-messages').textContent,/Fresh guarded context/);assert.doesNotMatch(h.nodes.get('conversation-messages').textContent,/Unpublished/);
+});
+await check('known scope generations in successful pages fence old content before a range can rebuild',async()=>{
+ const h=harness();await browse(h,{...savedPage(pageHits(1),'s1.scope-2'),Snapshot:{PolicyGeneration:1,RecoveryEpoch:0}});const more=h.api.runSearch(true);h.requests.at(-1).resolve({...savedPage(pageHits(2),'s1.scope-3'),Snapshot:{PolicyGeneration:1,RecoveryEpoch:0}});await more;await openConversation(h);h.api.renderStats(snapshot());const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve({...savedPage(pageHits(1),'s1.new-scope'),Snapshot:{PolicyGeneration:2,RecoveryEpoch:0}});await flush();assert.equal(h.nodes.get('search-results').children.length,0);await pending;assert.equal(h.nodes.get('conversation-messages').children.length,0);assert.equal(h.nodes.get('stats-message-count').textContent,'—');assert.equal(h.nodes.get('archive-update').hidden,true);assert.equal(h.api.state().authExpired,false);
+});
 await check('empty query browses the actual saved reader and renders captured provenance',async()=>{
  const h=harness();h.api.setView('archive');const pending=h.api.runSearch();
  assert.equal(h.requests.at(-1).path,'/api/archive/browse');assert.equal(body(h.requests.at(-1)).source,'saved');assert.equal(body(h.requests.at(-1)).query,undefined);assert.equal(body(h.requests.at(-1)).kind,undefined);
@@ -214,8 +274,8 @@ await check('ten import polls do not abort or blank Stats and queue one follow-u
 });
 await check('stale continuation restarts the same saved query once',async()=>{
  const h=harness();h.nodes.get('search-query').value='same';await browse(h,savedPage([hit()],'s1.synthetic'));
- const more=h.api.runSearch(true);assert.equal(body(h.requests.at(-1)).cursor,'s1.synthetic');h.requests.at(-1).resolve({code:'saved_cursor_stale'},409);await more;
- const restarted=h.requests.at(-1);assert.equal(body(restarted).cursor,'');assert.equal(body(restarted).query,'same');restarted.resolve(savedPage());await flush();assert.equal(h.api.state().authExpired,false);
+ const more=h.api.runSearch(true);assert.equal(body(h.requests.at(-1)).cursor,'s1.synthetic');h.requests.at(-1).resolve({code:'saved_cursor_stale'},409);await flush();
+ const restarted=h.requests.at(-1);assert.equal(body(restarted).cursor,'');assert.equal(body(restarted).query,'same');restarted.resolve(savedPage());await more;assert.equal(h.api.state().authExpired,false);
 });
 await check('busy response retries once and keeps already delivered rows',async()=>{
  const h=harness();await browse(h);const pending=h.api.runSearch();h.requests.at(-1).resolve({code:'archive_busy'},503);await pending;
@@ -281,5 +341,92 @@ await check('voice recovery renders cleanup separately and never treats request 
  h.requests.at(-1).resolve({queued:0,skipped:0,requested:1,recovery:{awaiting_phone:0,waiting_cleanup:1,queued:0,downloading:0,completed:0,failed:0}});await pending;
  assert.match(h.nodes.get('voice-retry-feedback').textContent,/waiting for earlier files to finish cleanup/);assert.doesNotMatch(h.nodes.get('voice-retry-feedback').textContent,/transcript.*complete/i);
  h.nodes.get('models-dialog').close();h.nodes.get('models-dialog').dispatch('close');assert.equal(h.timers.size,0);
+});
+await check('gone selected context removes every staged row for that message and keeps unrelated rows, chat scope and Stats',async()=>{
+ const h=harness();h.api.renderStats(snapshot());h.nodes.get('search-chat').value='synthetic-chat';
+ const gone=[{...hit('synthetic-gone','Gone selected row A'),DocumentID:'synthetic-document-a'},{...hit('synthetic-gone','Gone selected row B'),DocumentID:'synthetic-document-b'}];
+ const rows=[...gone,hit('synthetic-kept','Kept other row')];
+ await browse(h,savedPage(rows));await openConversation(h,'synthetic-gone');
+ const pending=h.api.runSearch(false,true);assert.equal(body(h.requests.at(-1)).chats[0],'synthetic-chat');h.requests.at(-1).resolve(savedPage(rows));await flush();
+ assert.equal(h.requests.at(-1).path,'/api/context');assert.equal(body(h.requests.at(-1)).message_id,'synthetic-gone');
+ h.requests.at(-1).resolve({code:'source_unavailable'},404);await pending;
+ assert.equal(h.nodes.get('search-results').children.length,1);assert.doesNotMatch(h.nodes.get('search-results').textContent,/Gone selected row/);assert.match(h.nodes.get('search-results').textContent,/Kept other row/);
+ assert.equal(h.api.state().selectedMessage,'');assert.equal(h.nodes.get('conversation-messages').children.length,0);assert.match(h.nodes.get('context-feedback').textContent,/no longer available/);
+ assert.equal(h.nodes.get('stats-message-count').textContent,'6');assert.equal(h.nodes.get('archive-update').hidden,true);assert.equal(h.api.state().authExpired,false);
+});
+await check('gone selection on a deep page keeps the rebuilt range instead of truncating it',async()=>{
+ const h=harness();await loadPages(h,2);await openConversation(h,'synthetic-60');
+ const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage(pageHits(1),'s1.gone-2'));await flush();h.requests.at(-1).resolve(savedPage(pageHits(2),''));await flush();
+ assert.equal(h.requests.at(-1).path,'/api/context');h.requests.at(-1).resolve({code:'source_unavailable'},404);await pending;
+ const list=h.nodes.get('search-results');assert.equal(list.children.length,99);assert.doesNotMatch(list.textContent,/Synthetic message 60(?!\d)/);assert.match(list.textContent,/Synthetic message 59(?!\d)/);assert.match(list.textContent,/Synthetic message 61(?!\d)/);
+ assert.equal(h.api.state().selectedMessage,'');assert.equal(h.api.state().nextCursor,'');assert.match(h.nodes.get('search-feedback').textContent,/99 saved messages shown/);
+});
+await check('an explicit result click keeps global clearing for an exact 404 source invalidation',async()=>{
+ const h=harness();h.api.renderStats(snapshot());await browse(h,savedPage([hit('synthetic-live','Clicked row'),hit('synthetic-other','Other row')]));
+ const button=h.nodes.get('search-results').querySelectorAll('button')[0];const pending=h.api.showContext(hit('synthetic-live','Clicked row'),button);h.requests.at(-1).resolve({code:'source_unavailable'},404);await pending;
+ assert.equal(h.nodes.get('search-results').children.length,0);assert.equal(h.nodes.get('stats-message-count').textContent,'—');assert.ok(h.nodes.get('search-feedback').classList.contains('error'));
+});
+await check('known source invalidations clear reads and fence late responses from the background context and other owner reads',async()=>{
+ for(const [code,httpStatus] of [['source_unavailable',503],['historical_source_unavailable',404],['policy_changed',409],['reconciliation_required',409],['unauthorized',403]]){
+  const rows=[hit('synthetic-live','Invalidated row'),hit('synthetic-other','Other row')];
+  {const h=harness();h.api.renderStats(snapshot());await browse(h,savedPage(rows));await openConversation(h,'synthetic-live');
+   const pending=h.api.runSearch(false,true);const late=h.requests.at(-1);const failed=h.api.requestAPI('/api/search','POST',{source:'saved'});h.requests.at(-1).resolve({code},httpStatus);await assert.rejects(failed);
+   assert.equal(h.nodes.get('search-results').children.length,0,code);assert.equal(h.nodes.get('conversation-messages').children.length,0,code);assert.equal(h.nodes.get('stats-message-count').textContent,'—',code);assert.ok(h.nodes.get('stats-feedback').classList.contains('error'),code);assert.equal(h.api.state().authExpired,false,code);
+   late.resolve(savedPage(rows));await pending;assert.equal(h.nodes.get('search-results').children.length,0,code);assert.doesNotMatch(h.nodes.get('search-results').textContent,/Invalidated row/,code);}
+  {const h=harness();h.api.renderStats(snapshot());await browse(h,savedPage(rows));await openConversation(h,'synthetic-live');
+   const pending=h.api.runSearch(false,true);h.requests.at(-1).resolve(savedPage(rows));await flush();h.requests.at(-1).resolve({code},httpStatus);await pending;
+   assert.equal(h.nodes.get('search-results').children.length,0,code);assert.equal(h.nodes.get('conversation-messages').children.length,0,code);assert.equal(h.nodes.get('stats-message-count').textContent,'—',code);assert.ok(h.nodes.get('search-feedback').classList.contains('error'),code);assert.equal(h.api.state().authExpired,false,code);}
+ }
+});
+await check('ordinary background refresh keeps the submitted chat scope until an invalidation',async()=>{
+ const h=harness();h.nodes.get('search-chat').value='synthetic-chat';await browse(h,savedPage([hit('synthetic-live','Scoped row')]));
+ const pending=h.api.runSearch(false,true);assert.equal(h.requests.at(-1).path,'/api/archive/browse');assert.deepEqual(body(h.requests.at(-1)).chats,['synthetic-chat']);h.requests.at(-1).resolve(savedPage([hit('synthetic-live','Scoped row')]));await pending;
+});
+await check('policy invalidation replays only the last submitted query with its chat scope narrowed',async()=>{
+ const h=harness();h.api.setView('archive');h.nodes.get('search-chat').value='old-chat';h.nodes.get('search-query').value='submitted';const submitted=h.api.runSearch();
+ assert.equal(body(h.requests.at(-1)).query,'submitted');assert.deepEqual(body(h.requests.at(-1)).chats,['old-chat']);h.requests.at(-1).resolve(savedPage([hit('synthetic-live','Submitted row')]));await submitted;
+ h.nodes.get('search-query').value='typed but not submitted';
+ h.api.setStatus({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:1,RecoveryEpoch:0},Codes:[]});const poll=h.api.refreshStatus();h.requests.at(-1).resolve({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:2,RecoveryEpoch:0},Codes:[]});await poll;
+ assert.equal(h.nodes.get('search-results').children.length,0);
+ const before=h.requests.length;const refresh=h.api.runSearch(false,true);const replay=h.requests.at(-1);
+ assert.equal(h.requests.length,before+1,'the refresh issues exactly one request');assert.equal(replay.path,'/api/search');assert.equal(body(replay).query,'submitted');assert.deepEqual(body(replay).chats,[]);assert.doesNotMatch(JSON.stringify(body(replay)),/typed but not submitted/);
+ replay.resolve(savedPage([hit('synthetic-live','Replayed row')]));await refresh;
+ assert.match(h.nodes.get('search-results').textContent,/Replayed row/);assert.equal(h.nodes.get('search-query').value,'typed but not submitted');
+});
+await check('returning to Archive refreshes a cleared list with the submitted query after its replay fails',async()=>{
+ const h=harness();h.api.setView('archive');h.nodes.get('search-query').value='submitted';const submitted=h.api.runSearch();h.requests.at(-1).resolve(savedPage([hit('synthetic-live','Submitted row')]));await submitted;
+ h.nodes.get('search-query').value='typed but not submitted';
+ h.api.setStatus({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:1,RecoveryEpoch:0},Codes:[]});const poll=h.api.refreshStatus();h.requests.at(-1).resolve({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:2,RecoveryEpoch:0},Codes:[]});await poll;
+ const failed=h.api.runSearch(false,true);h.requests.at(-1).resolve({code:'archive_busy'},503);await flush();fireRefreshTimers(h);h.requests.at(-1).resolve({code:'archive_busy'},503);await failed;await flush();
+ assert.equal(h.nodes.get('search-results').children.length,0);assert.equal(h.api.state().archiveRefreshNeeded,false);
+ h.api.selectWorkspaceView('stats');const before=h.requests.length;h.api.selectWorkspaceView('archive');
+ assert.equal(h.requests.length,before+1,'returning to Archive issues exactly one refresh');assert.equal(h.requests.at(-1).path,'/api/search');assert.equal(body(h.requests.at(-1)).query,'submitted');
+});
+await check('a background refresh before any submitted search browses defaults and never reads typed text',async()=>{
+ const h=harness();h.nodes.get('search-query').value='typed before submit';
+ h.api.selectWorkspaceView('archive');
+ const first=h.requests.at(-1);assert.equal(h.requests.length,1,'one default browse request');assert.equal(first.path,'/api/archive/browse');assert.equal(body(first).query,undefined);assert.doesNotMatch(JSON.stringify(body(first)),/typed before submit/);
+ first.resolve(savedPage([hit('synthetic-live','Default row')]));await flush();assert.match(h.nodes.get('search-results').textContent,/Default row/);
+});
+await check('owner expiry forgets the submitted query and its chat scope',async()=>{
+ const h=harness();h.nodes.get('search-query').value='secret submitted';const pending=h.api.runSearch();h.requests.at(-1).resolve(savedPage([hit('synthetic-live')]));await pending;
+ assert.equal(h.api.state().searchRequest.query,'secret submitted');h.api.expireAuth();assert.equal(h.api.state().searchRequest,null);
+});
+await check('ordinary deletion of the selected message keeps the refreshed list, Stats and chat filter',async()=>{
+ const h=harness();h.api.renderStats(snapshot());h.nodes.get('search-chat').value='synthetic-chat';
+ await browse(h,savedPage([hit('synthetic-live','Deleted row'),hit('synthetic-other','Other row')]));await openConversation(h,'synthetic-live');
+ const before=h.requests.length;const pending=h.api.runSearch(false,true);assert.equal(h.requests.length,before+1);assert.deepEqual(body(h.requests.at(-1)).chats,['synthetic-chat']);
+ h.requests.at(-1).resolve(savedPage([hit('synthetic-other','Other row')]));await flush();
+ assert.equal(h.requests.at(-1).path,'/api/context');assert.equal(body(h.requests.at(-1)).message_id,'synthetic-live');h.requests.at(-1).resolve({code:'source_unavailable'},404);await pending;
+ assert.equal(h.nodes.get('search-results').children.length,1);assert.doesNotMatch(h.nodes.get('search-results').textContent,/Deleted row/);assert.match(h.nodes.get('search-results').textContent,/Other row/);
+ assert.equal(h.api.state().selectedMessage,'');assert.equal(h.nodes.get('conversation-messages').children.length,0);assert.match(h.nodes.get('context-feedback').textContent,/no longer available/);assert.equal(h.nodes.get('stats-message-count').textContent,'6');
+});
+await check('automatic refresh after an invalidation never submits unsent query text',async()=>{
+ const h=harness();await browse(h,savedPage([hit('synthetic-a','Row A')]));
+ h.nodes.get('search-query').value='typed but not submitted';
+ h.api.setStatus({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:1,RecoveryEpoch:0},Codes:[]});const poll=h.api.refreshStatus();h.requests.at(-1).resolve({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:2,RecoveryEpoch:0},Codes:[]});await poll;
+ const before=h.requests.length;const refresh=h.api.runSearch(false,true);assert.equal(h.requests.length,before+1);
+ assert.equal(h.requests.at(-1).path,'/api/archive/browse');assert.equal(body(h.requests.at(-1)).query,undefined);assert.doesNotMatch(JSON.stringify(body(h.requests.at(-1))),/typed but not submitted/);
+ h.requests.at(-1).resolve(savedPage([hit('synthetic-new','Row new')]));await refresh;assert.match(h.nodes.get('search-results').textContent,/Row new/);
 });
 console.log(JSON.stringify({suite:'saved archive UI',source_sha256:sourceSHA,cases,passed:cases.length}));

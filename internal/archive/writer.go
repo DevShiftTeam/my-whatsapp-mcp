@@ -1478,7 +1478,13 @@ func (s *Store) sweepExpired(ctx context.Context) (bool, error) {
 		if e != nil {
 			return e
 		}
-		for _, v := range list {
+		for i, v := range list {
+			// Commit this prefix so queued privacy controls run before more cleanup.
+			// Read guards still withhold expired rows that await physical cleanup.
+			if i > 0 && len(s.controls) > 0 {
+				pending = true
+				break
+			}
 			if e = extensionInvalidate(ctx, tx, MessageID(v.id), rev); e != nil {
 				return e
 			}

@@ -12,6 +12,10 @@ You can search Hebrew or English regardless of the text in nearby messages. Hebr
 
 Use **Filters** for a chat and inclusive **From**/**Through** dates. **Show more messages** retrieves another bounded page. If the app says the archive changed, rerun the search before continuing.
 
+Routine updates happen in place. A small **Updating…** indicator appears while the next view is being read, without clearing your conversation, selected result or scroll position. Temporary connection failures keep the last successful view. If the selected message was deleted, expired or became unavailable, its result and conversation are removed with an explanation; unrelated permitted messages remain visible. Up to four loaded pages are refreshed together; deeper views keep their loaded messages with a notice that they have not been updated, rather than silently returning to the first page. Submit the search to refresh a deep view. Known permission or archive-safety changes still hide data that can no longer be shown.
+
+Background refresh replays the last submitted search, not text you are still typing. A policy change clears the old chat filter and replays that search within the currently permitted archive. Ending the owner session forgets the submitted search.
+
 ## Original and derived text
 
 The original WhatsApp body/caption is distinct from **Text read from image (OCR)**, **Image description (generated)** and **Voice transcript**. Transcript timing is labeled when available. Derived text can be inaccurate; read the original context before relying on it. **Copy visible messages** copies the displayed body/caption and separately labeled extraction text.

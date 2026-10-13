@@ -43,8 +43,14 @@
   let nextCursor = "";
   let activeQuery = "";
   let searchRequest = null;
+  let archiveHits = [];
+  let archivePages = 0;
+  let archiveReadSnapshot = null;
+  let archiveRows = new Map();
+  const archiveRefreshPages = 4;
   let visibleMessages = [];
   let selectedMessage = "";
+  let selectedResultKey = "";
   let searching = false;
   let searchVersion = 0;
   let contextVersion = 0;
@@ -118,7 +124,7 @@
     request_interrupted: "The read was interrupted. Try again.",
     policy_changed: "Archive permissions changed. Refresh to see permitted messages.",
     archive_busy: "The archive is updating. Trying again shortly…",
-    saved_cursor_stale: "Saved messages changed. Restarting this view…",
+    saved_cursor_stale: "Saved messages changed while this view was updating. Try the search again.",
     saved_read_limit: "This view is too large to read at once. Choose a narrower date range or chat.",
     unauthorized: "Your owner session has ended. Open the app again to request a fresh private owner window.",
     csrf_denied: "This page has no active owner session. Open the app again to request a fresh private owner window.",
@@ -190,19 +196,27 @@
       response = await fetch(path, {method, headers, credentials: "same-origin", cache: "no-store", signal: options.signal, body: method === "GET" ? undefined : JSON.stringify(body ?? {})});
     } catch (error) {
       if (error.name === "AbortError") throw error;
-      throw new Error("The app is not responding. Check that it is running, then try again.");
+      const unavailable = new Error("The app is not responding. Check that it is running, then try again.");
+      unavailable.transient = true;
+      throw unavailable;
     }
     let value = {};
     try { value = await response.json(); }
     catch (error) {
       if (error.name === "AbortError") throw error;
+      if (error.name !== "SyntaxError" && response.ok) {
+        const interrupted = new Error("The response was interrupted. Try again.");
+        interrupted.transient = true;
+        throw interrupted;
+      }
       /* fixed fallback below */
     }
     if (authExpired || epoch !== authEpoch) throw new Error(messages.unauthorized);
     if (!response.ok) {
       if (path !== "/api/bootstrap" && (response.status === 401 || response.status === 403 && value.code === "csrf_denied")) expireAuth();
       if (path === "/api/pairing/start" && ["source_unavailable", "connection_unavailable"].includes(value.code)) throw new Error("WhatsApp did not complete the connection. Try again from Connection details; a saved linked session reconnects without a new code.");
-      if ((["/api/search", "/api/archive/browse", "/api/context", "/api/stats"].includes(path) || path.startsWith("/api/chats?source=saved")) && ["source_unavailable", "historical_source_unavailable", "reconciliation_required", "archive_unavailable", "policy_changed", "unauthorized"].includes(value.code)) {
+      const messageScoped = options.messageScoped === true && path === "/api/context" && response.status === 404 && value.code === "source_unavailable";
+      if (!messageScoped && (["/api/search", "/api/archive/browse", "/api/context", "/api/stats"].includes(path) || path.startsWith("/api/chats?source=saved")) && ["source_unavailable", "historical_source_unavailable", "reconciliation_required", "archive_unavailable", "policy_changed", "unauthorized"].includes(value.code)) {
         clearResults(); invalidateStats(true); invalidateSavedChats();
         const notice = response.status === 403 && value.code === "unauthorized" ? "Current permissions no longer allow this saved view. Refresh to try again." : messages[value.code] || "Saved messages are unavailable. Refresh to try again.";
         feedback("search-feedback", notice, true); feedback("stats-feedback", notice, true);
@@ -210,6 +224,8 @@
       const error = new Error(messages[value.code] || "This action did not finish. Try again or restart the app.");
       error.code = value.code;
       error.status = response.status;
+      error.transient = response.status >= 500 || response.status === 408 || response.status === 429 || value.code === "request_interrupted";
+      error.messageScoped = messageScoped;
       throw error;
     }
     if (value?.Snapshot?.UnknownHistoryGap === true || value?.unknown_history_gap === true) {
@@ -229,7 +245,7 @@
 
   function feedback(id, text, error = false) {
     const node = $(id);
-    node.textContent = text;
+    if (node.textContent !== text) node.textContent = text;
     node.classList.toggle("error", error);
   }
 
@@ -756,6 +772,9 @@
     statsController?.abort();
     statsReloadQueued = false;
     if (clear) clearStatsData();
+    $("stats-data").setAttribute("aria-busy", "false");
+    $("stats-updated").textContent = clear ? "Update unavailable" : statsSnapshot ? "Last update kept" : "Checking archive";
+    document.querySelector(".stats-update").dataset.state = clear ? "error" : statsSnapshot ? "ready" : "idle";
   }
 
   function resetStats() {
@@ -807,7 +826,7 @@
       if (focus) $("stats-title").focus({preventScroll:true});
     } else {
       invalidateStats();
-      if (!searchRequest || archiveRefreshNeeded) runSearch(false, true);
+      if (!searchRequest || archivePages === 0 || archiveRefreshNeeded) runSearch(false, true);
       if (focus) ($("search-content").hidden ? $("import-action") : $("search-query")).focus({preventScroll:true});
     }
   }
@@ -922,7 +941,7 @@
     if (authExpired || activeView !== "stats" || document.hidden) return;
     if (statsUnavailable()) {
       invalidateStats(true);
-      feedback("stats-feedback", "Stats are unavailable while the archive requires checks.", true);
+      feedback("stats-feedback", "Stats are hidden because archive safety could not be verified. This is separate from normal syncing or background work. Your saved files and AI connections are kept.", true);
       return;
     }
     if (statsController) {
@@ -943,10 +962,13 @@
     statsController = controller;
     $("stats-data").setAttribute("aria-busy", "true");
     $("stats-refresh").disabled = true;
+    $("stats-updated").textContent = "Updating…";
+    document.querySelector(".stats-update").dataset.state = "loading";
     let retryStats = false;
     try {
       const snapshot = await api("/api/stats", "POST", filter, {signal:controller.signal});
       if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden || statsUnavailable()) return;
+      if (controller.signal.aborted) { const error = new Error("Stats took too long to load."); error.name = "AbortError"; throw error; }
       if (!validStatsSnapshot(snapshot)) throw new Error("Stats could not be read. Use Refresh stats to try again.");
       if (snapshot.saved_view) { savedMetadata = snapshot.saved_view; renderArchiveSource(); }
       renderStats(snapshot);
@@ -956,10 +978,12 @@
     } catch (error) {
       if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden) return;
       retryStats = retry < 1 && ["archive_busy", "saved_cursor_stale"].includes(error.code);
-      if (!["archive_busy", "saved_cursor_stale", "saved_read_limit"].includes(error.code)) clearStatsData();
+      const keep = error.transient || error.name === "AbortError" || ["archive_busy", "saved_cursor_stale", "saved_read_limit"].includes(error.code);
+      if (!keep) clearStatsData();
       $("stats-updated").textContent = "Update unavailable";
       document.querySelector(".stats-update").dataset.state = "error";
-      feedback("stats-feedback", error.name === "AbortError" ? "Stats took too long to load. Use Refresh stats to try again." : error.message, true);
+      const notice = error.name === "AbortError" ? "Stats took too long to load. Use Refresh stats to try again." : error.message;
+      feedback("stats-feedback", notice + (keep && statsSnapshot ? " Last successful counts are kept; this update did not finish." : ""), true);
     } finally {
       window.clearTimeout(timeout);
       if (statsController === controller) {
@@ -1715,6 +1739,7 @@
     savedChatsController?.abort(); savedChatsController = null; savedChatsLoading = false;
     savedChats = []; savedChatsPartial = false; savedChatLoadError = ""; savedChatRetry = false;
     savedChatRefreshNeeded = true;
+    if (searchRequest) searchRequest = {...searchRequest, chats:[]};
     $("search-chat").value = ""; $("stats-chat").value = "";
     renderArchiveChatOptions();
   }
@@ -2468,7 +2493,9 @@
     searchVersion++; contextVersion++;
     searchController?.abort(); searchController = null;
     searching = false; $("search-submit").disabled = false; $("search-more").disabled = false;
-    nextCursor = ""; selectedMessage = ""; visibleMessages = [];
+    nextCursor = ""; selectedMessage = ""; selectedResultKey = ""; visibleMessages = [];
+    archiveHits = []; archivePages = 0; archiveReadSnapshot = null; archiveRows.clear();
+    setArchiveLoading(false);
     $("search-results").replaceChildren(); $("conversation-messages").replaceChildren();
     $("results-empty").hidden = false; $("search-more").hidden = true; $("context-copy").hidden = true;
     $("result-count").textContent = "";
@@ -2476,37 +2503,134 @@
     feedback("context-feedback", "Choose a result to read the messages around it.");
   }
 
+  function setArchiveLoading(loading) {
+    $("archive-update").hidden = !loading;
+    $("archive-update-text").textContent = loading ? archivePages ? "Updating…" : "Loading messages…" : "";
+    $("search-results").setAttribute("aria-busy", String(loading));
+  }
+
+  function archiveQuery() {
+    const request = {source:"saved", limit:50, chats:$("search-chat").value ? [$("search-chat").value] : []};
+    const query = $("search-query").value.trim();
+    if (query) request.query = query;
+    if ($("search-from").value) request.from = dayStart($("search-from").value).toISOString();
+    if ($("search-until").value) { const until = dayStart($("search-until").value); until.setDate(until.getDate()+1); request.until = until.toISOString(); }
+    if (request.from && request.until && request.from >= request.until) throw new Error("The end date must be on or after the start date.");
+    return request;
+  }
+
+  function archiveStaleHint() {
+    feedback("search-feedback", "Saved messages changed. Your loaded messages and conversation are kept, but this deep view has not been updated. Submit the search to start a fresh view.");
+  }
+
+  function validArchivePage(result) {
+    return result && (result.Hits === null || Array.isArray(result.Hits) && result.Hits.length <= 50 && result.Hits.every(hit => hit && typeof hit.MessageID === "string" && hit.MessageID && typeof hit.Snippet === "string")) && typeof result.NextCursor === "string";
+  }
+
+  function sameArchiveSnapshot(left, right) {
+    return !left || !right || ["PolicyGeneration", "RecoveryEpoch", "ArchiveRevision", "IndexGeneration"].every(key => left[key] === right[key]);
+  }
+
   async function runSearch(more = false, refresh = false, retry = 0) {
     if (authExpired || statsUnavailable()) return;
     if (searching && (more || refresh)) { archiveRefreshNeeded = true; return; }
+    if (refresh && archivePages > archiveRefreshPages) { archiveRefreshNeeded = false; archiveStaleHint(); return; }
     searchController?.abort();
     const epoch = authEpoch, version = ++searchVersion;
     const controller = new AbortController(); searchController = controller;
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     searching = true; archiveRefreshNeeded = false;
     $("search-submit").disabled = true; $("search-more").disabled = true;
-    feedback("search-feedback", $("search-query").value.trim() ? "Searching saved messages…" : "Loading recent saved messages…");
+    setArchiveLoading(true);
+    if (!refresh) feedback("search-feedback", $("search-query").value.trim() ? "Searching saved messages…" : "Loading recent saved messages…");
     let retryRequest = null;
     try {
-      if (!more) {
-        activeQuery = $("search-query").value.trim();
-        searchRequest = {source:"saved", limit:50, chats:$("search-chat").value ? [$("search-chat").value] : []};
-        if (activeQuery) searchRequest.query = activeQuery;
-        if ($("search-from").value) searchRequest.from = dayStart($("search-from").value).toISOString();
-        if ($("search-until").value) { const until = dayStart($("search-until").value); until.setDate(until.getDate()+1); searchRequest.until = until.toISOString(); }
-        if (searchRequest.from && searchRequest.until && searchRequest.from >= searchRequest.until) throw new Error("The end date must be on or after the start date.");
+      const request = more || refresh ? searchRequest || {source:"saved", limit:50, chats:[]} : archiveQuery();
+      let append = more, pages = refresh ? Math.max(1, archivePages) : 1;
+      let attempts = retry, reads = 0, replacement, context;
+      let scopeSnapshot = archiveReadSnapshot || status?.Snapshot;
+      const current = () => version === searchVersion && epoch === authEpoch && !authExpired && !statsUnavailable();
+      const read = async (path, body, options = {}) => {
+        if (!current()) return null;
+        if (controller.signal.aborted || ++reads > 10) { const error = new Error("Saved messages took too long to load. Try again."); error.name = "AbortError"; throw error; }
+        const result = await api(path, "POST", body, {...options, signal:controller.signal});
+        if (!current()) return null;
+        if (result?.Snapshot) {
+          const changed = ["PolicyGeneration", "RecoveryEpoch"].some(key => scopeSnapshot?.[key] !== undefined && result.Snapshot[key] !== undefined && scopeSnapshot[key] !== result.Snapshot[key]);
+          if (changed) {
+            clearResults(); invalidateStats(true); invalidateSavedChats(); archiveRefreshNeeded = true;
+            const notice = "Archive permissions or message availability changed. Refresh to see permitted saved messages.";
+            feedback("search-feedback", notice, true); feedback("stats-feedback", notice, true);
+            return null;
+          }
+          scopeSnapshot = {...scopeSnapshot, ...result.Snapshot};
+        }
+        if (controller.signal.aborted) { const error = new Error("Saved messages took too long to load. Try again."); error.name = "AbortError"; throw error; }
+        return result;
+      };
+      // Stage the entire previously loaded range. A stale cursor gets one bounded
+      // restart, never a published first page under an older conversation.
+      while (true) {
+        try {
+          replacement = {hits:[], cursor:append ? nextCursor : "", pages:0, snapshot:null, metadata:null};
+          for (let page = 0; page < pages; page++) {
+            const result = await read(request.query ? "/api/search" : "/api/archive/browse", {...request, cursor:replacement.cursor});
+            if (!result) return;
+            if (!validArchivePage(result)) throw new Error("Saved messages could not be read. Try the search again.");
+            if (!sameArchiveSnapshot(replacement.snapshot, result.Snapshot)) { const error = new Error(messages.saved_cursor_stale); error.code = "saved_cursor_stale"; throw error; }
+            replacement.hits.push(...(result.Hits || []));
+            replacement.cursor = result.NextCursor; replacement.pages++;
+            replacement.snapshot = result.Snapshot;
+            if (result.saved_view) replacement.metadata = result.saved_view;
+            if (!replacement.cursor) break;
+          }
+          context = null;
+          if ((refresh || more) && !append && selectedMessage) {
+            const selected = selectedMessage, selectionVersion = contextVersion;
+            let result;
+            try { result = await read("/api/context", {source:"saved", message_id:selected, before:10, after:10}, {messageScoped:true}); }
+            catch (error) { if (!error.messageScoped || !current()) throw error; result = {Messages:[], gone:true}; }
+            if (!result) return;
+            if (result.gone) replacement.hits = replacement.hits.filter(hit => hit.MessageID !== selected);
+            if (result.Messages !== null && (!Array.isArray(result.Messages) || !result.Messages.every(message => message && typeof message.ID === "string"))) throw new Error("The conversation could not be read. Try the search again.");
+            if (!sameArchiveSnapshot(replacement.snapshot, result.Snapshot)) { const error = new Error(messages.saved_cursor_stale); error.code = "saved_cursor_stale"; throw error; }
+            context = {messages:result.Messages || [], selected, version:selectionVersion, gone:result.gone === true};
+          }
+          break;
+        } catch (error) {
+          if (!current()) return;
+          if (error.code !== "saved_cursor_stale" || attempts++ >= 1) throw error;
+          append = false; pages = more || refresh ? Math.max(1, archivePages + (more ? 1 : 0)) : 1;
+          if (pages > archiveRefreshPages) { archiveStaleHint(); return; }
+        }
       }
-      const result = await api(searchRequest.query ? "/api/search" : "/api/archive/browse", "POST", {...searchRequest, cursor:more ? nextCursor : ""}, {signal:controller.signal});
-      if (version !== searchVersion || epoch !== authEpoch || authExpired) return;
-      if (result.saved_view) { savedMetadata = result.saved_view; renderArchiveSource(); }
-      if (!more) {
-        contextVersion++; selectedMessage = ""; visibleMessages = [];
-        $("search-results").replaceChildren(); $("conversation-messages").replaceChildren(); $("context-copy").hidden = true;
+      if (!current()) return;
+      if (replacement.metadata) { savedMetadata = replacement.metadata; renderArchiveSource(); }
+      if (!more && !refresh) {
+        contextVersion++; selectedMessage = ""; selectedResultKey = ""; visibleMessages = [];
+        $("conversation-messages").replaceChildren(); $("context-copy").hidden = true;
         $("context-title").textContent = "Conversation";
         feedback("context-feedback", "Choose a result to read the messages around it.");
       }
-      for (const hit of result.Hits || []) addResult(hit);
-      nextCursor = result.NextCursor || "";
+      activeQuery = request.query || ""; searchRequest = request;
+      archiveHits = append ? [...archiveHits, ...replacement.hits] : replacement.hits;
+      archivePages = append ? archivePages + replacement.pages : replacement.pages;
+      archiveReadSnapshot = scopeSnapshot || replacement.snapshot;
+      reconcileResults(archiveHits, more || refresh);
+      if (context && context.version === contextVersion && context.selected === selectedMessage) {
+        if (context.gone) {
+          selectedMessage = ""; selectedResultKey = ""; visibleMessages = []; contextVersion++;
+          $("conversation-messages").replaceChildren(); $("context-copy").hidden = true; $("context-title").textContent = "Conversation";
+          feedback("context-feedback", "This message is no longer available. Choose another result to read its conversation.");
+          for (const row of archiveRows.values()) row.button.setAttribute("aria-pressed", "false");
+        } else {
+          reconcileConversation(context.messages);
+          feedback("context-feedback", visibleMessages.length ? "Only messages allowed by your current archive settings are shown." : "This message is no longer available. Run your search again.");
+          $("context-copy").hidden = !visibleMessages.length;
+          if (!visibleMessages.length) { selectedMessage = ""; selectedResultKey = ""; contextVersion++; for (const row of archiveRows.values()) row.button.setAttribute("aria-pressed", "false"); }
+        }
+      }
+      nextCursor = replacement.cursor;
       const count = $("search-results").children.length;
       $("result-count").textContent = count + " shown";
       $("results-empty").hidden = count > 0;
@@ -2514,17 +2638,18 @@
       feedback("search-feedback", count ? count + " saved messages shown. Choose one to read its conversation." : nextCursor ? "No matches on this page. Continue to check more saved messages." : "No saved messages match. Try fewer words, another date, or a different chat. History that was not delivered cannot appear here.");
     } catch (error) {
       if (version !== searchVersion || epoch !== authEpoch || authExpired) return;
-      if (error.code === "saved_cursor_stale" && retry < 1) retryRequest = () => runSearch(false, false, retry + 1);
-      else if (error.code === "archive_busy" && retry < 1) retryRequest = () => {
+      if (error.code === "archive_busy" && retry < 1) retryRequest = () => {
         const expected = searchVersion;
-        window.setTimeout(() => { if (expected === searchVersion && epoch === authEpoch && !authExpired) runSearch(more, false, retry + 1); }, 1000);
+        window.setTimeout(() => { if (expected === searchVersion && epoch === authEpoch && !authExpired) runSearch(more, refresh, retry + 1); }, 1000);
       };
       else if (["source_unavailable", "reconciliation_required", "archive_unavailable"].includes(error.code)) clearResults();
-      feedback("search-feedback", error.name === "AbortError" ? "Saved messages took too long to load. Try again." : error.message, true);
+      const notice = error.name === "AbortError" ? "Saved messages took too long to load. Try again." : error.message;
+      feedback("search-feedback", notice + (archivePages ? " Your loaded messages and conversation are kept; this update did not finish." : ""), true);
     } finally {
       window.clearTimeout(timeout);
       if (version === searchVersion && epoch === authEpoch) {
         searching = false; searchController = null;
+        setArchiveLoading(false);
         $("search-submit").disabled = false; $("search-more").disabled = false;
         retryRequest?.();
         if (!retryRequest && archiveRefreshNeeded && activeView === "archive" && !document.hidden) {
@@ -2543,9 +2668,45 @@
     parent.append(note);
   }
 
-  function addResult(hit) {
-    const item = document.createElement("li");
-    const button = document.createElement("button"); button.type="button"; button.className="result-button"; button.setAttribute("aria-pressed", "false"); button.dataset.messageId=hit.MessageID;
+  function readingPosition(target) {
+    const top = target.getBoundingClientRect().top;
+    const anchor = Array.from(target.children).find(node => node.getBoundingClientRect().bottom > top);
+    const offset = anchor?.getBoundingClientRect().top;
+    const scroll = target.scrollTop;
+    return () => { target.scrollTop = anchor && target.contains(anchor) ? target.scrollTop + anchor.getBoundingClientRect().top - offset : scroll; };
+  }
+
+  function reconcileResults(hits, preserve = true) {
+    const target = $("search-results"), restore = readingPosition(target);
+    const focused = document.activeElement, hadFocus = target.contains(focused);
+    const oldIndex = Array.from(target.children).findIndex(node => node.contains(focused));
+    const rows = new Map();
+    for (const hit of hits) {
+      const key = JSON.stringify([hit.MessageID, hit.DocumentID || ""]);
+      if (rows.has(key)) continue;
+      let row = archiveRows.get(key);
+      if (!row) {
+        const item = document.createElement("li"), button = document.createElement("button");
+        button.type = "button"; button.className = "result-button"; item.append(button);
+        row = {item, button, hit:null, renderKey:""};
+        button.addEventListener("click", () => showContext(row.hit, button));
+      }
+      const renderKey = JSON.stringify([hit, activeQuery, savedMetadata?.historical?.captured_at]);
+      if (row.renderKey !== renderKey) { renderResult(row.button, hit); row.renderKey = renderKey; }
+      row.hit = hit;
+      row.button.setAttribute("aria-pressed", String(key === selectedResultKey));
+      rows.set(key, row);
+    }
+    const desired = Array.from(rows.values());
+    for (let index = 0; index < desired.length; index++) if (target.children[index] !== desired[index].item) target.insertBefore(desired[index].item, target.children[index] || null);
+    for (const [key, row] of archiveRows) if (!rows.has(key)) row.item.remove();
+    archiveRows = rows;
+    if (preserve) restore(); else target.scrollTop = 0;
+    if (hadFocus && document.activeElement !== focused) (target.contains(focused) ? focused : desired[Math.min(Math.max(0, oldIndex), desired.length - 1)]?.button || $("search-query")).focus({preventScroll:true});
+  }
+
+  function renderResult(button, hit) {
+    button.replaceChildren(); button.dataset.messageId = hit.MessageID;
     const meta = document.createElement("div"); meta.className="result-meta";
     meta.append(bdi(hit.ChatName || "Unnamed chat", "result-chat"), bdi(dateText(hit.SentAt)));
     appendHistoricalProvenance(meta, hit.MessageID);
@@ -2557,12 +2718,26 @@
     if (extracted) { const label=document.createElement("div"); label.className="derived-label"; label.append(bdi(extractionLabel(extracted))); button.append(label); }
     button.append(snippet);
     if (hit.Kind && hit.Kind !== "text") { const kind = document.createElement("div"); kind.className="result-kind"; kind.textContent=hit.Kind === "voice" ? "Voice note" : hit.Kind === "image" ? "Image message" : "Media message"; button.append(kind); }
-    button.addEventListener("click", () => showContext(hit, button)); item.append(button); $("search-results").append(item);
+  }
+
+  function reconcileConversation(messages) {
+    const target = $("conversation-messages"), restore = readingPosition(target);
+    const existing = new Map(Array.from(target.children).map(node => [node.dataset.messageId, node]));
+    const desired = messages.map(message => {
+      const key = JSON.stringify([message, selectedMessage, activeQuery, savedMetadata?.historical?.captured_at]);
+      const old = existing.get(message.ID);
+      return old?.renderKey === key ? old : addMessage(message);
+    });
+    for (let index = 0; index < desired.length; index++) if (target.children[index] !== desired[index]) target.insertBefore(desired[index], target.children[index] || null);
+    for (const node of existing.values()) if (!desired.includes(node)) node.remove();
+    visibleMessages = messages;
+    restore();
   }
 
   async function showContext(hit, button) {
     const version = ++contextVersion;
     selectedMessage = hit.MessageID;
+    selectedResultKey = JSON.stringify([hit.MessageID, hit.DocumentID || ""]);
     for (const node of $("search-results").querySelectorAll("button")) node.setAttribute("aria-pressed", String(node === button));
     $("conversation-messages").replaceChildren(); visibleMessages=[]; $("context-copy").hidden = true;
     $("context-title").replaceChildren(bdi(hit.ChatName || "Conversation"));
@@ -2583,6 +2758,8 @@
 
   function addMessage(message) {
     const article = document.createElement("article"); article.className="conversation-message"; article.classList.toggle("selected", message.ID === selectedMessage);
+    article.dataset.messageId = message.ID;
+    article.renderKey = JSON.stringify([message, selectedMessage, activeQuery, savedMetadata?.historical?.captured_at]);
     const meta = document.createElement("div"); meta.className="message-meta"; meta.append(bdi(message.SenderName || "Unknown sender"), bdi(dateText(message.SentAt) + (message.Edited ? " · Edited" : "")));
     appendHistoricalProvenance(meta, message.ID);
     article.append(meta);
@@ -2592,6 +2769,7 @@
     appendDerived(article, message.Derived || []);
     if (message.Kind !== "text") { const note=document.createElement("p"); note.className="media-note"; const name=message.Kind === "voice" ? "Voice note" : message.Kind === "image" ? "Image" : "Media"; note.textContent=name + ": " + (String(message.ID || "").startsWith("h1.") ? "captured original unavailable here" : message.MediaAvailability === "retained" ? "original available" : "original unavailable") + ((message.Derived || []).length ? "; extracted text is shown separately" : "; no extracted text available"); article.append(note); }
     $("conversation-messages").append(article);
+    return article;
   }
 
   function extractionLabel(excerpt) {

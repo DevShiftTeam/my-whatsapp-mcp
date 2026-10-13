@@ -54,6 +54,8 @@ Offline recovery commands operate on existing stopped profiles. Preserve archive
 
 `archive/archive.sqlite` contains messages, chat metadata, FTS indexes, policies, tombstones, sync gaps, client grants, jobs, media metadata, and optional vectors. Schema migrations live in `internal/archive/migrations`.
 
+Expiry maintenance yields between records when a priority privacy control is queued, committing its completed prefix and leaving the remaining work pending. Actual-clock read guards still withhold expired messages before physical scrubbing. A genuinely missed control deadline remains fail-closed; the yield does not clear an existing safety pause or extend deadlines.
+
 `session/session.sqlite` is the separate SDK-owned linked-device store. Its schema belongs to whatsmeow rather than the archive migrations. Ordinary private files, original media, model installations, and client configuration have separate directories under the data root.
 
 Keyword search uses FTS5 with scope-local scoring and shared Hebrew normalization. Original logical-order text is preserved. Semantic retrieval uses authorized vector-distance scans; it does not use an ANN or HNSW index.
@@ -66,7 +68,13 @@ An empty Archive query uses `POST /api/archive/browse`; keyword search still req
 
 Browser requests use sequence checks so superseded responses cannot replace a newer view. Ordinary revision polling coalesces a guarded refresh without clearing displayed messages or aborting pending reads. Policy, recovery, unsafe-source and authentication changes clear withheld data. This is polling freshness, not an instant push notification of every deletion or edit.
 
+Archive refresh stages up to four previously loaded pages and the selected conversation before a keyed DOM update. A batch has a fifteen-second deadline and at most ten reads, including one stale-cursor restart. A deeper view retains its existing rows with an explicit stale notice instead of an unbounded rebuild or silent truncation. Transient transport failures retain the last successful Stats and Archive view; malformed successful data and known access/source invalidations remain distinct.
+
+Only a background selected-message context read can handle an exact HTTP 404 `source_unavailable` locally: the unavailable message and its excerpts are removed, its conversation is deselected, and unrelated guarded results remain. Authentication, policy, historical-source, reconciliation and whole-archive failures still invalidate the view. Policy changes replay only the last submitted query with its prior chat filter removed; unsent draft text is not submitted automatically.
+
 `make ui-test` includes `scripts/test-saved-archive-ui.mjs`, which evaluates the shipped browser script with synthetic DOM and deferred responses. It covers initial browsing, request races, import refresh, captured provenance and source/auth invalidation. Geometry and native browser behavior require separate synthetic browser journeys.
+
+With the locked docs Playwright dependency and Chromium installed, `node scripts/test-refresh-browser.mjs` checks the actual owner markup and scripts in a real browser with synthetic, intercepted APIs. It covers background refresh, loaded pages, selection/focus/scroll, transient gateway failures, light/dark loaders, reduced motion and late responses after owner expiry. It never connects to a real archive or provider and runs in the documentation CI job when the owner assets change.
 
 ## Browser appearance
 

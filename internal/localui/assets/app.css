@@ -105,8 +105,16 @@ dialog{border:1px solid var(--line);border-radius:14px;width:min(610px,calc(100%
 .stats-heading h2 { font-size: clamp(24px, 2.1vw, 32px); letter-spacing: -.8px; line-height: 1.22; text-wrap: balance; }
 .stats-heading p { margin-top: 8px; color: var(--muted); font-size: 13px; max-width: 62ch; }
 .stats-update { display: flex; gap: 8px; align-items: center; white-space: nowrap; font-size: 12px; color: var(--muted); }
-.stats-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--emerald); }
-.stats-update[data-state="error"] .stats-live-dot { background: var(--warning); }
+.stats-live-dot { display: grid; place-items: center; width: 14px; height: 14px; flex-shrink: 0; }
+.stats-live-dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--emerald); }
+.stats-update[data-state="error"] .stats-live-dot::before { background: var(--warning); }
+.stats-update[data-state="loading"] .stats-live-dot::before { width: 12px; height: 12px; background: none; border: 2px solid var(--line); border-top-color: var(--emerald); animation: saved-refresh-spin .85s linear infinite; }
+#stats-updated { min-inline-size: 16ch; }
+.pane-status { display: flex; align-items: center; justify-content: end; flex-wrap: wrap; gap: 8px 12px; min-width: 0; font-size: 12px; color: var(--muted); }
+.refresh-indicator { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.refresh-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 2px solid var(--line); border-top-color: var(--emerald); border-radius: 50%; animation: saved-refresh-spin .85s linear infinite; }
+@keyframes saved-refresh-spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .refresh-spinner, .stats-update[data-state="loading"] .stats-live-dot::before { animation: none; } }
 .stats-update .icon-button { display: grid; place-items: center; padding: 9px; min-height: 44px; min-width: 44px; }
 .stats-update svg { width: 19px; height: 19px; }
 .stats-filters { display: grid; grid-template-columns: minmax(160px, .8fr) minmax(180px, 1.3fr) minmax(155px, .8fr); gap: 14px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }

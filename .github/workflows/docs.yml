@@ -2,10 +2,10 @@ name: Public documentation
 
 on:
   pull_request:
-    paths: ['docs/**', '.github/workflows/docs.yml', 'README.md']
+    paths: ['docs/**', '.github/workflows/docs.yml', 'README.md', 'internal/localui/assets/**', 'scripts/test-refresh-browser.mjs']
   push:
     branches: [main]
-    paths: ['docs/**', '.github/workflows/docs.yml', 'README.md']
+    paths: ['docs/**', '.github/workflows/docs.yml', 'README.md', 'internal/localui/assets/**', 'scripts/test-refresh-browser.mjs']
   workflow_dispatch:
 
 permissions:
@@ -36,6 +36,9 @@ jobs:
       - run: npm run build
       - run: npx --no-install playwright install --with-deps chromium
       - run: npm run test:browser
+      - name: Test seamless owner refresh with synthetic APIs
+        working-directory: .
+        run: node scripts/test-refresh-browser.mjs
       - name: Upload qualified Pages artifact
         if: github.event.repository.private == false && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
