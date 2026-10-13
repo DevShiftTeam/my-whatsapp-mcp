@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Saved chat lists and statistics use less memory when reading rebuilt archives, within the existing memory limit.
+- Saved chat lists and statistics share repeated metadata to read larger rebuilt archives within the existing memory limit.
 
-- Owner voice retries can recover eligible missing recordings with fresh phone responses, optionally target one permitted chat, and show recovery progress separately from transcription.
+- Owner voice retries can recover eligible missing recordings with fresh phone responses, optionally target one permitted chat, and show recovery progress separately from transcription. Phone-copy requests run before queued downloads are woken, and new request failures remain visible.
 
 ### Added
 

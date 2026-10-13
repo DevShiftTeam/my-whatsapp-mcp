@@ -44,9 +44,6 @@ func (a *Application) RetryVoiceDownloadsForChat(ctx context.Context, chat archi
 		value.Queued += redelivered.Queued
 		value.Skipped += redelivered.Skipped
 	}
-	if value.Queued > 0 {
-		a.wakeOriginalDownloads()
-	}
 	result := localui.VoiceRetrySnapshot{Queued: value.Queued, Skipped: value.Skipped}
 	var request func(context.Context, archive.ReadScope) (int, error)
 	if runtime, ok := a.runtime.(interface {
@@ -63,16 +60,20 @@ func (a *Application) RetryVoiceDownloadsForChat(ctx context.Context, chat archi
 		if requestErr != nil {
 			result.Recovery.Code = "voice_retry_unavailable"
 		}
-		if requested < 0 || requested > 8 {
-			return localui.VoiceRetrySnapshot{}, localui.ErrVoiceRetryUnavailable
-		}
 		result.Requested = requested
+	}
+	// Give the bounded owner request its turn before waking queued downloads.
+	if value.Queued > 0 {
+		a.wakeOriginalDownloads()
+	}
+	if result.Requested < 0 || result.Requested > 8 {
+		return localui.VoiceRetrySnapshot{}, localui.ErrVoiceRetryUnavailable
 	}
 	recovery, statusErr := a.store.OwnerVoiceRecoveryStatus(ctx, scope)
 	if statusErr != nil {
 		return localui.VoiceRetrySnapshot{}, localui.ErrVoiceRetryUnavailable
 	}
-	if result.Recovery.Code != "" && recovery.Code == "" {
+	if result.Recovery.Code != "" {
 		recovery.Code = result.Recovery.Code
 	}
 	result.Recovery = recovery

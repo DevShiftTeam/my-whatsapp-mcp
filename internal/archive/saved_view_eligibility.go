@@ -97,6 +97,38 @@ func savedMetadataRows(f *readFrame, limit, offset int) ([]savedMetadata, error)
 func savedMetadataBytes(m savedMetadata) int {
 	return int(unsafe.Sizeof(m)) + len(m.ID) + len(m.Key.Account) + len(m.Key.Chat) + len(m.Key.Sender) + len(m.Key.Message) + len(m.Chat) + len(m.Sender) + len(m.ChatName) + len(m.SenderName) + len(m.Hash) + len(m.Media) + len(m.Barrier)
 }
+
+// Repeated identity and display strings are shared only inside one evidence
+// snapshot. Charge every intern entry and its backing bytes once; unique message
+// IDs, hashes, media identities and barriers keep their ordinary row accounting.
+func (e *savedEvidence) retainString(value string) (string, int) {
+	if value == "" {
+		return "", 0
+	}
+	if shared, ok := e.strings[value]; ok {
+		return shared, 0
+	}
+	if e.strings == nil {
+		e.strings = map[string]string{}
+	}
+	e.strings[value] = value
+	return value, 64 + len(value)
+}
+func (e *savedEvidence) retainMetadata(m *savedMetadata) int {
+	bytes := int(unsafe.Sizeof(*m)) + len(m.ID) + len(m.Key.Message) + len(m.Hash) + len(m.Media) + len(m.Barrier)
+	for _, value := range []*string{&m.Key.Account, &m.Key.Chat, &m.Key.Sender, &m.Sender, &m.ChatName, &m.SenderName, &m.SourceKind} {
+		shared, cost := e.retainString(*value)
+		*value = shared
+		bytes += cost
+	}
+	chat, cost := e.retainString(string(m.Chat))
+	m.Chat = ChatID(chat)
+	bytes += cost
+	kind, cost := e.retainString(string(m.Kind))
+	m.Kind = MessageKind(kind)
+	return bytes + cost
+}
+
 func savedCanonical(ctx context.Context, q sqlQuerier, k SourceKey) (SourceKey, error) {
 	out, err := canonicalKey(ctx, q, k)
 	if err != nil {
@@ -132,6 +164,7 @@ func savedOrderKey(k SourceKey) string {
 // only bounded source metadata, and never inserts or repairs source authority.
 type savedEvidence struct {
 	aliases    map[string]string
+	strings    map[string]string
 	current    map[SourceKey][]savedCurrent
 	chats      map[string]ChatID
 	chatNames  map[ChatID]string
@@ -252,8 +285,9 @@ func savedEvidenceFor(f *readFrame, selected ...*savedNegativeKeys) (*savedEvide
 			return ErrSourceUnavailable
 		}
 		e.chats[k.Chat] = id
+		name, cost := e.retainString(name)
 		e.chatNames[id] = name
-		e.bytes += 96 + len(chat) + len(id)
+		e.bytes += cost + 96 + len(chat) + len(id)
 		return nil
 	})
 	if err != nil {
@@ -278,12 +312,13 @@ func savedEvidenceFor(f *readFrame, selected ...*savedNegativeKeys) (*savedEvide
 			return err
 		}
 		m.Sent, m.Expiry = fromMillis(sent), fromMillis(expiry)
+		metadataBytes := e.retainMetadata(&m)
 		k, err := e.canonical(m.Key)
 		if err != nil {
 			return err
 		}
 		e.current[k] = append(e.current[k], savedCurrent{m, readable})
-		e.bytes += savedMetadataBytes(m) + 160 + len(k.Chat) + len(k.Sender)
+		e.bytes += metadataBytes + 160
 		if len(e.current) > savedMetadataLimit {
 			return ErrSavedReadLimit
 		}

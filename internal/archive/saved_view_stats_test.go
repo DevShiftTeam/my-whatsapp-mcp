@@ -356,3 +356,106 @@ func TestSavedViewAggregatePruningPreservesCanonicalNegatives(t *testing.T) {
 		t.Fatalf("new negative omitted by pruning: %d %v", stats.Messages, err)
 	}
 }
+
+// A broad metadata shape includes media identities on text, many chats and
+// senders, and inherited controls for historical rows missing from current.
+func TestSavedViewStatsManyChatsMetadataBudget(t *testing.T) {
+	const liveCount, historyStart, historyCount = 22000, 17000, 8000
+	chatKey := func(i int) string { return fmt.Sprintf("%023d@g.us", i%50+1) }
+	senderKey := func(i int) string { return fmt.Sprintf("%012d@s.whatsapp.net", i%500+1) }
+	messageKey := func(i int) string { return fmt.Sprintf("%024x", i+1) }
+	f := newHistoricalViewFixtureWith(t, func(f *historicalViewFixture, h *Store, hp ArchivePolicy) {
+		if _, err := f.live.writeDB.Exec(`CREATE TABLE rebuild_guards(account TEXT,chat TEXT,sender TEXT,message TEXT,from_me INTEGER,original_sent_at INTEGER,date_known INTEGER,expires_at INTEGER,view_once INTEGER,protocol_revision INTEGER,revision_barrier TEXT,source_kind TEXT,deleted INTEGER)`); err != nil {
+			t.Fatal(err)
+		}
+		populate := func(store *Store, start, count int) {
+			tx, err := store.writeDB.Begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			for i := 0; i < 50; i++ {
+				if _, err = tx.Exec(`INSERT INTO chats(id,account,source_chat,name) VALUES(?,'account',?,?)`, fmt.Sprintf("%032x", 100000+i), chatKey(i), fmt.Sprintf("Synthetic named conversation %04d", i)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := 0; i < 500; i++ {
+				if _, err = tx.Exec(`INSERT INTO identities(id,account,source_identity,name) VALUES(?,'account',?,?)`, fmt.Sprintf("%032x", 200000+i), senderKey(i), fmt.Sprintf("Synthetic named participant %04d", i)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stmt, err := tx.Prepare(`INSERT INTO messages(id,account,chat_id,sender_id,source_chat,source_sender,source_message,from_me,original_sent_at,original_date_known,protocol_revision,local_revision,state,source_kind,body_kind,content_hash,extension_media_identity) VALUES(?,'account',?,?,?,?,?,0,?,1,1,1,'active','original','text',?,?)`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stmt.Close()
+			for i := start; i < start+count; i++ {
+				_, err = stmt.Exec(fmt.Sprintf("%032x", i+1), fmt.Sprintf("%032x", 100000+i%50), fmt.Sprintf("%032x", 200000+i%500), chatKey(i), senderKey(i), messageKey(i), unixms(f.now.Add(-time.Duration(i%250+1)*24*time.Hour)), fmt.Sprintf("%064x", i+1), fmt.Sprintf("%064x", i%1800+1))
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err = tx.Exec(`INSERT OR IGNORE INTO source_anchors(account,chat,sender,message,from_me,original_sent_at,date_known) SELECT account,source_chat,source_sender,source_message,from_me,original_sent_at,original_date_known FROM messages`); err != nil {
+				t.Fatal(err)
+			}
+			if err = tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		populate(f.live, 0, liveCount)
+		populate(h, historyStart, historyCount)
+		tx, err := f.live.writeDB.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		for i := historyStart; i < historyStart+historyCount; i++ {
+			at := unixms(f.now.Add(-time.Duration(i%250+1) * 24 * time.Hour))
+			if _, err = tx.Exec(`INSERT OR IGNORE INTO source_anchors(account,chat,sender,message,from_me,original_sent_at,date_known) VALUES('account',?,?,?,0,?,1)`, chatKey(i), senderKey(i), messageKey(i), at); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = tx.Exec(`INSERT INTO rebuild_guards VALUES('account',?,?,?,0,?,1,0,0,1,'','original',0)`, chatKey(i), senderKey(i), messageKey(i), at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	const want = historyStart + historyCount + 4
+	for _, endpoint := range []string{"stats", "chats"} {
+		t.Run(endpoint, func(t *testing.T) {
+			start := time.Now()
+			r := savedFixtureReader(t, f)
+			var guard SavedResponseGuard
+			var err error
+			if endpoint == "stats" {
+				var page StatsSnapshot
+				page, guard, err = r.Stats(context.Background(), StatsRequest{})
+				if err == nil && page.Messages != want {
+					t.Fatalf("exact count %d want %d", page.Messages, want)
+				}
+			} else {
+				var page ChatPage
+				page, guard, err = r.Chats(context.Background(), ChatListRequest{Limit: 100})
+				var count int64
+				for _, chat := range page.Chats {
+					count += chat.MessageCount
+				}
+				if err == nil && count != want {
+					t.Fatalf("exact chat count %d want %d", count, want)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = r.Check(context.Background(), guard); err != nil {
+				t.Fatal(err)
+			}
+			if time.Since(start) > 5*time.Second {
+				t.Fatal("saved request exceeded deadline")
+			}
+			t.Logf("broad metadata %s with final guard: %v", endpoint, time.Since(start))
+		})
+	}
+}

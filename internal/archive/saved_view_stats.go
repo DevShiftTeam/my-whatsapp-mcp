@@ -80,8 +80,14 @@ func (s *savedSession) contributors(request StatsRequest) ([]savedContributor, e
 					return ErrSourceUnavailable
 				}
 				metadata = &current[0].metadata
+				// Reuse the retained evidence strings, rather than keeping a
+				// second SQL scan's identity backing bytes in every contributor.
+				key, e = evidence.canonical(metadata.Key)
+				if e != nil {
+					return e
+				}
 			}
-			c := savedContributor{Metadata: metadata, Canonical: key, Chat: m.Chat, Person: m.Sender, Historical: historical, Transcript: m.Transcript, Retained: m.Retained}
+			c := savedContributor{Metadata: metadata, Canonical: key, Chat: metadata.Chat, Person: metadata.Sender, Historical: historical, Transcript: m.Transcript, Retained: m.Retained}
 			if historical {
 				pin, ok, e := s.reader.eligible(s.live, m, false)
 				if e != nil {
@@ -99,7 +105,7 @@ func (s *savedSession) contributors(request StatsRequest) ([]savedContributor, e
 							s.live.note(copy.Sent, copy.Expiry)
 							out[index].HistoricalTranscript = &copy
 							out[index].Transcript = true
-							bytes += savedMetadataBytes(copy)
+							bytes += evidence.retainMetadata(out[index].HistoricalTranscript)
 							if bytes > savedMemoryLimit {
 								return ErrSavedReadLimit
 							}
@@ -120,9 +126,13 @@ func (s *savedSession) contributors(request StatsRequest) ([]savedContributor, e
 			}
 			// Current contributors borrow the evidence row; only historical rows
 			// allocate another metadata record. Reserve map/slice/witness overhead.
-			bytes += int(unsafe.Sizeof(c)) + 192 + len(key.Chat) + len(key.Sender) + len(c.Person)
+			bytes += int(unsafe.Sizeof(c)) + 192
 			if historical {
-				bytes += savedMetadataBytes(*c.Metadata)
+				bytes += evidence.retainMetadata(c.Metadata) + len(c.Person)
+				c.Canonical, e = evidence.canonical(c.Metadata.Key)
+				if e != nil {
+					return e
+				}
 			}
 			person := key.Account + "\x00" + key.Sender
 			day := m.Sent.UTC().Format("2006-01-02")
@@ -150,7 +160,7 @@ func (s *savedSession) contributors(request StatsRequest) ([]savedContributor, e
 			if name, ok := evidence.chatNames[c.Chat]; ok {
 				c.Metadata.ChatName = name
 			}
-			indices[m.ID] = len(out)
+			indices[c.Metadata.ID] = len(out)
 			out = append(out, c)
 			return nil
 		})
