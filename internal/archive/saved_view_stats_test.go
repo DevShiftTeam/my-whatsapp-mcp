@@ -203,3 +203,156 @@ func TestSavedViewChatQueryUsesCurrentNameAndFullCount(t *testing.T) {
 		t.Fatalf("name filter lost historical members: %#v", page)
 	}
 }
+
+// Normal persisted messages also retain anchors and inherited source guards.
+// Short-ID message-only bulk fixtures substantially understate their footprint.
+func TestSavedViewStatsNormalMetadataBudget(t *testing.T) {
+	bulk := func(t *testing.T, store *Store, seed MessageID, start, count int) {
+		t.Helper()
+		tx, err := store.writeDB.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		for i := start; i < start+count; i++ {
+			id, key := fmt.Sprintf("%064x", i+1), fmt.Sprintf("%032x", i+1)
+			_, err = tx.Exec(`INSERT INTO messages(id,account,chat_id,sender_id,source_chat,source_sender,source_message,from_me,original_sent_at,original_date_known,protocol_revision,local_revision,state,source_kind,body_kind,content_hash)
+ SELECT ?,account,chat_id,sender_id,source_chat,source_sender,?,from_me,original_sent_at,original_date_known,protocol_revision,local_revision,state,source_kind,body_kind,? FROM messages WHERE id=?`, id, key, fmt.Sprintf("%064x", i+100000), seed)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err = tx.Exec(`INSERT OR IGNORE INTO source_anchors(account,chat,sender,message,from_me,original_sent_at,date_known) SELECT account,source_chat,source_sender,source_message,from_me,original_sent_at,original_date_known FROM messages`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(`UPDATE chats SET name='Synthetic archive chat'; UPDATE identities SET name='Synthetic contact name'`); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := newHistoricalViewFixtureWith(t, func(f *historicalViewFixture, h *Store, hp ArchivePolicy) {
+		event := readerEvent("normal-scale-seed", "123456789012345678@g.us", "synthetic metadata", f.now.Add(-time.Hour))
+		event.Key.Sender = "123456789012345@s.whatsapp.net"
+		live := readerApply(t, f.live, f.policy, event)
+		history := readerApply(t, h, hp, event)
+		bulk(t, f.live, live, 0, 20000)
+		bulk(t, h, history, 15000, 8000)
+		if _, err := f.live.writeDB.Exec(`CREATE TABLE rebuild_guards(account TEXT,chat TEXT,sender TEXT,message TEXT,from_me INTEGER,original_sent_at INTEGER,date_known INTEGER,expires_at INTEGER,view_once INTEGER,protocol_revision INTEGER,revision_barrier TEXT,source_kind TEXT,deleted INTEGER)`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.live.writeDB.Exec(`INSERT INTO rebuild_guards(account,chat,sender,message,from_me,original_sent_at,date_known,expires_at,view_once,protocol_revision,revision_barrier,source_kind,deleted) SELECT account,source_chat,source_sender,source_message,from_me,original_sent_at,original_date_known,expires_at,view_once,protocol_revision,revision_barrier,source_kind,0 FROM messages`); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("evidence_budget", func(t *testing.T) {
+		r := savedFixtureReader(t, f).(*savedOwnerRead)
+		session, err := r.begin(context.Background(), nil, time.Time{}, time.Time{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer session.close()
+		keys, err := savedAggregateNegativeKeys(session.live, session.history)
+		if err != nil {
+			t.Fatal(err)
+		}
+		evidence, err := savedEvidenceFor(session.live, keys)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("bounded evidence bytes=%d of %d; candidate keys=%d retained anchors=%d inherited guards=%d; current keys=%d", evidence.bytes, savedMemoryLimit, len(keys.full), len(evidence.anchors), len(evidence.guards), len(evidence.current))
+	})
+	for _, endpoint := range []string{"stats", "chats"} {
+		t.Run(endpoint, func(t *testing.T) {
+			start := time.Now()
+			r := savedFixtureReader(t, f)
+			var guard SavedResponseGuard
+			var err error
+			if endpoint == "stats" {
+				var stats StatsSnapshot
+				stats, guard, err = r.Stats(context.Background(), StatsRequest{})
+				if err == nil && stats.Messages != 23005 {
+					t.Fatalf("exact total %d want23005", stats.Messages)
+				}
+			} else {
+				var chats ChatPage
+				chats, guard, err = r.Chats(context.Background(), ChatListRequest{})
+				var count int64
+				for _, chat := range chats.Chats {
+					count += chat.MessageCount
+				}
+				if err == nil && count != 23005 {
+					t.Fatalf("exact chat total %d want23005", count)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = r.Check(context.Background(), guard); err != nil {
+				t.Fatal(err)
+			}
+			if time.Since(start) > 5*time.Second {
+				t.Fatal("request exceeded5second deadline")
+			}
+			t.Logf("normal metadata %s and final delivery check: %v", endpoint, time.Since(start))
+		})
+	}
+}
+
+func TestSavedViewAggregatePruningPreservesCanonicalNegatives(t *testing.T) {
+	f := newHistoricalViewFixtureWith(t, func(f *historicalViewFixture, h *Store, hp ArchivePolicy) {
+		if _, err := f.live.writeDB.Exec(`INSERT INTO identity_aliases(account,alias,canonical,provenance) VALUES('account','older-chat','synthetic-a','session_metadata'),('account','older-sender','canonical-sender','session_metadata')`); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"unmatched-safe", "unresolved-denied", "guard-denied", "current-deleted"} {
+			event := readerEvent(key, "synthetic-a", "historical synthetic content", f.now.Add(-30*time.Second))
+			event.Key.Sender = "older-sender"
+			readerApply(t, h, hp, event)
+			if key == "current-deleted" {
+				event.Key.Chat = "synthetic-a"
+				event.Key.Sender = "canonical-sender"
+				id := readerApply(t, f.live, f.policy, event)
+				if _, err := f.live.writeDB.Exec(`UPDATE messages SET state='deleted' WHERE id=?`, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if _, err := f.live.writeDB.Exec(`INSERT INTO unresolved_deletions(account,chat,message) VALUES('account','synthetic-a','unresolved-denied')`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.live.writeDB.Exec(`CREATE TABLE rebuild_guards(account TEXT,chat TEXT,sender TEXT,message TEXT,from_me INTEGER,original_sent_at INTEGER,date_known INTEGER,expires_at INTEGER,view_once INTEGER,protocol_revision INTEGER,revision_barrier TEXT,source_kind TEXT,deleted INTEGER);
+ INSERT INTO rebuild_guards VALUES('account','older-chat','canonical-sender','guard-denied',0,0,0,0,0,0,'blocked','original',0)`); err != nil {
+			t.Fatal(err)
+		}
+	})
+	r := savedFixtureReader(t, f)
+	stats, guard, err := r.Stats(context.Background(), StatsRequest{})
+	if err != nil || stats.Messages != 5 {
+		t.Fatalf("alias/current-negative aggregate: %d %v", stats.Messages, err)
+	}
+	chats, chatGuard, err := r.Chats(context.Background(), ChatListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	for _, chat := range chats.Chats {
+		count += chat.MessageCount
+	}
+	if count != 5 {
+		t.Fatalf("alias/current-negative chat count=%d", count)
+	}
+	if _, err = f.live.writeDB.Exec(`INSERT INTO unresolved_deletions(account,chat,message) VALUES('account','older-chat','unmatched-safe')`); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.Check(context.Background(), guard); err == nil {
+		t.Fatal("new aliased negative passed exact Stats final fence")
+	}
+	if err = r.Check(context.Background(), chatGuard); err == nil {
+		t.Fatal("new aliased negative passed exact Chats final fence")
+	}
+	stats, _, err = r.Stats(context.Background(), StatsRequest{})
+	if err != nil || stats.Messages != 4 {
+		t.Fatalf("new negative omitted by pruning: %d %v", stats.Messages, err)
+	}
+}

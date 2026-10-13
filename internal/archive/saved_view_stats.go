@@ -21,17 +21,21 @@ type savedContributor struct {
 }
 
 func (s *savedSession) contributors(request StatsRequest) ([]savedContributor, error) {
-	evidence, err := savedEvidenceFor(s.live)
+	existingEvidence := s.live.savedEvidence != nil
+	keys, err := savedAggregateNegativeKeys(s.live, s.history)
 	if err != nil {
 		return nil, err
 	}
-	if s.history != nil {
-		if err := savedHistoricalCollisions(s.history, evidence); err != nil {
-			return nil, err
-		}
+	evidence, err := savedEvidenceFor(s.live, keys)
+	if err != nil {
+		return nil, err
 	}
+
 	var out []savedContributor
 	inspected, bytes := 0, evidence.bytes
+	if existingEvidence {
+		bytes += keys.bytes
+	}
 	indices := map[MessageID]int{}
 	peopleBudget := map[string]bool{}
 	chatBudget := map[ChatID]bool{}
@@ -485,14 +489,56 @@ func savedMembers(rows []savedContributor) map[string]bool {
 	return out
 }
 
-// Aggregate collision proof precedes date/kind filtering. It uses keys only,
-// and shares the request metadata ceiling with current negative evidence.
-func savedHistoricalCollisions(f *readFrame, evidence *savedEvidence) error {
-	chats := f.scope.Chats
-	if len(f.savedEvidenceChats) > 0 {
-		chats = f.savedEvidenceChats
+// Aggregates need negative evidence only for possible historical contributors.
+// Current metadata remains complete: presence, readability and exact counts are
+// never pruned. The same key selection runs again inside the final commit fence.
+type savedNegativeKeys struct {
+	full       map[[32]byte]bool
+	unresolved map[[32]byte]bool
+	chats      map[string]bool
+	bytes      int
+}
+
+func (k *savedNegativeKeys) contains(key SourceKey) bool {
+	return k.full[sha256.Sum256([]byte(savedOrderKey(key)))]
+}
+func savedUnresolvedHash(chat, message string) [32]byte {
+	return sha256.Sum256([]byte(chat + "\x00" + message))
+}
+func savedAggregateNegativeKeys(live, history *readFrame) (*savedNegativeKeys, error) {
+	out := &savedNegativeKeys{full: map[[32]byte]bool{}, unresolved: map[[32]byte]bool{}, chats: map[string]bool{}}
+	if history == nil {
+		return out, nil
 	}
-	args := []any{f.scope.Account}
+	aliases := &savedEvidence{aliases: map[string]string{}}
+	rows, err := live.tx.QueryContext(live.ctx, "SELECT alias,canonical FROM identity_aliases WHERE account=? LIMIT ?", live.scope.Account, savedMetadataLimit+1)
+	if err != nil {
+		return nil, readError(live.ctx, err)
+	}
+	aliasBytes := 0
+	for rows.Next() {
+		var a, c string
+		if err = rows.Scan(&a, &c); err != nil {
+			rows.Close()
+			return nil, readError(live.ctx, err)
+		}
+		aliases.aliases[a] = c
+		aliasBytes += 64 + len(a) + len(c)
+		if len(aliases.aliases) > savedMetadataLimit || aliasBytes > savedMemoryLimit {
+			rows.Close()
+			return nil, ErrSavedReadLimit
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, readError(live.ctx, err)
+	}
+	chats := history.scope.Chats
+	if len(history.savedEvidenceChats) > 0 {
+		chats = history.savedEvidenceChats
+	}
+	args := []any{history.scope.Account}
 	where := "account=?"
 	if len(chats) > 0 {
 		marks := make([]string, len(chats))
@@ -503,29 +549,38 @@ func savedHistoricalCollisions(f *readFrame, evidence *savedEvidence) error {
 		where += " AND chat_id IN (" + strings.Join(marks, ",") + ")"
 	}
 	args = append(args, savedMetadataLimit+1)
-	rows, err := f.tx.QueryContext(f.ctx, "SELECT source_chat,source_sender,source_message,from_me FROM messages WHERE "+where+" LIMIT ?", args...)
+	rows, err = history.tx.QueryContext(history.ctx, "SELECT source_chat,source_sender,source_message,from_me FROM messages WHERE "+where+" LIMIT ?", args...)
 	if err != nil {
-		return readError(f.ctx, err)
+		return nil, readError(history.ctx, err)
 	}
 	defer rows.Close()
-	seen := map[[32]byte]bool{}
 	for rows.Next() {
-		key := SourceKey{Account: f.scope.Account}
+		key := SourceKey{Account: history.scope.Account}
 		if err = rows.Scan(&key.Chat, &key.Sender, &key.Message, &key.FromMe); err != nil {
-			return readError(f.ctx, err)
+			return nil, readError(history.ctx, err)
 		}
-		key, err = evidence.canonical(key)
+		key, err = aliases.canonical(key)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		hash := sha256.Sum256([]byte(savedOrderKey(key)))
-		if seen[hash] {
-			return ErrSourceUnavailable
+		if out.full[hash] {
+			return nil, ErrSourceUnavailable
 		}
-		seen[hash] = true
-		if len(seen) > savedMetadataLimit || evidence.bytes+len(seen)*64 > savedMemoryLimit {
-			return ErrSavedReadLimit
+		out.full[hash] = true
+		out.bytes += 64
+		unresolved := savedUnresolvedHash(key.Chat, key.Message)
+		if !out.unresolved[unresolved] {
+			out.unresolved[unresolved] = true
+			out.bytes += 64
+		}
+		if !out.chats[key.Chat] {
+			out.chats[key.Chat] = true
+			out.bytes += 64 + len(key.Chat)
+		}
+		if len(out.full) > savedMetadataLimit || out.bytes+aliasBytes > savedMemoryLimit {
+			return nil, ErrSavedReadLimit
 		}
 	}
-	return readError(f.ctx, rows.Err())
+	return out, readError(history.ctx, rows.Err())
 }

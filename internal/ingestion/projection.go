@@ -361,6 +361,9 @@ func (r *Runtime) messageWithDeliveredAdmission(ctx context.Context, event *even
 	if r.Status().ReconciliationRequired {
 		return archive.ErrReconciliationRequired
 	}
+	if handled, err := r.ownerVoiceDescriptorReply(ctx, event); handled || err != nil {
+		return err
+	}
 	if event != nil && event.Message == nil && event.SourceWebMsg != nil && event.UnavailableRequestID != "" {
 		if !recordWithinLimit(event) {
 			r.failClosed("history_limit_exceeded")

@@ -110,7 +110,7 @@ func unknownHistoryGapSnapshot(ctx context.Context, q sqlQuerier, account string
 	if version >= 14 && version <= 16 {
 		return nil
 	}
-	if version != 17 && version != 18 && version != 19 {
+	if version != 17 && version != 18 && version != 19 && version != 20 {
 		return ErrSchemaChanged
 	}
 	var epoch uint64
@@ -127,7 +127,7 @@ func unknownHistoryGapSnapshot(ctx context.Context, q sqlQuerier, account string
 	}
 	snapshot.CoverageEpoch = epoch + acceptedEpoch
 	snapshot.UnknownHistoryGap = epoch != 0 || acceptedEpoch != 0
-	if version == 19 {
+	if version >= 19 {
 		var runtimeEpoch uint64
 		err = q.QueryRowContext(ctx, "SELECT epoch FROM history_uncertainty_coverage WHERE account=?", account).Scan(&runtimeEpoch)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

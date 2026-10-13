@@ -17,11 +17,12 @@ const (
 )
 
 type MediaAdmissionRequest struct {
-	Source       SourceRef
-	MediaID      MediaID
-	Budget       BudgetKind
-	MaximumBytes int64 // ciphertext+MAC/padding or decoded-work bound
-	TTL          time.Duration
+	OwnerDownloadLease OriginalDownloadLease
+	Source             SourceRef
+	MediaID            MediaID
+	Budget             BudgetKind
+	MaximumBytes       int64 // ciphertext+MAC/padding or decoded-work bound
+	TTL                time.Duration
 }
 type MediaReservation struct {
 	ID           ReservationID
@@ -71,8 +72,9 @@ type MediaStore interface {
 }
 
 type OriginalDownloadLease struct {
-	MediaID MediaID
-	LeaseID LeaseID
+	IntentID string
+	MediaID  MediaID
+	LeaseID  LeaseID
 }
 type OriginalDownloadClaim struct {
 	Account string

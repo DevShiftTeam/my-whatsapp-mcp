@@ -23,7 +23,7 @@ func TestOutboundUpgradePreservesExistingArchiveAndReadGrant(t *testing.T) {
 	}
 	// Represent the canonical v11 database before the new append-only migration.
 	// All existing migration checksums and source/credential rows stay intact.
-	for _, statement := range []string{"DROP TABLE history_uncertainty_reasons", "DROP TABLE history_uncertainty_coverage", "DROP TABLE rebuild_history_frontiers", "DROP TABLE rebuild_history_pages", "DROP TABLE rebuild_history_bodies", "DROP TABLE rebuild_history_selection_audit", "DROP TABLE rebuild_history_selection", "DROP TABLE unknown_history_codes", "DROP TABLE unknown_history_coverage", "DROP TABLE extension_document_promotions", "ALTER TABLE extension_media_associations DROP COLUMN filename", "DROP TABLE send_permission_modes", "DROP TABLE send_requests", "DROP TABLE send_permissions", "DELETE FROM schema_migrations WHERE version>=12"} {
+	for _, statement := range []string{"DROP TABLE owner_voice_redownload_intents", "DROP TABLE history_uncertainty_reasons", "DROP TABLE history_uncertainty_coverage", "DROP TABLE rebuild_history_frontiers", "DROP TABLE rebuild_history_pages", "DROP TABLE rebuild_history_bodies", "DROP TABLE rebuild_history_selection_audit", "DROP TABLE rebuild_history_selection", "DROP TABLE unknown_history_codes", "DROP TABLE unknown_history_coverage", "DROP TABLE extension_document_promotions", "ALTER TABLE extension_media_associations DROP COLUMN filename", "DROP TABLE send_permission_modes", "DROP TABLE send_requests", "DROP TABLE send_permissions", "DELETE FROM schema_migrations WHERE version>=12"} {
 		if _, err := s.writeDB.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func TestSendPermissionModeUpgradePreservesLegacyFiniteGrantWithoutWidening(t *t
 	if err = s.SetSendPermission(ctx, grant, []ChatID{chat}); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range []string{"DROP TABLE history_uncertainty_reasons", "DROP TABLE history_uncertainty_coverage", "DROP TABLE rebuild_history_frontiers", "DROP TABLE rebuild_history_pages", "DROP TABLE rebuild_history_bodies", "DROP TABLE rebuild_history_selection_audit", "DROP TABLE rebuild_history_selection", "DROP TABLE unknown_history_codes", "DROP TABLE unknown_history_coverage", "DROP TABLE extension_document_promotions", "ALTER TABLE extension_media_associations DROP COLUMN filename", "DROP TABLE send_permission_modes", "DELETE FROM schema_migrations WHERE version>=13"} {
+	for _, statement := range []string{"DROP TABLE owner_voice_redownload_intents", "DROP TABLE history_uncertainty_reasons", "DROP TABLE history_uncertainty_coverage", "DROP TABLE rebuild_history_frontiers", "DROP TABLE rebuild_history_pages", "DROP TABLE rebuild_history_bodies", "DROP TABLE rebuild_history_selection_audit", "DROP TABLE rebuild_history_selection", "DROP TABLE unknown_history_codes", "DROP TABLE unknown_history_coverage", "DROP TABLE extension_document_promotions", "ALTER TABLE extension_media_associations DROP COLUMN filename", "DROP TABLE send_permission_modes", "DELETE FROM schema_migrations WHERE version>=13"} {
 		if _, err = s.writeDB.Exec(statement); err != nil {
 			t.Fatal(err)
 		}

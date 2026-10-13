@@ -161,7 +161,17 @@ func BootstrapRebuild(ctx context.Context, sourceArchiveDir, destinationArchiveD
 	if err != nil {
 		return receipt, err
 	}
-	if sourceVersion == 19 {
+	if sourceVersion >= 20 {
+		var intents int
+		if err = src.QueryRowContext(ctx, "SELECT count(*) FROM owner_voice_redownload_intents").Scan(&intents); err != nil {
+			return receipt, err
+		}
+		// Reconstruction cannot silently discard request replay-denial receipts.
+		if intents != 0 {
+			return receipt, ErrSchemaChanged
+		}
+	}
+	if sourceVersion >= 19 {
 		var evidence int
 		if err = src.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM history_uncertainty_coverage)+(SELECT count(*) FROM history_uncertainty_reasons)+(SELECT count(*) FROM sync_gaps WHERE code=?)", historyUncertaintyGapCode).Scan(&evidence); err != nil {
 			return receipt, err

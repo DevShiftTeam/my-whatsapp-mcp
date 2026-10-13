@@ -68,6 +68,13 @@ func (s *Store) rebuildRestrict(ctx context.Context, tx *sql.Tx, key SourceKey, 
 	if err != nil {
 		return err
 	}
+	return s.restrictCurrentSource(ctx, tx, key, expires, viewOnce, policy, g)
+}
+
+// Apply authenticated monotonic negative facts to an already imported source.
+// The ordinary archive has no rebuild guard ledger, but uses identical source
+// invalidation, erasure, expiry and revision semantics.
+func (s *Store) restrictCurrentSource(ctx context.Context, tx *sql.Tx, key SourceKey, expires time.Time, viewOnce bool, policy Generation, g RebuildGuard) error {
 	v, exists, err := loadSourceRow(ctx, tx, key)
 	if err != nil || !exists {
 		return err

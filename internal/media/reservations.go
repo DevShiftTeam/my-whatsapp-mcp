@@ -75,7 +75,11 @@ func (s *Store) bind(ctx context.Context, q DownloadRequest) (archive.SourceRef,
 }
 
 func (s *Store) reserve(ctx context.Context, ref archive.SourceRef, id archive.MediaID, budget archive.BudgetKind, max int64) (archive.MediaReservation, diskspace.Lease, error) {
-	r, err := s.repo.AdmitMedia(ctx, archive.MediaAdmissionRequest{Source: ref, MediaID: id, Budget: budget, MaximumBytes: max, TTL: s.options.LeaseTTL})
+	return s.reserveOwner(ctx, ref, id, budget, max, archive.OriginalDownloadLease{})
+}
+
+func (s *Store) reserveOwner(ctx context.Context, ref archive.SourceRef, id archive.MediaID, budget archive.BudgetKind, max int64, owner archive.OriginalDownloadLease) (archive.MediaReservation, diskspace.Lease, error) {
+	r, err := s.repo.AdmitMedia(ctx, archive.MediaAdmissionRequest{OwnerDownloadLease: owner, Source: ref, MediaID: id, Budget: budget, MaximumBytes: max, TTL: s.options.LeaseTTL})
 	if errors.Is(err, archive.ErrQuotaExceeded) && budget == archive.BudgetOriginals {
 		ids, e := s.repo.EvictionCandidates(ctx, 256)
 		if e != nil {
@@ -85,7 +89,7 @@ func (s *Store) reserve(ctx context.Context, ref archive.SourceRef, id archive.M
 			if e := s.evict(ctx, victim); e != nil && !errors.Is(e, ErrActiveUse) && !errors.Is(e, archive.ErrNoWork) {
 				return r, nil, e
 			}
-			r, err = s.repo.AdmitMedia(ctx, archive.MediaAdmissionRequest{Source: ref, MediaID: id, Budget: budget, MaximumBytes: max, TTL: s.options.LeaseTTL})
+			r, err = s.repo.AdmitMedia(ctx, archive.MediaAdmissionRequest{OwnerDownloadLease: owner, Source: ref, MediaID: id, Budget: budget, MaximumBytes: max, TTL: s.options.LeaseTTL})
 			if err == nil {
 				break
 			}

@@ -109,6 +109,9 @@ func extensionMediaLimit(limit int) error {
 	return nil
 }
 func (s *Store) AdmitMedia(ctx context.Context, request MediaAdmissionRequest) (MediaReservation, error) {
+	if request.OwnerDownloadLease != (OriginalDownloadLease{}) && (request.OwnerDownloadLease.IntentID == "" || !extensionValidDownloadLease(request.OwnerDownloadLease)) {
+		return MediaReservation{}, ErrInvalidExtension
+	}
 	if !validExtensionMediaSource(request.Source) || !validReadID(string(request.MediaID)) || (request.Budget != BudgetOriginals && request.Budget != BudgetDecoded) || request.MaximumBytes <= 0 || !validExtensionMediaTTL(request.TTL) {
 		return MediaReservation{}, ErrInvalidExtension
 	}
@@ -342,6 +345,9 @@ func extensionMediaLeaseMatches(stored, caller MediaReservation) bool {
 }
 
 func (s *Store) extensionAdmitMedia(ctx context.Context, tx *sql.Tx, request MediaAdmissionRequest) (MediaReservation, error) {
+	if err := s.ownerVoiceAdmit(ctx, tx, request); err != nil {
+		return MediaReservation{}, err
+	}
 	kind, inputArtifact, err := s.extensionMediaAssociation(ctx, tx, request.Source, request.MediaID)
 	if err != nil {
 		return MediaReservation{}, err
@@ -415,9 +421,18 @@ func (s *Store) extensionAdmitMedia(ctx context.Context, tx *sql.Tx, request Med
 			return MediaReservation{}, ErrArchiveUnavailable
 		}
 	}
+	if request.OwnerDownloadLease.IntentID != "" {
+		_, err = tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET reservation_id=?,artifact_id=? WHERE id=? AND lease_id=?`, r.ID, r.ArtifactID, request.OwnerDownloadLease.IntentID, request.OwnerDownloadLease.LeaseID)
+		if err != nil {
+			return MediaReservation{}, fixedSQLError(err)
+		}
+	}
 	return r, nil
 }
 func (s *Store) extensionRenewMedia(ctx context.Context, tx *sql.Tx, r MediaReservation, ttl time.Duration) (time.Time, error) {
+	if _, _, err := s.ownerVoiceBound(ctx, tx, r); err != nil {
+		return time.Time{}, err
+	}
 	v, err := extensionLoadMedia(ctx, tx, r.ArtifactID)
 	if err != nil {
 		return time.Time{}, err
@@ -440,6 +455,13 @@ func (s *Store) extensionRenewMedia(ctx context.Context, tx *sql.Tx, r MediaRese
 }
 func (s *Store) extensionPublishOriginal(ctx context.Context, tx *sql.Tx, p OriginalPublication) (bool, error) {
 	r := p.Reservation
+	owner, owned, ownerErr := s.ownerVoiceBound(ctx, tx, r)
+	if ownerErr != nil {
+		return false, ownerErr
+	}
+	if owned && p.SHA256 != owner.snapshot.ExpectedSHA {
+		return false, ErrInvalidExtension
+	}
 	v, err := extensionLoadMedia(ctx, tx, r.ArtifactID)
 	if errors.Is(err, ErrNoWork) {
 		return false, nil
@@ -491,6 +513,12 @@ func (s *Store) extensionPublishOriginal(ctx context.Context, tx *sql.Tx, p Orig
 	_, err = tx.ExecContext(ctx, `UPDATE extension_media_associations SET artifact_id=?,availability='retained',last_original_sha256=? WHERE id=? AND active=1`, r.ArtifactID, p.SHA256, r.MediaID)
 	if err != nil {
 		return false, ErrArchiveUnavailable
+	}
+	if owned {
+		_, err = tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='complete',completed_sha256=?,protocol_reference=X'' WHERE id=? AND artifact_id=? AND reservation_id=?`, p.SHA256, owner.snapshot.Intent.ID, r.ArtifactID, r.ID)
+		if err != nil {
+			return false, fixedSQLError(err)
+		}
 	}
 	if err = extensionCompleteOriginalDownloadPublication(ctx, tx, r.MediaID, p.SHA256); err != nil {
 		return false, err

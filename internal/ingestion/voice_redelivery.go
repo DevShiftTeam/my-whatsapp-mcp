@@ -25,6 +25,16 @@ type phoneRedeliverySourceStore interface {
 // acknowledgement is only a request; normal authenticated Message events remain
 // responsible for source acceptance and attachment references.
 func (r *Runtime) RequestVoiceRedelivery(ctx context.Context, scope archive.ReadScope) (int, error) {
+	return r.requestOwnerVoice(ctx, scope, false)
+}
+
+// RequestOwnerVoiceRedownloads shares the eight-copy budget with legacy
+// missing-reference recovery. Only this explicit action dispatches phone requests.
+func (r *Runtime) RequestOwnerVoiceRedownloads(ctx context.Context, scope archive.ReadScope) (int, error) {
+	return r.requestOwnerVoice(ctx, scope, true)
+}
+
+func (r *Runtime) requestOwnerVoice(ctx context.Context, scope archive.ReadScope, recovery bool) (int, error) {
 	if ctx == nil || scope.Principal != "owner" || scope.Account != r.SourceAccount() || scope.PolicyGeneration == 0 {
 		return 0, ErrMediaInvalidAdmission
 	}
@@ -43,7 +53,7 @@ func (r *Runtime) RequestVoiceRedelivery(ctx context.Context, scope archive.Read
 	if r.client.Store.ID == nil || r.client.Store.ID.ToNonAD().String() != scope.Account {
 		return 0, ErrMediaAuthentication
 	}
-	if r.sendHistoryRequest == nil && (!r.client.IsConnected() || !r.client.IsLoggedIn()) {
+	if r.sendHistoryRequest == nil && (!recovery || r.sendRebuildRequest == nil) && (!r.client.IsConnected() || !r.client.IsLoggedIn()) {
 		return 0, ErrMediaCanceled
 	}
 	store, ok := r.store.(ownerVoiceRedeliveryStore)
@@ -54,21 +64,53 @@ func (r *Runtime) RequestVoiceRedelivery(ctx context.Context, scope archive.Read
 	defer cancel()
 	stop := context.AfterFunc(runCtx, cancel)
 	defer stop()
-	items, err := store.VoiceRedeliverySources(batch, scope, 8)
-	if err != nil {
-		return 0, mediaFailure(err, ErrMediaUnavailable)
-	}
-	if len(items) > 8 {
-		return 0, ErrMediaLimit
-	}
-	if len(items) == 0 {
-		return 0, nil
-	}
 	r.optionalMu.Lock()
 	limited := !r.lastBackfillExplicit.IsZero() && time.Since(r.lastBackfillExplicit) < optionalCooldown
 	r.optionalMu.Unlock()
 	if limited {
 		return 0, ErrMediaLimit
+	}
+	var items []archive.VoiceRedeliverySource
+	intents := make(map[archive.SourceKey]archive.OwnerVoiceIntent)
+	var recoveryStore archive.OwnerVoiceRecoveryStore
+	if recovery {
+		recoveryStore, ok = r.store.(archive.OwnerVoiceRecoveryStore)
+		if !ok {
+			return 0, ErrMediaUnavailable
+		}
+		prepare, done := context.WithTimeout(batch, 5*time.Second)
+		prepared, err := recoveryStore.PrepareOwnerVoiceRedownloads(prepare, scope, 8)
+		done()
+		if err != nil {
+			return 0, mediaFailure(err, ErrMediaUnavailable)
+		}
+		if len(prepared) > 8 {
+			return 0, ErrMediaLimit
+		}
+		for _, intent := range prepared {
+			if intent.ID == "" {
+				return 0, ErrMediaInvalidAdmission
+			}
+			intents[intent.Key] = intent
+			items = append(items, archive.VoiceRedeliverySource{Key: intent.Key, Source: intent.Source, OriginalSentAt: intent.OriginalSentAt})
+		}
+	}
+	if remaining := 8 - len(items); remaining > 0 {
+		missing, err := store.VoiceRedeliverySources(batch, scope, remaining)
+		if err != nil {
+			return 0, mediaFailure(err, ErrMediaUnavailable)
+		}
+		if len(missing) > remaining {
+			return 0, ErrMediaLimit
+		}
+		for _, item := range missing {
+			if _, exists := intents[item.Key]; !exists {
+				items = append(items, item)
+			}
+		}
+	}
+	if len(items) == 0 {
+		return 0, nil
 	}
 	requested := 0
 	authorized := false
@@ -103,8 +145,24 @@ func (r *Runtime) RequestVoiceRedelivery(ctx context.Context, scope archive.Read
 			r.optionalMu.Unlock()
 			authorized = true
 		}
+		intent, recovering := intents[item.Key]
+		requestID := ""
+		if recovering {
+			requestID = r.client.GenerateMessageID()
+			registration, done := context.WithTimeout(batch, 5*time.Second)
+			err = recoveryStore.RegisterOwnerVoiceRequest(registration, archive.OwnerVoiceRequestRegistration{IntentID: intent.ID, RequestID: requestID, Source: intent.Source})
+			done()
+			if err != nil {
+				return requested, mediaFailure(err, ErrMediaUnavailable)
+			}
+		}
+		if !r.optionalReady() {
+			return requested, ErrMediaCanceled
+		}
 		attempt, done := context.WithTimeout(batch, 2*time.Second)
-		if r.sendHistoryRequest != nil {
+		if recovering {
+			err = r.sendRebuildPeer(attempt, requestID, request)
+		} else if r.sendHistoryRequest != nil {
 			err = r.sendHistoryRequest(attempt, request)
 		} else {
 			_, err = r.client.SendPeerMessage(attempt, request)

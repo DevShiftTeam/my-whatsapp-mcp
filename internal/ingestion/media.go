@@ -22,12 +22,13 @@ import (
 )
 
 type pendingMedia struct {
-	key        archive.SourceKey
-	version    archive.SourceVersion
-	mediaID    archive.MediaID
-	kind       archive.MessageKind
-	attachment whatsmeow.DownloadableMessage
-	hash       []byte
+	ownerDownloadLease archive.OriginalDownloadLease
+	key                archive.SourceKey
+	version            archive.SourceVersion
+	mediaID            archive.MediaID
+	kind               archive.MessageKind
+	attachment         whatsmeow.DownloadableMessage
+	hash               []byte
 }
 
 func (r *Runtime) projectViewOnce(e *archive.SourceEvent, m *waE2E.Message) {
@@ -280,7 +281,7 @@ func (r *Runtime) transferMedia(ctx context.Context, p *pendingMedia, cleanup *m
 	copy(digest[:], p.hash)
 	downloadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	admission, admitErr := r.callbacks.MediaAdmitter(downloadCtx, MediaDownloadRequest{Key: p.key, Version: p.version, MediaID: p.mediaID, Kind: p.kind, DeclaredBytes: int64(declared), CiphertextMaximum: wireMaximum, ProtocolSHA256: digest})
+	admission, admitErr := r.callbacks.MediaAdmitter(downloadCtx, MediaDownloadRequest{OwnerDownloadLease: p.ownerDownloadLease, Key: p.key, Version: p.version, MediaID: p.mediaID, Kind: p.kind, DeclaredBytes: int64(declared), CiphertextMaximum: wireMaximum, ProtocolSHA256: digest})
 	if !nilMediaPort(admission) {
 		// DownloadAttachment is synchronous. This defer cannot release accounting
 		// while its writer is still running, even when cancellation arrives.

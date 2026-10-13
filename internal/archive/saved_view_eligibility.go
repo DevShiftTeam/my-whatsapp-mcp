@@ -158,11 +158,16 @@ func (e *savedEvidence) canonical(k SourceKey) (SourceKey, error) {
 	}
 	return k, nil
 }
-func savedEvidenceFor(f *readFrame) (*savedEvidence, error) {
+func savedEvidenceFor(f *readFrame, selected ...*savedNegativeKeys) (*savedEvidence, error) {
 	if f.savedEvidence != nil {
 		return f.savedEvidence, nil
 	}
 	e := &savedEvidence{aliases: map[string]string{}, current: map[SourceKey][]savedCurrent{}, chats: map[string]ChatID{}, chatNames: map[ChatID]string{}, deleted: map[SourceKey]bool{}, unresolved: map[[2]string]bool{}, cutoffs: map[string]int64{}, anchors: map[SourceKey][]int64{}, guards: map[SourceKey][]RebuildGuard{}}
+	var selectedKeys *savedNegativeKeys
+	if len(selected) > 0 {
+		selectedKeys = selected[0]
+		e.bytes = selectedKeys.bytes
+	}
 	count := 0
 	visit := func(query string, args []any, read func(*sql.Rows) error) error {
 		localCount := 0
@@ -296,6 +301,9 @@ func savedEvidenceFor(f *readFrame) (*savedEvidence, error) {
 		if err != nil {
 			return err
 		}
+		if selectedKeys != nil && !selectedKeys.contains(k) {
+			return nil
+		}
 		e.deleted[k] = true
 		e.bytes += 128 + len(k.Chat) + len(k.Sender) + len(k.Message)
 		return nil
@@ -311,6 +319,9 @@ func savedEvidenceFor(f *readFrame) (*savedEvidence, error) {
 		k, err := e.canonical(SourceKey{Chat: chat})
 		if err != nil {
 			return err
+		}
+		if selectedKeys != nil && !selectedKeys.unresolved[savedUnresolvedHash(k.Chat, message)] {
+			return nil
 		}
 		e.unresolved[[2]string{k.Chat, message}] = true
 		e.bytes += 96 + len(chat) + len(message)
@@ -329,6 +340,9 @@ func savedEvidenceFor(f *readFrame) (*savedEvidence, error) {
 		if err != nil {
 			return err
 		}
+		if selectedKeys != nil && !selectedKeys.chats[k.Chat] {
+			return nil
+		}
 		e.cutoffs[k.Chat] = max(e.cutoffs[k.Chat], cutoff)
 		e.bytes += 64 + len(chat)
 		return nil
@@ -345,6 +359,9 @@ func savedEvidenceFor(f *readFrame) (*savedEvidence, error) {
 		k, err := e.canonical(k)
 		if err != nil {
 			return err
+		}
+		if selectedKeys != nil && !selectedKeys.contains(k) {
+			return nil
 		}
 		e.anchors[k] = append(e.anchors[k], sent)
 		e.bytes += 128 + len(k.Chat) + len(k.Sender) + len(k.Message)
@@ -368,6 +385,9 @@ func savedEvidenceFor(f *readFrame) (*savedEvidence, error) {
 			k, err := e.canonical(k)
 			if err != nil {
 				return err
+			}
+			if selectedKeys != nil && !selectedKeys.contains(k) {
+				return nil
 			}
 			g.OriginalSentAt, g.ExpiresAt = fromMillis(sent), fromMillis(expiry)
 			e.guards[k] = append(e.guards[k], g)

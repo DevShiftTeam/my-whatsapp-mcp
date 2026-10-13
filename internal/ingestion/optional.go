@@ -381,6 +381,9 @@ func decodeOriginal(input archive.OriginalDownloadInput, maximum int64) (*pendin
 	attachment.key = input.Key
 	attachment.version = work.Source.Version
 	attachment.mediaID = work.Lease.MediaID
+	if work.Lease.IntentID != "" {
+		attachment.ownerDownloadLease = work.Lease
+	}
 	attachment.kind = work.Kind
 	attachment.hash = append([]byte(nil), attachment.attachment.GetFileSHA256()...)
 	return &attachment, nil

@@ -162,3 +162,46 @@ func TestVoiceRetryKeepsStatusReadableWhilePrimaryPhoneRequestWaits(t *testing.T
 		t.Fatal("primary phone I/O blocked an ordinary archive status read")
 	}
 }
+
+func TestOwnerVoiceChatRetryPreservesPolicyAndRejectsUnknown(t *testing.T) {
+	ctx := context.Background()
+	a, err := New(ctx, Config{DataDir: privateTestRoot(t), Demo: true, Offline: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(ctx)
+	runtime := &ownerRedeliveryConnector{downloadWakeConnector: &downloadWakeConnector{}, requested: 1}
+	a.runtime = runtime
+	defer func() { a.runtime = nil }()
+	start := time.Now().Add(-24 * time.Hour).Truncate(time.Millisecond)
+	policy, err := a.store.SetPolicy(ctx, archive.ArchivePolicy{DateMode: archive.DateSince, ImportStart: start, ChatMode: archive.ChatsAll}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.store.ApplySourceEvent(ctx, archive.SourceEvent{Key: archive.SourceKey{Account: "account", Chat: "chat", Sender: "sender", Message: "scoped-voice-parent"}, Kind: archive.EventOriginal, OriginalSentAt: time.Now().Add(-time.Minute), OriginalDateKnown: true, SourceRevision: 1, BodyKind: archive.MessageText, Body: "synthetic"}, policy.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, _ := a.scope(ctx)
+	page, err := a.store.ListChats(ctx, scope, archive.ChatListRequest{})
+	if err != nil || len(page.Chats) != 1 {
+		t.Fatal("chat fixture unavailable", err)
+	}
+	if _, err = a.RetryVoiceDownloadsForChat(ctx, page.Chats[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.scope.AllChats || len(runtime.scope.Chats) != 1 || runtime.scope.Chats[0] != page.Chats[0].ID || runtime.scope.PolicyGeneration != policy.Generation {
+		t.Fatal("retry did not narrow owner scope")
+	}
+	before := runtime.scope
+	if _, err = a.RetryVoiceDownloadsForChat(ctx, "unknown-chat"); err == nil {
+		t.Fatal("unknown chat accepted")
+	}
+	if runtime.scope.Chats[0] != before.Chats[0] {
+		t.Fatal("unknown chat dispatched requests")
+	}
+	current, err := a.store.Policy(ctx)
+	if err != nil || current.Generation != policy.Generation || current.ChatMode != policy.ChatMode || !current.ImportStart.Equal(policy.ImportStart) {
+		t.Fatal("chat retry changed archive policy")
+	}
+}

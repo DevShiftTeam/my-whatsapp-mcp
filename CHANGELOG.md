@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Saved chat lists and statistics use less memory when reading rebuilt archives, within the existing memory limit.
+
+- Owner voice retries can recover eligible missing recordings with fresh phone responses, optionally target one permitted chat, and show recovery progress separately from transcription.
+
 ### Added
 
 - Show All saved messages in owner Archive and Stats, including eligible captured-only history when configured. Archive opens recent messages without a search, labels captured rows, and preserves successful reads during ordinary import refresh. Current permissions and known message restrictions still apply; settings, AI connections and message actions remain current-archive operations.

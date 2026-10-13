@@ -76,7 +76,7 @@ var remoteProtected = map[string]bool{
 	"/api/local-ai": true, "/api/local-ai/select": true,
 	"/api/connections": true, "/api/connections/create": true, "/api/connections/guide": true, "/api/connections/revoke": true,
 	"/api/original-budget": true, "/api/remote/logout": true,
-	"/api/archive/browse": true, "/api/stats": true, "/api/voice/retry": true, "/api/documents/retry": true, "/api/connections/send-permission": true,
+	"/api/archive/browse": true, "/api/stats": true, "/api/voice/retry": true, "/api/voice/recovery": true, "/api/documents/retry": true, "/api/connections/send-permission": true,
 }
 
 func (s *Server) interfaceMode(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +146,7 @@ func (s *Server) handleRemote(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "origin_denied")
 		return
 	}
-	if r.URL.RawPath != "" || r.URL.EscapedPath() != r.URL.Path || r.URL.Fragment != "" || r.URL.ForceQuery || r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" {
+	if r.URL.RawPath != "" || r.URL.EscapedPath() != r.URL.Path || r.URL.Fragment != "" || r.URL.ForceQuery || r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" && r.URL.Path != "/api/voice/recovery" {
 		fail(w, 400, "invalid_request")
 		return
 	}

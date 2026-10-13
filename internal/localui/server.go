@@ -259,7 +259,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "origin_denied")
 		return
 	}
-	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" {
+	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" && r.URL.Path != "/api/voice/recovery" {
 		fail(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -366,6 +366,7 @@ var routeMethods = map[string]string{
 	"/api/connections/send-permission": http.MethodPost,
 	"/api/original-budget":             http.MethodGet,
 	"/api/voice/retry":                 http.MethodPost,
+	"/api/voice/recovery":              http.MethodGet,
 	"/api/documents/retry":             http.MethodPost,
 }
 
@@ -610,6 +611,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 		s.revealRemote(w, r, ctx)
 	case "/api/original-budget":
 		s.originalBudget(w, r, ctx)
+	case "/api/voice/recovery":
+		s.voiceRecovery(w, r, ctx)
 	case "/api/voice/retry":
 		s.voiceRetry(w, r, ctx)
 	case "/api/documents/retry":

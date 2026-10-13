@@ -52,6 +52,7 @@ type Transition struct {
 // DownloadRequest is the trusted connector boundary. The expected version is
 // never replaced with a newer CurrentSource snapshot to authorize old bytes.
 type DownloadRequest struct {
+	OwnerDownloadLease               archive.OriginalDownloadLease
 	Key                              archive.SourceKey
 	Version                          archive.SourceVersion
 	MediaID                          archive.MediaID

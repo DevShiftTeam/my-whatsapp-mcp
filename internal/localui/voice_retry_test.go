@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
 	"net/http"
 	"strings"
 	"testing"
@@ -53,7 +54,7 @@ func TestVoiceRetryOwnerCapabilityOriginAndFixedEmptyRequest(t *testing.T) {
 		t.Fatal("bounded retry result not exposed to owner")
 	}
 	var fields map[string]any
-	if json.Unmarshal(rr.Body.Bytes(), &fields) != nil || len(fields) != 3 {
+	if json.Unmarshal(rr.Body.Bytes(), &fields) != nil || len(fields) != 4 {
 		t.Fatal("retry exposed identities or private references")
 	}
 }
@@ -106,5 +107,74 @@ func TestVoiceRetryRemoteRequiresPasswordSessionAndCapability(t *testing.T) {
 	}
 	if remoteRequest(s, "POST", "/api/voice/retry", `{}`, &owner, nil).Code != 200 || app.count("voice_retry") != 1 {
 		t.Fatal("remote owner retry unavailable")
+	}
+}
+
+type scopedVoiceApplication struct {
+	*fakeVoiceRetryApplication
+	chat archive.ChatID
+}
+
+func (a *scopedVoiceApplication) RetryVoiceDownloadsForChat(_ context.Context, chat archive.ChatID) (VoiceRetrySnapshot, error) {
+	a.chat = chat
+	return a.value, a.called("scoped_voice")
+}
+func (a *scopedVoiceApplication) VoiceRecoveryStatus(_ context.Context, chat archive.ChatID) (archive.OwnerVoiceRecoveryStatus, error) {
+	a.chat = chat
+	return a.value.Recovery, a.called("voice_status")
+}
+func TestOwnerVoiceChatAndRecoveryUseOwnerCapability(t *testing.T) {
+	app := &scopedVoiceApplication{fakeVoiceRetryApplication: &fakeVoiceRetryApplication{fakeApplication: &fakeApplication{}, value: VoiceRetrySnapshot{Recovery: archive.OwnerVoiceRecoveryStatus{AwaitingPhone: 1}}}}
+	s, err := New(Config{Origin: testOrigin}, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := login(t, s)
+	if request(s, "GET", "/api/voice/recovery", "", nil, nil).Code != 401 {
+		t.Fatal("status lacks owner gate")
+	}
+	if request(s, "GET", "/api/voice/recovery", "", &owner, map[string]string{"X-CSRF-Token": ""}).Code != 403 {
+		t.Fatal("status lacks capability gate")
+	}
+	if request(s, "POST", "/api/voice/retry", `{"chat_id":"opaque-chat"}`, &owner, nil).Code != 200 || app.chat != "opaque-chat" || app.count("voice_retry") != 0 {
+		t.Fatal("chat retry was widened")
+	}
+	if request(s, "GET", "/api/voice/recovery?chat_id=opaque-chat", "", &owner, nil).Code != 200 || app.chat != "opaque-chat" {
+		t.Fatal("scoped status unavailable")
+	}
+	for _, query := range []string{"?chat_id=a&chat_id=b", "?account=other", "?chat_id=%00", "?chat_id=%zz", "?chat_id=" + strings.Repeat("x", 513)} {
+		if request(s, "GET", "/api/voice/recovery"+query, "", &owner, nil).Code != 400 {
+			t.Fatal("ambiguous status scope accepted")
+		}
+	}
+	app.value.Recovery.Code = "PRIVATE-PROVIDER-ERROR"
+	rr := request(s, "GET", "/api/voice/recovery", "", &owner, nil)
+	if rr.Code != 503 || strings.Contains(rr.Body.String(), "PRIVATE") {
+		t.Fatal("status leaked opaque error")
+	}
+}
+
+func TestOwnerVoiceRemoteRecoveryQueryRequiresPasswordSessionAndCapability(t *testing.T) {
+	app := &scopedVoiceApplication{fakeVoiceRetryApplication: &fakeVoiceRetryApplication{fakeApplication: &fakeApplication{}, value: VoiceRetrySnapshot{Recovery: archive.OwnerVoiceRecoveryStatus{AwaitingPhone: 1}}}}
+	s, err := NewRemote(remoteConfig(t), app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/voice/recovery?chat_id=opaque-chat"
+	if remoteRequest(s, "GET", path, "", nil, func(r *http.Request) { r.Header.Set("Authorization", "Bearer mcp-token") }).Code != 401 {
+		t.Fatal("bearer obtained owner recovery status")
+	}
+	owner := remoteLogin(t, s)
+	if remoteRequest(s, "GET", path, "", &owner, func(r *http.Request) { r.Header.Del("X-CSRF-Token") }).Code != 403 {
+		t.Fatal("status bypassed capability")
+	}
+	if remoteRequest(s, "GET", path, "", &owner, func(r *http.Request) { r.Header.Set("Origin", "https://different.example") }).Code != 403 {
+		t.Fatal("status bypassed origin")
+	}
+	if rr := remoteRequest(s, "GET", path, "", &owner, nil); rr.Code != 200 || app.chat != "opaque-chat" || app.count("voice_status") != 1 {
+		t.Fatalf("remote scoped recovery status unavailable: %d", rr.Code)
+	}
+	if remoteRequest(s, "GET", "/api/voice/recovery?chat_id=a&chat_id=b", "", &owner, nil).Code != 400 {
+		t.Fatal("remote query accepted ambiguous scope")
 	}
 }

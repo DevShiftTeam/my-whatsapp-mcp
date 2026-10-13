@@ -28,6 +28,15 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 	if err != nil {
 		return 0, err
 	}
+	if version < 20 {
+		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_owner_voice_schema"); err != nil {
+			return 0, err
+		}
+		defer dst.ExecContext(ctx, "ROLLBACK TO pre_owner_voice_schema; RELEASE pre_owner_voice_schema")
+		if _, err = dst.ExecContext(ctx, "DROP TABLE owner_voice_redownload_intents"); err != nil {
+			return 0, err
+		}
+	}
 	if version < 19 {
 		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_uncertainty_schema"); err != nil {
 			return 0, err

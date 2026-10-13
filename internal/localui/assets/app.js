@@ -82,6 +82,7 @@
   let budgetDirty = false;
   let budgetDraftRevision = 0;
   let voiceRetryBusy = false;
+  let voiceRecoveryTimer = null, voiceRecoveryVersion = 0;
   let authExpired = false;
   let authEpoch = 0;
   let authBusy = false;
@@ -256,6 +257,7 @@
     clientBusy = false;
     budgetBusy = false;
     voiceRetryBusy = false;
+    stopVoiceRecovery();
     chatDiscoveryBusy = false;
     $("search-form").reset();
     $("search-submit").disabled = false;
@@ -1537,23 +1539,64 @@
     $("voice-retry-button").disabled = voiceRetryBusy || authExpired;
   }
 
+  function stopVoiceRecovery() {
+    window.clearTimeout(voiceRecoveryTimer); voiceRecoveryTimer = null; voiceRecoveryVersion++;
+  }
+
+  function voiceRecoveryText(value) {
+    if (!value || ["awaiting_phone", "waiting_cleanup", "queued", "downloading", "completed", "failed"].some(key => !Number.isSafeInteger(value[key]) || value[key] < 0)) throw new Error(messages.voice_retry_unavailable);
+    const parts = [];
+    if (value.awaiting_phone) parts.push(value.awaiting_phone + " waiting for your phone. Keep WhatsApp open on your phone.");
+    if (value.waiting_cleanup) parts.push(value.waiting_cleanup + " waiting for earlier files to finish cleanup.");
+    if (value.queued) parts.push(value.queued + " ready to download.");
+    if (value.downloading) parts.push(value.downloading + " downloading.");
+    if (value.completed) parts.push(value.completed + " original recording(s) recovered. Transcription may still be running.");
+    if (value.code && !value.failed) parts.push("Recovery needs attention. Check WhatsApp is connected, then retry.");
+    if (value.failed) parts.push(value.failed + " recovery request(s) did not complete. Check WhatsApp is connected, then retry.");
+    return parts.join(" ");
+  }
+
+  function scheduleVoiceRecovery(value) {
+    window.clearTimeout(voiceRecoveryTimer);
+    if (authExpired || !$("models-dialog").open || !(value.awaiting_phone || value.waiting_cleanup || value.queued || value.downloading)) return;
+    voiceRecoveryTimer = window.setTimeout(refreshVoiceRecovery, 2500);
+  }
+
+  async function refreshVoiceRecovery() {
+    if (authExpired || !$("models-dialog").open) return;
+    const epoch = authEpoch, version = ++voiceRecoveryVersion;
+    try {
+      const value = await api("/api/voice/recovery");
+      if (epoch !== authEpoch || version !== voiceRecoveryVersion || authExpired || !$("models-dialog").open) return;
+      const text = voiceRecoveryText(value);
+      if (text) feedback("voice-retry-feedback", text);
+      scheduleVoiceRecovery(value);
+    } catch (error) {
+      if (epoch === authEpoch && version === voiceRecoveryVersion && !authExpired && $("models-dialog").open) feedback("voice-retry-feedback", messages.voice_retry_unavailable, true);
+    }
+  }
+
   async function retryVoiceDownloads() {
     if (authExpired || voiceRetryBusy) return;
     const epoch = authEpoch;
     voiceRetryBusy = true;
+    stopVoiceRecovery();
+    const recoveryVersion = voiceRecoveryVersion;
     updateVoiceRetryControls();
     feedback("voice-retry-feedback", "Checking voice downloads and missing references…");
     try {
       const value = await api("/api/voice/retry", "POST", {});
-      if (epoch !== authEpoch || authExpired || !$("models-dialog").open) return;
+      if (epoch !== authEpoch || recoveryVersion !== voiceRecoveryVersion || authExpired || !$("models-dialog").open) return;
       if (!Number.isSafeInteger(value.queued) || !Number.isSafeInteger(value.skipped) || !Number.isSafeInteger(value.requested) || value.queued < 0 || value.skipped < 0 || value.requested < 0 || value.requested > 8 || value.queued + value.skipped > 32) throw new Error(messages.voice_retry_unavailable);
       const text = value.queued
         ? value.queued + " voice download" + (value.queued === 1 ? "" : "s") + " queued. Downloads need a connected WhatsApp session; transcription needs its configured service."
         : "No voice downloads could be queued in this batch.";
-      const requested = value.requested ? " Asked your phone for " + value.requested + " missing voice note reference" + (value.requested === 1 ? "." : "s.") + " Keep WhatsApp open on your phone, wait for its response, then click Retry voice downloads again to queue returned recordings." : "";
-      feedback("voice-retry-feedback", text + requested + (value.skipped ? " " + value.skipped + " unusable download reference" + (value.skipped === 1 ? " was" : "s were") + " skipped. Retry again to check the next batch." : ""));
+      const requested = value.requested ? " Asked your phone for " + value.requested + " missing voice note reference" + (value.requested === 1 ? "." : "s.") + " Keep WhatsApp open on your phone while it responds. Previously completed recordings recover automatically; other returned voice notes may need another click on Retry voice downloads." : "";
+      const recoveryText = voiceRecoveryText(value.recovery);
+      scheduleVoiceRecovery(value.recovery);
+      feedback("voice-retry-feedback", text + requested + (recoveryText ? " " + recoveryText : "") + (value.skipped ? " " + value.skipped + " unusable download reference" + (value.skipped === 1 ? " was" : "s were") + " skipped. Retry again to check the next batch." : ""));
     } catch (error) {
-      if (epoch === authEpoch && !authExpired && $("models-dialog").open) feedback("voice-retry-feedback", error.message, true);
+      if (epoch === authEpoch && recoveryVersion === voiceRecoveryVersion && !authExpired && $("models-dialog").open) feedback("voice-retry-feedback", error.message, true);
     } finally {
       if (epoch === authEpoch) {
         voiceRetryBusy = false;
@@ -2772,9 +2815,9 @@
   $("policy-form").addEventListener("submit",savePolicy);
   for (const action of ["pause", "resume", "extend", "cancel"]) $("recovery-" + action).addEventListener("click", () => controlRecovery(action));
   $("settings-open").addEventListener("click",openSettings);
-  $("models-open").addEventListener("click",()=>{if(!authExpired){feedback("models-feedback","Checking model state…");updateVoiceRetryControls();$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();}});
+  $("models-open").addEventListener("click",()=>{if(!authExpired){feedback("models-feedback","Checking model state…");updateVoiceRetryControls();$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();refreshVoiceRecovery();}});
   $("models-close").addEventListener("click",()=>$("models-dialog").close());
-  $("models-dialog").addEventListener("close",()=>{modelVersion++;localAIVersion++;budgetVersion++;});
+  $("models-dialog").addEventListener("close",()=>{modelVersion++;localAIVersion++;budgetVersion++;stopVoiceRecovery();});
   $("models-refresh").addEventListener("click",()=>{refreshModels();refreshLocalAI();refreshBudget();});
   $("local-ai-form").addEventListener("submit",saveLocalAI);
   $("local-ai-mode").addEventListener("change",()=>{editLocalAI();for(const id of ["local-ai-encoder","local-ai-ocr","local-ai-speech"])$(id).value="";$("local-ai-caption").checked=false;if(localAISnapshot)renderLocalAI(localAISnapshot);});

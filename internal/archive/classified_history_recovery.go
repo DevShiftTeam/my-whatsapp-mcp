@@ -95,7 +95,7 @@ type ClassifiedHistoryDiagnostic struct {
 	Presence    uint64 `json:"presence"`
 }
 
-// Metadata reads admit only exact reviewed schemas 14 through 19. Writable
+// Metadata reads admit only exact reviewed schemas 14 through 20. Writable
 // original-cache recovery still requires the latest complete migration history.
 func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int, error) {
 	if err := validateOriginalCacheMigrationHistory(ctx, tx, false); err != nil {
@@ -105,7 +105,7 @@ func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int,
 	if err := tx.QueryRowContext(ctx, "SELECT max(version) FROM schema_migrations").Scan(&version); err != nil {
 		return 0, fixedSQLError(err)
 	}
-	if version != 14 && version != 15 && version != 16 && version != 17 && version != 18 && version != 19 {
+	if version != 14 && version != 15 && version != 16 && version != 17 && version != 18 && version != 19 && version != 20 {
 		return 0, ErrSchemaChanged
 	}
 	return version, nil

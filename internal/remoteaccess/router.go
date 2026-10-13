@@ -25,7 +25,7 @@ func newRouter(origin string, browser bool, h Handlers) (http.Handler, error) {
 			http.Error(w, "origin_denied", 403)
 			return
 		}
-		if r.URL.RawPath != "" || r.URL.EscapedPath() != r.URL.Path || r.URL.Fragment != "" || r.URL.ForceQuery || r.URL.RawQuery != "" && r.URL.Path != "/api/chats" {
+		if r.URL.RawPath != "" || r.URL.EscapedPath() != r.URL.Path || r.URL.Fragment != "" || r.URL.ForceQuery || r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/voice/recovery" {
 			http.NotFound(w, r)
 			return
 		}
@@ -59,7 +59,7 @@ var ownerPaths = map[string]bool{
 	"/api/local-ai": true, "/api/local-ai/select": true,
 	"/api/connections": true, "/api/connections/create": true, "/api/connections/guide": true, "/api/connections/revoke": true,
 	"/api/original-budget": true,
-	"/api/stats":           true, "/api/voice/retry": true, "/api/documents/retry": true,
+	"/api/stats":           true, "/api/voice/retry": true, "/api/voice/recovery": true, "/api/documents/retry": true,
 	"/api/connections/send-permission": true,
 	// Data deletion, bootstrap/attach, provider/password configuration and reset
 	// are deliberately absent. Adding an API never implicitly publishes it.

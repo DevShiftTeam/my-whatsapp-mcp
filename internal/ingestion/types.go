@@ -129,6 +129,7 @@ type VerifiedMedia struct {
 // MediaDownloadRequest binds pre-byte quota admission to the association ID
 // returned by the permitted source transaction. Protocol keys remain private.
 type MediaDownloadRequest struct {
+	OwnerDownloadLease               archive.OriginalDownloadLease
 	Key                              archive.SourceKey
 	Version                          archive.SourceVersion
 	MediaID                          archive.MediaID

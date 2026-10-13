@@ -13,13 +13,13 @@ import (
 	"testing"
 )
 
-func TestPartialHistorySchemaCompatibilityExact14Through19(t *testing.T) {
+func TestPartialHistorySchemaCompatibilityExact14Through20(t *testing.T) {
 	latest := testArchive(t)
 	var version int
-	if err := latest.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 19 {
+	if err := latest.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 20 {
 		t.Fatal("partial uncertainty migration missing", version, err)
 	}
-	for _, version := range []int{14, 15, 16, 17, 18, 19} {
+	for _, version := range []int{14, 15, 16, 17, 18, 19, 20} {
 		for _, variant := range []rebuildSourceVariant{rebuildSourceOrdinary, rebuildSourceLegacy, rebuildSourceContinuation} {
 			t.Run(fmt.Sprintf("%d_%d", version, variant), func(t *testing.T) {
 				dir := classifiedVersionFixture(t, version, variant)
@@ -47,7 +47,7 @@ func TestPartialHistorySchemaCompatibilityExact14Through19(t *testing.T) {
 				if err != nil || before != after {
 					t.Fatal("readonly source changed", err)
 				}
-				if version < 19 && validateOriginalCacheRecoverySchema(context.Background(), path) == nil {
+				if version < 20 && validateOriginalCacheRecoverySchema(context.Background(), path) == nil {
 					t.Fatal("current writable recovery accepted old schema")
 				}
 			})

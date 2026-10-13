@@ -36,7 +36,7 @@ var _ ingestion.DownloadAdmission = (*Download)(nil)
 // MediaAdmitter adapts the neutral authenticated-connector port. No client URL,
 // path, media key, or arbitrary filesystem name enters this store.
 func (s *Store) MediaAdmitter(ctx context.Context, q ingestion.MediaDownloadRequest) (ingestion.DownloadAdmission, error) {
-	return s.AdmitDownload(ctx, DownloadRequest{Key: q.Key, Version: q.Version, MediaID: q.MediaID, Kind: q.Kind, DeclaredBytes: q.DeclaredBytes, CiphertextMaximum: q.CiphertextMaximum, ProtocolSHA256: q.ProtocolSHA256})
+	return s.AdmitDownload(ctx, DownloadRequest{OwnerDownloadLease: q.OwnerDownloadLease, Key: q.Key, Version: q.Version, MediaID: q.MediaID, Kind: q.Kind, DeclaredBytes: q.DeclaredBytes, CiphertextMaximum: q.CiphertextMaximum, ProtocolSHA256: q.ProtocolSHA256})
 }
 
 func (s *Store) AdmitDownload(ctx context.Context, q DownloadRequest) (*Download, error) {
@@ -55,7 +55,7 @@ func (s *Store) AdmitDownload(ctx context.Context, q DownloadRequest) (*Download
 	if err != nil {
 		return nil, err
 	}
-	r, p, err := s.reserve(ctx, ref, q.MediaID, archive.BudgetOriginals, wire)
+	r, p, err := s.reserveOwner(ctx, ref, q.MediaID, archive.BudgetOriginals, wire, q.OwnerDownloadLease)
 	if err != nil {
 		return nil, err
 	}

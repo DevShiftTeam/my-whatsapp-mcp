@@ -159,7 +159,7 @@ func TestRouterPreservesMainOwnerAssetsAndEverydayAuth(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, path := range []string{"/assets/app.js", "/assets/app.css", "/assets/theme.js", "/assets/selects.js", "/assets/logo.png", "/api/stats", "/api/voice/retry", "/api/documents/retry", "/api/connections/send-permission"} {
+		for _, path := range []string{"/assets/app.js", "/assets/app.css", "/assets/theme.js", "/assets/selects.js", "/assets/logo.png", "/api/stats", "/api/voice/retry", "/api/voice/recovery", "/api/voice/recovery?chat_id=synthetic-chat", "/api/documents/retry", "/api/connections/send-permission"} {
 			req := httptest.NewRequest(http.MethodPost, path, nil)
 			req.Host = "saved.ngrok-free.app"
 			resp := httptest.NewRecorder()

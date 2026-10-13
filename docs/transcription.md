@@ -132,7 +132,7 @@ The archive commits generated text with its source revision and extraction prove
 
 1. Keep the archive linked and your primary phone online. Open **Models and media → Failed voice downloads** and click **Retry voice downloads**.
 2. Check the feedback. The action considers at most 32 download retries and can ask the primary phone for at most eight exact missing voice-note copies. Current chat and date choices and the media storage budget still apply.
-3. If it asked your phone for copies, allow time for the phone to respond, then click **Retry voice downloads** again to queue recordings whose fresh references arrived. Phone-copy requests share a 10-second cooldown with manual history/backfill requests. A later click can also request another bounded batch.
+3. If it asked your phone for copies, keep WhatsApp open on the phone. Recovery of previously completed recordings queues automatically after the matching response. Other returned voice notes may need another click on **Retry voice downloads** to queue them. The dialog shows waiting for phone, cleanup, download, and original completion separately. Phone-copy requests share a 10-second cooldown with manual history/backfill requests. A later click can request another bounded batch.
 4. Wait for retained originals and completed transcripts, then search a spoken phrase and inspect `get_context` as described above.
 
 | Result count | What it means |
@@ -141,7 +141,9 @@ The archive commits generated text with its source revision and extraction prove
 | `requested` | The SDK acknowledged requests for exact copies from the primary phone. This does not prove that a copy arrived or was transcribed. |
 | `skipped` | Download candidates were not queued by this action. The total of `queued` and `skipped` is at most 32. |
 
-Fresh copies must pass the same source, policy, expiry, deletion, conflict, and recording checks as other imports. Existing transcripts and known original SHA records remain intact. Completed or evicted originals, view-once messages, deleted or expired sources, and excluded chats are not requested or reset. Unavailable or mismatched phone copies can remain unreadable. This action does not clear the restored-snapshot coverage gap, guarantee older recordings are still available, or reset downloads automatically on startup.
+Fresh copies must pass the same source, policy, expiry, deletion, conflict, and recording checks as other imports. Existing transcripts and known original SHA records remain intact. An explicit retry can recover eligible missing originals that were downloaded previously, after a fresh authenticated phone response confirms the same recording. It keeps the archived message and prior download evidence unchanged. View-once messages, deleted or expired sources, and excluded chats remain ineligible. Unavailable or mismatched phone copies can remain unreadable. This action does not clear the restored-snapshot coverage gap, guarantee older recordings are still available, or reset downloads automatically on startup.
+
+The owner API also accepts `POST /api/voice/retry` with `{"chat_id":"returned-chat-id"}` to narrow a retry to one permitted conversation. Omitting `chat_id` retains the current owner scope. It does not change saved chat or date choices. `GET /api/voice/recovery?chat_id=returned-chat-id` returns aggregate recovery status for that scope. Both require the owner session and its CSRF capability; MCP credentials cannot invoke them. Recovery requests expire after five minutes. Restart resumes accepted download work but does not resend phone requests. A completed original does not prove a completed transcript.
 
 Phone requests also check the saved WhatsApp identity and message direction against the archive. If the identities disagree, the request is skipped. A successful request acknowledgement still does not establish that the recording arrived.
 

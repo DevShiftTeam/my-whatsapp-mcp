@@ -234,7 +234,7 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		respond(w, map[string]string{"realm": "legacy"})
 		return
 	}
-	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" {
+	if r.URL.RawQuery != "" && r.URL.Path != "/api/chats" && r.URL.Path != "/api/status" && r.URL.Path != "/api/voice/recovery" {
 		remoteFail(w, 400, "invalid_request")
 		return
 	}

@@ -119,7 +119,14 @@ func (s *Store) extensionOriginalDownloadResponse(ctx context.Context, in Origin
 		return fixedSQLError(err)
 	}
 	defer tx.Rollback()
-	r, err := extensionLoadDownloadRow(bounded, tx, in.Work.Lease.MediaID)
+	var r extensionDownloadRow
+	if in.Work.Lease.IntentID != "" {
+		owner, e := s.ownerVoiceLease(bounded, tx, in.Work.Lease)
+		err = e
+		r = owner.downloadRow()
+	} else {
+		r, err = extensionLoadDownloadRow(bounded, tx, in.Work.Lease.MediaID)
+	}
 	if err != nil {
 		return err
 	}
@@ -169,7 +176,7 @@ func (s *Store) extensionOriginalDownloadResponse(ctx context.Context, in Origin
 }
 
 func extensionValidDownloadLease(l OriginalDownloadLease) bool {
-	return validString(string(l.MediaID), 128) && validString(string(l.LeaseID), 128)
+	return validString(string(l.MediaID), 128) && validString(string(l.LeaseID), 128) && (l.IntentID == "" || validString(l.IntentID, 128))
 }
 func extensionDownloadRetryCode(c string) bool {
 	switch c {
@@ -360,6 +367,9 @@ const extensionDownloadCurrentSQL = `a.active=1 AND a.view_once=0 AND a.kind IN 
  AND (m.expires_at=0 OR m.expires_at>?) AND (ap.chat_mode='all' OR EXISTS(SELECT 1 FROM policy_chats pc WHERE pc.chat_id=m.chat_id)) AND (ap.date_mode='all_available' OR m.original_sent_at>=ap.import_start) AND ` + extensionMediaRollingSQL + `)`
 
 func (s *Store) extensionClaimOriginalDownload(ctx context.Context, tx *sql.Tx, c OriginalDownloadClaim) (OriginalDownloadWork, error) {
+	if w, err := s.ownerVoiceClaim(ctx, tx, c); err != nil || w.Lease.MediaID != "" {
+		return w, err
+	}
 	if _, err := s.readSafety(c.Account); err != nil {
 		return OriginalDownloadWork{}, err
 	}
@@ -425,6 +435,10 @@ func (s *Store) extensionClaimOriginalDownload(ctx context.Context, tx *sql.Tx, 
 }
 
 func (s *Store) extensionCurrentDownloadLease(ctx context.Context, q sqlQuerier, l OriginalDownloadLease) (extensionDownloadRow, error) {
+	if l.IntentID != "" {
+		r, err := s.ownerVoiceLease(ctx, q, l)
+		return r.downloadRow(), err
+	}
 	r, err := extensionLoadDownloadRow(ctx, q, l.MediaID)
 	if err != nil {
 		return r, err
@@ -436,6 +450,16 @@ func (s *Store) extensionCurrentDownloadLease(ctx context.Context, q sqlQuerier,
 	return r, nil
 }
 func (s *Store) extensionLoadOriginalDownload(ctx context.Context, tx *sql.Tx, l OriginalDownloadLease) (OriginalDownloadInput, error) {
+	if l.IntentID != "" {
+		var clean bool
+		err := tx.QueryRowContext(ctx, `SELECT `+extensionDownloadNoPhysicalSQL+` FROM extension_media_associations a WHERE a.id=?`, l.MediaID).Scan(&clean)
+		if err != nil {
+			return OriginalDownloadInput{}, fixedSQLError(err)
+		}
+		if !clean {
+			return OriginalDownloadInput{}, extensionDownloadCleanupIncomplete
+		}
+	}
 	r, err := s.extensionCurrentDownloadLease(ctx, tx, l)
 	if err != nil {
 		return OriginalDownloadInput{}, err
@@ -446,6 +470,9 @@ func (s *Store) extensionLoadOriginalDownload(ctx context.Context, tx *sql.Tx, l
 	return s.extensionReadDownloadReference(ctx, tx, r)
 }
 func (s *Store) extensionFinishOriginalDownload(ctx context.Context, tx *sql.Tx, l OriginalDownloadLease) (bool, error) {
+	if l.IntentID != "" {
+		return s.ownerVoiceFinish(ctx, tx, l)
+	}
 	r, err := s.extensionCurrentDownloadLease(ctx, tx, l)
 	if err != nil {
 		return false, err
@@ -474,6 +501,9 @@ func (s *Store) extensionFinishOriginalDownload(ctx context.Context, tx *sql.Tx,
 	return err == nil, fixedSQLError(err)
 }
 func (s *Store) extensionRetryOriginalDownload(ctx context.Context, tx *sql.Tx, retry OriginalDownloadRetry) error {
+	if retry.Lease.IntentID != "" {
+		return s.ownerVoiceRetry(ctx, tx, retry)
+	}
 	r, err := s.extensionCurrentDownloadLease(ctx, tx, retry.Lease)
 	if err != nil {
 		return err
@@ -517,6 +547,13 @@ func (s *Store) extensionRetryOriginalDownload(ctx context.Context, tx *sql.Tx, 
 // Enqueue is called only from the existing source writer, after storing the
 // association. Invalid optional protobuf never fails or quarantines a source.
 func extensionEnqueueOriginalDownload(ctx context.Context, tx *sql.Tx, ref SourceRef, id MediaID, m MediaReference) error {
+	var protected bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM owner_voice_redownload_intents WHERE media_id=?)`, id).Scan(&protected); err != nil {
+		return fixedSQLError(err)
+	}
+	if protected {
+		return nil
+	}
 	descriptor, raw, ok := extensionDownloadDescriptor(MessageKind(m.Kind), m.ProtocolReference, m.DeclaredBytes)
 	if !ok || m.ViewOnce || !validString(string(id), 128) || !validExtensionMediaSource(ref) || !extensionDownloadDigest(ref.ContentHash) {
 		return nil
@@ -646,14 +683,26 @@ func extensionPrepareOriginalDownloads(ctx context.Context, tx *sql.Tx, id Messa
 	return nil
 }
 func extensionInvalidateOriginalDownloads(ctx context.Context, tx *sql.Tx, id MessageID) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET protocol_reference=X'' WHERE message_id=?`, id); err != nil {
+		return fixedSQLError(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='cancelled',last_code='media_source_changed' WHERE message_id=? AND state IN ('prepared','awaiting_phone','ready','leased')`, id); err != nil {
+		return fixedSQLError(err)
+	}
 	if err := extensionPrepareOriginalDownloads(ctx, tx, id); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, "UPDATE extension_original_downloads SET state='cancelled',lease_id='',lease_until=0,last_code='media_source_changed' WHERE message_id=?", id)
+	_, err := tx.ExecContext(ctx, "UPDATE extension_original_downloads SET state='cancelled',lease_id='',lease_until=0,last_code='media_source_changed' WHERE message_id=? AND NOT EXISTS(SELECT 1 FROM owner_voice_redownload_intents r WHERE r.media_id=extension_original_downloads.media_id)", id)
 	return fixedSQLError(err)
 }
 func extensionInvalidateOriginalDownloadsAll(ctx context.Context, tx *sql.Tx, account string) error {
-	_, err := tx.ExecContext(ctx, `UPDATE extension_original_downloads AS d SET legacy_source_media_identity=COALESCE((SELECT m.extension_media_identity FROM messages m JOIN extension_media_associations a ON a.id=d.media_id WHERE m.id=d.message_id AND m.account=d.account AND a.account=d.account AND a.message_id=d.message_id AND a.local_revision=d.local_revision AND a.content_hash=d.content_hash AND a.source_expires_at=d.source_expires_at AND m.local_revision=d.local_revision AND m.content_hash=d.content_hash AND m.expires_at=d.source_expires_at AND m.state='active' AND m.view_once=0 AND typeof(m.extension_media_identity)='text' AND length(m.extension_media_identity)=64 AND length(CAST(m.extension_media_identity AS BLOB))=64 AND m.extension_media_identity NOT GLOB '*[^0-9a-f]*'),legacy_source_media_identity),state='cancelled',lease_id='',lease_until=0,last_code='media_source_changed' WHERE (?='' OR account=?)`, account, account)
+	if _, err := tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET protocol_reference=X'' WHERE (?='' OR account=?)`, account, account); err != nil {
+		return fixedSQLError(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='cancelled',last_code='media_source_changed' WHERE (?='' OR account=?) AND state IN ('prepared','awaiting_phone','ready','leased')`, account, account); err != nil {
+		return fixedSQLError(err)
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE extension_original_downloads AS d SET legacy_source_media_identity=COALESCE((SELECT m.extension_media_identity FROM messages m JOIN extension_media_associations a ON a.id=d.media_id WHERE m.id=d.message_id AND m.account=d.account AND a.account=d.account AND a.message_id=d.message_id AND a.local_revision=d.local_revision AND a.content_hash=d.content_hash AND a.source_expires_at=d.source_expires_at AND m.local_revision=d.local_revision AND m.content_hash=d.content_hash AND m.expires_at=d.source_expires_at AND m.state='active' AND m.view_once=0 AND typeof(m.extension_media_identity)='text' AND length(m.extension_media_identity)=64 AND length(CAST(m.extension_media_identity AS BLOB))=64 AND m.extension_media_identity NOT GLOB '*[^0-9a-f]*'),legacy_source_media_identity),state='cancelled',lease_id='',lease_until=0,last_code='media_source_changed' WHERE (?='' OR account=?) AND NOT EXISTS(SELECT 1 FROM owner_voice_redownload_intents r WHERE r.media_id=d.media_id)`, account, account)
 	return fixedSQLError(err)
 }
 
@@ -661,6 +710,13 @@ func extensionInvalidateOriginalDownloadsAll(ctx context.Context, tx *sql.Tx, ac
 // Missing/invalid optional rows never reject a valid retained original. Exact
 // live lease identity is retained so Finish can acknowledge a lost reply.
 func extensionCompleteOriginalDownloadPublication(ctx context.Context, tx *sql.Tx, id MediaID, sha string) error {
+	var protected bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM owner_voice_redownload_intents WHERE media_id=?)`, id).Scan(&protected); err != nil {
+		return fixedSQLError(err)
+	}
+	if protected {
+		return nil
+	}
 	if !extensionDownloadDigest(sha) {
 		return nil
 	}

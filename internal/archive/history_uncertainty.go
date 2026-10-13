@@ -162,7 +162,7 @@ func (s *Store) HistoryUncertaintyDiagnostics(ctx context.Context, account strin
 	if version >= 14 && version <= 18 {
 		return out, nil
 	}
-	if version != 19 {
+	if version != 19 && version != 20 {
 		return nil, ErrSchemaChanged
 	}
 	err = tx.QueryRowContext(bounded, "SELECT epoch,total_observations FROM history_uncertainty_coverage WHERE account=?", account).Scan(&out.Epoch, &out.TotalObservations)

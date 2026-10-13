@@ -134,7 +134,7 @@ function harness(clock = null) {
     setInterval:callback => { const id=nextTimer++; intervals.set(id,callback); return id; },clearInterval:id => intervals.delete(id),
   };
   const fetch = (path,options={}) => new Promise((resolve,reject) => { requests.push({path,options,resolve:(value,status=200) => resolve({ok:status>=200&&status<300,status,json:async()=>value}),resolveJSON:json => resolve({ok:true,status:200,json}),reject}); });
-  const expose = `  globalThis.__test = {requestAPI:api,runSearch,showContext,addMessage,initializeWorkspace,clearResults,renderArchiveSource,invalidateSavedChats,loadSavedChats,openSettings,savePolicy,refreshStatus,refreshConnections,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
+  const expose = `  globalThis.__test = {requestAPI:api,refreshVoiceRecovery,retryVoiceDownloads,stopVoiceRecovery,runSearch,showContext,addMessage,initializeWorkspace,clearResults,renderArchiveSource,invalidateSavedChats,loadSavedChats,openSettings,savePolicy,refreshStatus,refreshConnections,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode,searching,searchVersion,searchRequest,nextCursor,archiveRefreshNeeded,savedChats,archiveSourceVersion,savedChatRefreshNeeded}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;},setCSRF:value=>{csrf=value;}};\n})();`;
   const ClockDate = clock ? class extends Date { static now() { return clock.now; } } : Date;
@@ -261,5 +261,25 @@ await check('historical context uses typed handles and no current download or se
 });
 await check('current-only saved responses need no configured snapshot',async()=>{
  const h=harness();await browse(h,{Hits:[hit()],NextCursor:'',saved_view:{source:'saved',coverage:'partial',current_phone_state:'unknown'}});assert.equal(h.nodes.get('search-results').children.length,1);assert.doesNotMatch(h.nodes.get('search-results').textContent,/Captured/);assert.match(h.nodes.get('archive-source-note').textContent,/history may be incomplete/);
+});
+await check('voice recovery polling stops on completion, dialog close and auth changes',async()=>{
+ const empty={awaiting_phone:0,waiting_cleanup:0,queued:0,downloading:0,completed:0,failed:0};
+ const h=harness();h.nodes.get('models-dialog').open=true;
+ let pending=h.api.refreshVoiceRecovery();assert.equal(h.requests.at(-1).path,'/api/voice/recovery');h.requests.at(-1).resolve({...empty,awaiting_phone:1});await pending;
+ assert.match(h.nodes.get('voice-retry-feedback').textContent,/waiting for your phone/);assert.equal([...h.timers.values()].filter(fn=>fn.timerDelay===2500).length,1);
+ h.api.stopVoiceRecovery();assert.equal(h.timers.size,0);
+ pending=h.api.refreshVoiceRecovery();h.requests.at(-1).resolve({...empty,completed:1});await pending;
+ assert.match(h.nodes.get('voice-retry-feedback').textContent,/original recording.*Transcription may still be running/);assert.equal(h.timers.size,0);
+ pending=h.api.refreshVoiceRecovery();const late=h.requests.at(-1);h.nodes.get('models-dialog').close();h.nodes.get('models-dialog').dispatch('close');late.resolve({...empty,awaiting_phone:7});await pending;
+ assert.doesNotMatch(h.nodes.get('voice-retry-feedback').textContent,/7 waiting/);assert.equal(h.timers.size,0);
+ h.nodes.get('models-dialog').open=true;pending=h.api.refreshVoiceRecovery();const old=h.requests.at(-1);h.api.expireAuth();old.resolve({...empty,downloading:5});await pending;
+ assert.doesNotMatch(h.nodes.get('voice-retry-feedback').textContent,/5 downloading/);assert.equal(h.timers.size,0);
+});
+await check('voice recovery renders cleanup separately and never treats request acknowledgement as transcript',async()=>{
+ const h=harness();h.nodes.get('models-dialog').open=true;
+ const pending=h.api.retryVoiceDownloads();assert.equal(h.requests.at(-1).path,'/api/voice/retry');
+ h.requests.at(-1).resolve({queued:0,skipped:0,requested:1,recovery:{awaiting_phone:0,waiting_cleanup:1,queued:0,downloading:0,completed:0,failed:0}});await pending;
+ assert.match(h.nodes.get('voice-retry-feedback').textContent,/waiting for earlier files to finish cleanup/);assert.doesNotMatch(h.nodes.get('voice-retry-feedback').textContent,/transcript.*complete/i);
+ h.nodes.get('models-dialog').close();h.nodes.get('models-dialog').dispatch('close');assert.equal(h.timers.size,0);
 });
 console.log(JSON.stringify({suite:'saved archive UI',source_sha256:sourceSHA,cases,passed:cases.length}));
