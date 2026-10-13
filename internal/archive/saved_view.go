@@ -548,7 +548,17 @@ func (r *savedOwnerRead) Check(ctx context.Context, g SavedResponseGuard) error 
 	}
 	for _, guard := range g.live {
 		if _, err := r.live.CheckResponse(ctx, r.scope, ResponseCheck{Guard: guard}); err != nil {
-			return err
+			// The short response-fence budget can expire independently of
+			// this owner's read deadline during ordinary import contention.
+			// Retry aggregate admission once with fresh authority; never
+			// retry a cancelled owner read or a source/policy denial. The
+			// exact contributor fence below remains mandatory.
+			if g.aggregate == nil || !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				return err
+			}
+			if _, err = r.live.CheckResponse(ctx, r.scope, ResponseCheck{Guard: guard}); err != nil {
+				return err
+			}
 		}
 	}
 	for _, guard := range g.historical {

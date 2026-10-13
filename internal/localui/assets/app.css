@@ -411,6 +411,25 @@ html[data-historical-snapshot="true"] #remote-access-open { display: none !impor
 .archive-source-control label { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .archive-source-control p { margin: 0; max-width: 75ch; font-size: .85rem; line-height: 1.5; }
 
+/* One calm coverage notice: a neutral card, a small status dot and a Details disclosure. */
+.coverage-notice { margin: 0 24px 16px; padding: 11px 15px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: var(--ink); font-size: 13px; line-height: 1.55; }
+.coverage-notice[hidden] { display: none; }
+#coverage-notice-summary { display: flex; align-items: center; gap: 9px; max-width: none; font-weight: 600; }
+#coverage-notice-summary::before { content: ""; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
+.coverage-notice details { margin-top: 3px; }
+.coverage-notice summary { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--emerald); list-style: none; }
+.coverage-notice summary::-webkit-details-marker { display: none; }
+.coverage-notice summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.coverage-notice details[open] summary::after { transform: translateY(1px) rotate(225deg); }
+.coverage-notice summary:hover { text-decoration: underline; }
+.coverage-notice dl { margin: 6px 0 0; border-top: 1px solid var(--line-soft); }
+.coverage-notice dl > div { padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.coverage-notice dl > div:last-child { border-bottom: 0; }
+.coverage-notice dt { font-size: 12px; font-weight: 600; }
+.coverage-notice dd { margin: 3px 0 0; max-width: 78ch; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+#status-notice { margin-inline: 24px; }
+@media (max-width: 720px) { .coverage-notice, #status-notice { margin-inline: 18px; } .coverage-notice summary { min-height: 44px; } }
+
 .history-import-progress { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin: 0 24px 20px; padding: 16px 20px; background: var(--emerald-wash); border: 1px solid var(--emerald-line); border-radius: var(--radius); }
 .history-import-progress[hidden], .history-import-spinner[hidden] { display: none; }
 .history-import-body { min-width: 0; }

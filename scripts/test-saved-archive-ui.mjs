@@ -429,4 +429,25 @@ await check('automatic refresh after an invalidation never submits unsent query 
  assert.equal(h.requests.at(-1).path,'/api/archive/browse');assert.equal(body(h.requests.at(-1)).query,undefined);assert.doesNotMatch(JSON.stringify(body(h.requests.at(-1))),/typed but not submitted/);
  h.requests.at(-1).resolve(savedPage([hit('synthetic-new','Row new')]));await refresh;assert.match(h.nodes.get('search-results').textContent,/Row new/);
 });
+await check('All saved caption stays a short source note for captured and current-only views',async()=>{
+  const h=harness();h.api.setSetup({configured:true,archive_view:{source:'historical',captured_at:'2026-01-02T03:04:05Z'},Policy:{ChatMode:'all'}});h.api.renderArchiveSource();
+  const captured=h.nodes.get('archive-source-note').textContent;
+  assert.match(captured,/captured history/i);assert.match(captured,/current phone state is unknown/i);assert.ok(captured.length<=90,captured);assert.doesNotMatch(captured,/Partial history/);
+  h.api.setSetup({configured:true,Policy:{ChatMode:'all'}});h.api.renderArchiveSource();
+  const current=h.nodes.get('archive-source-note').textContent;
+  assert.match(current,/history may be incomplete/);assert.ok(current.length<=90,current);
+  const failing=h.api.loadSavedChats();h.requests.at(-1).resolve({code:'archive_busy'},503);await failing.catch(()=>{});
+  assert.match(h.nodes.get('archive-source-note').textContent,/Saved chat choices are unavailable/);
+  h.document.documentElement.dataset.historicalSnapshot='true';h.api.setSetup({configured:true,Policy:{ChatMode:'all'}});h.api.renderArchiveSource();
+  assert.match(h.nodes.get('archive-source-note').textContent,/captured history/i,'a standalone snapshot is never described as current archive choices');
+});
+await check('a known archive status failure clears displayed saved results and reloads them after status recovers',async()=>{
+  const h=harness();await browse(h,savedPage([hit('synthetic-live','Status row')]));
+  h.api.setStatus({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:1,RecoveryEpoch:0},Codes:[]});
+  const failed=h.api.refreshStatus();h.requests.at(-1).resolve({code:'archive_unavailable'},503);await failed;
+  assert.equal(h.nodes.get('search-results').children.length,0);assert.equal(h.nodes.get('conversation-messages').children.length,0);
+  assert.equal(h.api.state().archiveRefreshNeeded,true,'the archive reloads after recovery');assert.equal(h.api.state().savedChatRefreshNeeded,true);
+  const recovered=h.api.refreshStatus();h.requests.at(-1).resolve({Connection:'connected',Messages:6,Snapshot:{PolicyGeneration:1,RecoveryEpoch:0},Codes:[]});await recovered;
+  assert.equal(h.api.state().archiveRefreshNeeded,true);assert.equal(h.nodes.get('status-notice').hidden,true);
+});
 console.log(JSON.stringify({suite:'saved archive UI',source_sha256:sourceSHA,cases,passed:cases.length}));

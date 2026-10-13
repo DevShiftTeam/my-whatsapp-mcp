@@ -297,15 +297,127 @@ await check('history request animation expires on the polling clock when every l
   assert.match(h.document.getElementById('history-import-title').textContent,/no recent request activity/i);
   h.api.stopPolling();
 });
-await check('status failure removes stale import counts and animation until a fresh owner status succeeds',async()=>{
+await check('transient status failure says checking, keeps only last confirmed progress and never animates until a fresh owner status succeeds',async()=>{
   const h=harness(); await statusPoll(h,recoveryStatus());
   const failed=h.api.refreshStatus(); h.requests.at(-1).reject(new Error('synthetic status connection failure')); await failed;
   assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
-  assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i);
-  assert.doesNotMatch(h.document.getElementById('history-import-summary').textContent,/219|9 accepted/);
+  assert.match(h.document.getElementById('history-import-title').textContent,/checking.*import status again/i);
+  assert.doesNotMatch(h.document.getElementById('history-import-title').textContent,/status unavailable|requesting/i);
+  assert.match(h.document.getElementById('history-import-summary').textContent,/9 accepted history copies.*219 readable messages in Live/);
+  assert.match(h.document.getElementById('history-import-help').textContent,/^Last confirmed .*Phone history remains partial/);
+  assert.equal(h.document.getElementById('history-import-details').disabled,false);
+  assert.equal(h.nodes.get('status-notice').hidden,false);
+  assert.match(h.nodes.get('status-notice').textContent,/checking again/i);
+  assert.equal(h.nodes.get('status-notice').classList.contains('error'),false,'a transient check is not presented as a failure');
   await statusPoll(h,recoveryStatus({accepted:12},{Messages:230}));
   assert.match(h.document.getElementById('history-import-summary').textContent,/12 accepted.*230 readable/);
   assert.equal(h.document.getElementById('history-import-spinner').hidden,false);
+  assert.equal(h.nodes.get('status-notice').hidden,true);
+  assert.doesNotMatch(h.document.getElementById('history-import-help').textContent,/Last confirmed/);
+});
+await check('an exact archive status 503 is a hard source failure with a visible error, no checking label, no spinner and no earlier readable counts',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus()); h.api.renderStats(snapshot());
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'archive_unavailable'},503); await failed;
+  const title=h.document.getElementById('history-import-title').textContent;
+  assert.match(title,/status unavailable/i); assert.doesNotMatch(title,/checking|requesting|waiting/i);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+  assert.equal(h.document.getElementById('history-import-details').disabled,true);
+  assert.doesNotMatch(h.document.getElementById('history-import-summary').textContent,/219|9 accepted/);
+  assert.equal(h.document.getElementById('history-import-requests').textContent,'');
+  assert.doesNotMatch(h.document.getElementById('history-import-help').textContent,/Last confirmed/);
+  const line=h.nodes.get('status-notice'); assert.equal(line.hidden,false); assert.equal(line.classList.contains('error'),true);
+  assert.match(line.textContent,/archive is unavailable/i); assert.doesNotMatch(line.textContent,/checking/i);
+  assert.equal(h.nodes.get('messages-count').textContent,'—'); assert.match(h.nodes.get('coverage-status').textContent,/archive unavailable/i);
+  assert.equal(h.nodes.get('stats-message-count').textContent,'—'); assert.equal(h.nodes.get('stats-updated').textContent,'Update unavailable');
+  assert.equal(h.nodes.get('stats-feedback').classList.contains('error'),true); assert.match(h.nodes.get('stats-feedback').textContent,/Stats are unavailable until the archive can be read again/);
+  assert.equal(h.api.state().authExpired,false);
+});
+await check('every known archive source code is a hard state even when its HTTP status is 5xx or 4xx, and never becomes a checking retry',async()=>{
+  for(const [code,httpStatus] of [['archive_unavailable',503],['source_unavailable',503],['historical_source_unavailable',404],['reconciliation_required',409],['policy_changed',409],['unauthorized',403]]){
+    const h=harness(); await statusPoll(h,recoveryStatus()); h.api.renderStats(snapshot());
+    const direct=h.api.requestAPI('/api/status'); h.requests.at(-1).resolve({code},httpStatus); await direct.catch(error=>assert.equal(error.transient,false,code));
+    const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code},httpStatus); await failed;
+    assert.doesNotMatch(h.document.getElementById('history-import-title').textContent,/checking/i,code);
+    assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i,code);
+    assert.equal(h.document.getElementById('history-import-spinner').hidden,true,code);
+    assert.equal(h.nodes.get('status-notice').classList.contains('error'),true,code);
+    assert.doesNotMatch(h.nodes.get('status-notice').textContent,/checking/i,code);
+    assert.equal(h.nodes.get('stats-message-count').textContent,'—',code);
+    assert.equal(h.api.state().authExpired,false,code);
+  }
+});
+await check('raw gateway, timeout, network and abort status failures stay checking-again transients that keep only last confirmed progress',async()=>{
+  const failures=[
+    ['raw 502',request=>request.resolve({},502)],
+    ['gateway 504',request=>request.resolve({},504)],
+    ['request timeout 408',request=>request.resolve({},408)],
+    ['archive busy 503',request=>request.resolve({code:'archive_busy'},503)],
+    ['network failure',request=>request.reject(new TypeError('Synthetic network failure'))],
+    ['abort timeout',request=>request.reject(Object.assign(new Error('Synthetic timeout'),{name:'AbortError'}))],
+  ];
+  for(const [label,fail] of failures){
+    const h=harness(); await statusPoll(h,recoveryStatus()); h.api.renderStats(snapshot());
+    const failed=h.api.refreshStatus(); fail(h.requests.at(-1)); await failed;
+    assert.match(h.document.getElementById('history-import-title').textContent,/checking.*import status again/i,label);
+    assert.equal(h.document.getElementById('history-import-spinner').hidden,true,label);
+    assert.match(h.document.getElementById('history-import-summary').textContent,/9 accepted history copies.*219 readable messages in Live/,label);
+    assert.match(h.document.getElementById('history-import-help').textContent,/^Last confirmed/,label);
+    assert.equal(h.nodes.get('status-notice').classList.contains('error'),false,label);
+    assert.match(h.nodes.get('status-notice').textContent,/checking again/i,label);
+    assert.equal(h.nodes.get('stats-message-count').textContent,'6',label);
+    assert.equal(h.nodes.get('messages-count').textContent,'219',label);
+    assert.equal(h.api.state().authExpired,false,label);
+  }
+});
+await check('late status answers and owner expiry cannot restore progress, clear a known source failure or reopen a closed session',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  const older=h.api.refreshStatus(), olderRequest=h.requests.at(-1);
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'archive_unavailable'},503); await failed;
+  olderRequest.resolve(recoveryStatus({accepted:999})); await older;
+  assert.doesNotMatch(h.document.getElementById('history-import-summary').textContent,/999/,'an older success cannot restore progress');
+  assert.equal(h.nodes.get('status-notice').classList.contains('error'),true,'an older success cannot clear the source failure');
+  assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i);
+  const late=h.api.refreshStatus(), lateRequest=h.requests.at(-1); h.api.expireAuth();
+  lateRequest.resolve({code:'archive_unavailable'},503); await late;
+  assert.equal(h.api.state().authExpired,true);
+  assert.equal(h.nodes.get('status-notice').hidden,true,'a late failure after expiry is not shown');
+  assert.equal(h.document.getElementById('history-import-progress').hidden,true);
+});
+await check('a transient blip after a known archive failure keeps the hard state until a successful status replaces it',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus()); h.api.renderStats(snapshot());
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'archive_unavailable'},503); await failed;
+  const blip=h.api.refreshStatus(); h.requests.at(-1).resolve({},502); await blip;
+  assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i);
+  assert.doesNotMatch(h.document.getElementById('history-import-title').textContent,/checking/i);
+  assert.match(h.nodes.get('status-notice').textContent,/archive is unavailable/i);
+  assert.equal(h.nodes.get('status-notice').classList.contains('error'),true);
+  assert.equal(h.nodes.get('stats-message-count').textContent,'—');
+  await statusPoll(h,recoveryStatus({accepted:12},{Messages:230}));
+  assert.equal(h.nodes.get('status-notice').hidden,true);
+  assert.match(h.document.getElementById('history-import-summary').textContent,/12 accepted.*230 readable/);
+});
+await check('owner csrf denial from status expires the session and never shows an archive checking state',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'csrf_denied'},403); await failed;
+  assert.equal(h.api.state().authExpired,true);
+  assert.equal(h.nodes.get('status-notice').hidden,true);
+  assert.doesNotMatch(h.document.getElementById('history-import-title').textContent,/checking/i);
+});
+await check('a known archive status failure keeps the account-wide observation but drops status-only coverage explanations',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus({},{Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:false,Codes:['undecryptable_message']}));
+  assert.match(h.nodes.get('unknown-history-notice').textContent,/Earlier history/);
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'archive_unavailable'},503); await failed;
+  const notice=h.nodes.get('unknown-history-notice');
+  assert.equal(notice.hidden,false); assert.match(notice.textContent,/Unknown records/);
+  assert.doesNotMatch(notice.textContent,/Earlier history|Undecryptable messages/,'status-only explanations would present unverified status as current');
+});
+await check('recovery from a known archive status failure reloads Stats without a manual refresh',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus()); h.api.renderStats(snapshot());
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'archive_unavailable'},503); await failed;
+  const before=h.requests.filter(request=>request.path==='/api/stats').length;
+  await statusPoll(h,recoveryStatus({accepted:12},{Messages:230}));
+  assert.equal(h.requests.filter(request=>request.path==='/api/stats').length>before,true,'Stats reads again after status recovers');
+  assert.equal(h.nodes.get('status-notice').hidden,true);
 });
 await check('unavailable or unsafe recovery clears previously readable progress instead of claiming continued imports',async()=>{
   const h=harness(); await statusPoll(h,recoveryStatus());
@@ -655,5 +767,123 @@ await check('missing optional rich Stats fields clear old highlights, rhythm det
   const h=harness(); h.api.renderStats(snapshot(6,'OLD_OPTIONAL_SYNTHETIC_NAME')); const selected=descendants(h.nodes.get('stats-heatmap')).find(node=>node.tagName==='BUTTON'&&node.dataset.hour==='8'); selected.focus();
   const value=snapshot(9); delete value.insights; delete value.rhythm; delete value.breakdown; const pending=h.api.refreshStats(); h.requests[0].resolve(value); await pending;
   assert.equal(h.nodes.get('stats-message-count').textContent,'9'); assert.equal(h.nodes.get('stats-active-days').textContent,'—'); assert.equal(h.nodes.get('stats-streak').textContent,'—'); assert.equal(h.nodes.get('stats-busiest-day').textContent,'—'); assert.equal(h.nodes.get('stats-daily-average').textContent,'—'); assert.equal(descendants(h.nodes.get('stats-heatmap')).filter(node=>node.tagName==='BUTTON').length,0); assert.equal(h.nodes.get('stats-rhythm-rows').children.length,0); assert.doesNotMatch(h.nodes.get('stats-rhythm-detail').textContent,/4 messages/); assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0); assert.equal(h.nodes.get('stats-page-prev').disabled,true); assert.equal(h.nodes.get('stats-page-next').disabled,true);
+});
+await check('one coverage notice carries partial-history explanations and Stats no longer copies the long status text',async()=>{
+  assert.equal(html.match(/id="unknown-history-notice"/g)?.length,1,'one global coverage notice');
+  assert.doesNotMatch(html,/id="stats-notice"/,'Stats must not own a second copy of coverage text');
+  assert.doesNotMatch(html,/class="notice warning"/,'coverage text must not use a yellow warning box');
+  assert.ok(html.indexOf('id="status-notice"')<html.indexOf('class="app-layout"'),'request failures are global rather than archive-only');
+  const h=harness(); await statusPoll(h,recoveryStatus({},{Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:false}));
+  const notice=h.nodes.get('unknown-history-notice'); assert.equal(notice.tagName,'SECTION'); assert.equal(notice.hidden,false);
+  assert.equal(h.nodes.get('stats-notice'),undefined);
+  const details=descendants(notice).find(node=>node.tagName==='DETAILS'); assert.ok(details,'one Details disclosure owns the explanation');
+  assert.equal(descendants(details).find(node=>node.tagName==='SUMMARY').textContent,'Details');
+  assert.match(notice.textContent,/Partial history.*current phone state unknown/i);
+});
+await check('Details explains supported controls, unknown records, delivered history, restored snapshots, undecryptable messages and conflicts',async()=>{
+  const h=harness();
+  await statusPoll(h,recoveryStatus({},{Snapshot:{UnknownHistoryGap:true,DeliveredHistorySnapshot:true,RecoveryCode:'owner_restored_snapshot'},Codes:['undecryptable_message','source_revision_conflict','unresolved_deletion','history_limit_exceeded'],ReconciliationRequired:false}));
+  const text=descendants(h.nodes.get('unknown-history-notice')).find(node=>node.tagName==='DETAILS').textContent;
+  for(const pattern of [/Supported controls and current permissions remain enforced/,/Unsupported records may leave edits, deletions, or retention changes unreflected/,/Delivered history snapshot/,/You restored this stored archive/,/could not be decrypted/,/conflicting updates/,/Some deleted messages/,/Earlier history/,/import limit/]) assert.match(text,pattern,String(pattern));
+  assert.doesNotMatch(text,/full year|last year|12 months|complete history is/i,'no full-history promise');
+});
+await check('Details disclosure keeps its open state and node identity across status polls',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus({},{Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:false}));
+  const details=descendants(h.nodes.get('unknown-history-notice')).find(node=>node.tagName==='DETAILS'); details.open=true;
+  await statusPoll(h,recoveryStatus({accepted:10},{Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:false}));
+  assert.equal(descendants(h.nodes.get('unknown-history-notice')).find(node=>node.tagName==='DETAILS'),details);
+  assert.equal(details.open,true,'a five-second refresh must not collapse the explanation');
+});
+await check('coverage notice stays account-wide when the saved view changes between live and captured history',async()=>{
+  const h=harness(); h.api.setSetup({configured:true,archive_view:{source:'historical',captured_at:'2026-01-02T03:04:05Z'},Policy:{ChatMode:'all'}});
+  await statusPoll(h,recoveryStatus({},{Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:false}));
+  const notice=h.nodes.get('unknown-history-notice'); assert.equal(notice.hidden,false);
+  h.api.selectWorkspaceView('archive'); assert.equal(notice.hidden,false);
+  h.api.setSetup({configured:true,Policy:{ChatMode:'all'}}); await statusPoll(h,recoveryStatus({},{ReconciliationRequired:false}));
+  assert.equal(notice.hidden,false,'a later live status cannot hide an observed account-wide gap');
+  h.api.selectWorkspaceView('stats'); assert.equal(notice.hidden,false);
+});
+await check('coverage notice uses calm styling without a warning fill or colored side stripe',async()=>{
+  const css=fs.readFileSync(new URL('../../internal/localui/assets/app.css',import.meta.url),'utf8');
+  const rules=css.match(/[^{}]*coverage-notice[^{}]*\{[^}]*\}/g)??[];
+  assert.ok(rules.length>=3,'coverage notice styles are defined');
+  for(const rule of rules) assert.doesNotMatch(rule,/border-(inline-start|left)|warning-wash|#fff3cd|--warning-line/,rule.slice(0,80));
+  assert.doesNotMatch(css,/#status-notice[^{]*\{[^}]*border-(inline-start|left)/);
+});
+await check('transient Stats 503 keeps last counts with calm accurate copy rather than an error block',async()=>{
+  const h=harness(); h.api.renderStats(snapshot());
+  const pending=h.api.refreshStats(); h.requests[0].resolve({},503); await pending;
+  assert.equal(h.nodes.get('stats-message-count').textContent,'6');
+  const feedback=h.nodes.get('stats-feedback');
+  assert.match(feedback.textContent,/did not update/i); assert.match(feedback.textContent,/Last successful counts are kept.*checking again shortly/i);
+  assert.doesNotMatch(feedback.textContent,/restart the app|did not finish/i);
+  assert.equal(feedback.classList.contains('error'),false,'transient copy is not an error block');
+  assert.equal(h.nodes.get('stats-updated').textContent,'Update unavailable');
+});
+await check('a first Stats load that cannot reach the app stays calm and shows no stale counts',async()=>{
+  const h=harness(); const pending=h.api.refreshStats(); h.requests[0].resolve({},502); await pending;
+  assert.equal(h.api.state().statsSnapshot,null);
+  assert.doesNotMatch(h.nodes.get('stats-message-count').textContent,/\d/,'no earlier counts are displayed');
+  assert.equal(h.nodes.get('stats-feedback').classList.contains('error'),false);
+  assert.match(h.nodes.get('stats-feedback').textContent,/did not load.*checking again shortly/i);
+});
+await check('an explicit archive source failure from Stats stays an error even when its status is 503',async()=>{
+  for(const code of ['archive_unavailable','source_unavailable']){
+    const h=harness(); h.api.renderStats(snapshot());
+    const pending=h.api.refreshStats(); h.requests[0].resolve({code},503); await pending;
+    assert.equal(h.nodes.get('stats-message-count').textContent,'—',code);
+    assert.equal(h.nodes.get('stats-feedback').classList.contains('error'),true,code);
+    assert.doesNotMatch(h.nodes.get('stats-feedback').textContent,/checking again shortly/i,code);
+  }
+});
+await check('a non-transient Stats limit keeps its explicit error beside the last successful counts',async()=>{
+  const h=harness(); h.api.renderStats(snapshot());
+  const pending=h.api.refreshStats(); h.requests[0].resolve({code:'saved_read_limit'},409); await pending;
+  assert.equal(h.nodes.get('stats-message-count').textContent,'6');
+  assert.equal(h.nodes.get('stats-feedback').classList.contains('error'),true);
+  assert.match(h.nodes.get('stats-feedback').textContent,/too large.*narrower.*Last successful counts are kept; this update did not finish/i);
+});
+await check('a non-transient status failure stays an explicit error and never claims a check is underway',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus());
+  const failed=h.api.refreshStatus(); h.requests.at(-1).resolve({code:'not_found'},404); await failed;
+  assert.equal(h.nodes.get('status-notice').classList.contains('error'),true);
+  assert.match(h.nodes.get('status-notice').textContent,/did not finish/i);
+  assert.doesNotMatch(h.nodes.get('status-notice').textContent,/checking/i);
+  assert.match(h.document.getElementById('history-import-title').textContent,/status unavailable/i);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+});
+await check('sidebar coverage is a label and does not repeat the notice paragraph while partial recovery is active',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus({},{ReconciliationRequired:false}));
+  assert.match(h.nodes.get('coverage-status').textContent,/partial recovery/i);
+  assert.equal(h.nodes.get('history-detail').hidden,true);
+  assert.equal(h.nodes.get('history-detail').textContent,'');
+  await statusPoll(h,recoveryStatus({},{ReconciliationRequired:true,Connection:'reconciliation_required'}));
+  assert.equal(h.nodes.get('history-detail').hidden,false,'the unsafe count explanation remains visible');
+  assert.match(h.nodes.get('history-detail').textContent,/unavailable while this archive is paused/i);
+});
+await check('status-only gaps use a truthful headline and do not claim unknown current phone state',async()=>{
+  const h=harness(); await statusPoll(h,{Connection:'connected',Paused:false,Messages:6,Keyword:{State:'ready',Complete:6,Pending:0,Failed:0},Media:{State:'not_configured'},Semantic:{State:'not_configured'},Codes:['app_state_sync_error'],Snapshot:{}});
+  const notice=h.nodes.get('unknown-history-notice'); assert.equal(notice.hidden,false);
+  assert.match(notice.textContent,/Incomplete history/); assert.match(notice.textContent,/WhatsApp state sync is incomplete/);
+  assert.doesNotMatch(notice.textContent,/current phone state unknown/i);
+});
+await check('partial recovery keeps the unknown current phone state inside the single notice, not only in the sidebar',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus({},{ReconciliationRequired:false}));
+  const notice=h.nodes.get('unknown-history-notice'); assert.equal(notice.hidden,false);
+  assert.match(notice.textContent,/Partial history.*current phone state unknown/i);
+  assert.match(notice.textContent,/Earlier history appears only when the phone returns an eligible fresh copy/);
+});
+await check('owner expiry keeps the account-wide observation but drops status-only coverage details',async()=>{
+  const h=harness(); await statusPoll(h,recoveryStatus({},{Snapshot:{UnknownHistoryGap:true},Codes:['undecryptable_message'],ReconciliationRequired:false}));
+  h.api.expireAuth();
+  const notice=h.nodes.get('unknown-history-notice');
+  assert.match(notice.textContent,/Unknown records/);
+  assert.doesNotMatch(notice.textContent,/Undecryptable messages|Earlier history/,'status-specific copy from the ended session is not retained');
+});
+await check('ordinary profiles keep the coverage notice, request line and sidebar explanation hidden',async()=>{
+  const h=harness(); await statusPoll(h,{Connection:'connected',Paused:false,Messages:6,Keyword:{State:'ready',Complete:6,Pending:0,Failed:0},Media:{State:'not_configured'},Semantic:{State:'not_configured'},Codes:[],Snapshot:{}});
+  assert.equal(h.nodes.get('unknown-history-notice').hidden,true);
+  assert.equal(h.nodes.get('status-notice').hidden,true);
+  assert.equal(h.nodes.get('history-detail').hidden,true);
 });
 console.log(JSON.stringify({ok:true,tests:cases.length,cases,app_js_sha256:sourceSHA,scope:'actual JavaScript with minimal synthetic DOM; no browser layout proof'},null,2));

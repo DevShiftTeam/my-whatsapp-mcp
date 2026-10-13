@@ -36,8 +36,14 @@
   let recoveryCommand = null;
   let recoveryVersion = 0;
   let historyImportStatusUnavailable = false;
+  let historyImportStatusRetrying = false;
+  let statusSourceUnavailable = false;
+  let historyImportConfirmedAt = 0;
   let historyImportPanel = null;
   let unknownHistoryGapObserved = false;
+  let deliveredHistoryObserved = false;
+  let coverageNoticeParts = null;
+  let coverageNoticeKey = "";
   let pairingSnapshot = null;
   let chats = [];
   let nextCursor = "";
@@ -178,6 +184,8 @@
     app_state_sync_incomplete: "WhatsApp state sync is incomplete. Readable messages continue importing. Some deletions, chat changes, or expiry settings may be missing; saved results may differ from your phone.",
     app_state_sync_incomplete_inactive: "WhatsApp state sync is incomplete. Readable messages can still be imported and searched locally. Some deletions, chat changes, or expiry settings may be missing; saved results may differ from your phone.",
   };
+  // Known archive source failures are hard states even when they arrive with a 5xx status.
+  const sourceFailureCodes = ["archive_unavailable", "historical_source_unavailable", "reconciliation_required", "source_unavailable", "policy_changed", "unauthorized"];
   if (remoteAdmin) {
     messages.unauthorized = "Your sign-in has ended. Sign in again to access this private archive.";
     messages.csrf_denied = messages.unauthorized;
@@ -216,7 +224,7 @@
       if (path !== "/api/bootstrap" && (response.status === 401 || response.status === 403 && value.code === "csrf_denied")) expireAuth();
       if (path === "/api/pairing/start" && ["source_unavailable", "connection_unavailable"].includes(value.code)) throw new Error("WhatsApp did not complete the connection. Try again from Connection details; a saved linked session reconnects without a new code.");
       const messageScoped = options.messageScoped === true && path === "/api/context" && response.status === 404 && value.code === "source_unavailable";
-      if (!messageScoped && (["/api/search", "/api/archive/browse", "/api/context", "/api/stats"].includes(path) || path.startsWith("/api/chats?source=saved")) && ["source_unavailable", "historical_source_unavailable", "reconciliation_required", "archive_unavailable", "policy_changed", "unauthorized"].includes(value.code)) {
+      if (!messageScoped && (["/api/search", "/api/archive/browse", "/api/context", "/api/stats"].includes(path) || path.startsWith("/api/chats?source=saved")) && sourceFailureCodes.includes(value.code)) {
         clearResults(); invalidateStats(true); invalidateSavedChats();
         const notice = response.status === 403 && value.code === "unauthorized" ? "Current permissions no longer allow this saved view. Refresh to try again." : messages[value.code] || "Saved messages are unavailable. Refresh to try again.";
         feedback("search-feedback", notice, true); feedback("stats-feedback", notice, true);
@@ -224,20 +232,14 @@
       const error = new Error(messages[value.code] || "This action did not finish. Try again or restart the app.");
       error.code = value.code;
       error.status = response.status;
-      error.transient = response.status >= 500 || response.status === 408 || response.status === 429 || value.code === "request_interrupted";
+      error.transient = !sourceFailureCodes.includes(value.code) && (response.status >= 500 || response.status === 408 || response.status === 429 || value.code === "request_interrupted");
       error.messageScoped = messageScoped;
       throw error;
     }
-    if (value?.Snapshot?.UnknownHistoryGap === true || value?.unknown_history_gap === true) {
-      unknownHistoryGapObserved = true;
-      const notice = $("unknown-history-notice");
-      notice.textContent = "Partial history: unsupported records may leave edits, deletions, or retention changes unreflected. Current phone state is unknown. Supported controls and current permissions remain enforced.";
-      notice.hidden = false;
-    } else if (!unknownHistoryGapObserved && (value?.Snapshot?.DeliveredHistorySnapshot === true || value?.delivered_history_snapshot === true)) {
-      const notice = $("unknown-history-notice");
-      notice.textContent = "Delivered history snapshot: imported messages reflect the history returned by WhatsApp. Current phone state is unknown; older messages or later edits, deletions and retention changes may be missing. Supported controls and current permissions remain enforced.";
-      notice.hidden = false;
-    }
+    // Sticky, account-wide observations: later responses never clear them.
+    if (value?.Snapshot?.UnknownHistoryGap === true || value?.unknown_history_gap === true) unknownHistoryGapObserved = true;
+    if (value?.Snapshot?.DeliveredHistorySnapshot === true || value?.delivered_history_snapshot === true) deliveredHistoryObserved = true;
+    renderCoverageNotice();
     return value;
   }
 
@@ -291,6 +293,10 @@
     recoveryLoading = false;
     recoveryVersion++;
     historyImportStatusUnavailable = false;
+    historyImportStatusRetrying = false;
+    statusSourceUnavailable = false;
+    setStatusLine("");
+    renderCoverageNotice();
     renderHistoryImport();
     renderRecovery();
     statusVersion++;
@@ -456,8 +462,7 @@
       if (epoch !== authEpoch) return;
       if (["unauthorized", "csrf_denied"].includes(error.code)) expireAuth();
       else {
-        $("status-notice").textContent = "Sign out did not finish. Check that the app is running, then try again.";
-        $("status-notice").hidden = false;
+        setStatusLine("Sign out did not finish. Check that the app is running, then try again.", true);
       }
     } finally {
       authBusy = false;
@@ -650,25 +655,27 @@
         archiveRefreshNeeded = true;
       }
       if (changed) { savedChatRefreshNeeded = true; archiveRefreshNeeded = true; if (statsController) statsReloadQueued = true; }
+      // Views cleared by a known source failure reload once the status can be read again.
+      const recovering = statusSourceUnavailable;
+      if (recovering) { savedChatRefreshNeeded = true; archiveRefreshNeeded = true; }
       status = next;
+      statusSourceUnavailable = false;
       historyImportStatusUnavailable = false;
+      historyImportStatusRetrying = false;
+      historyImportConfirmedAt = Date.now();
       renderHistoryImport();
       if (status.ConnectionDiagnostic) pairingSnapshot = {...pairingSnapshot,state:status.Connection,connection_diagnostic:status.ConnectionDiagnostic};
       const connectionView = connectionPresentation({...pairingSnapshot,state:status.Connection}, status);
       $("connection-status").textContent = connectionView.busy ? connectionView.title : connectionView.ended ? "Session ended" : codeText(status.Connection || "setup_required");
       $("connection-dot").dataset.state = connectionView.busy ? "pairing" : status.Connection || "setup_required";
-      const unsafe = Boolean(status.ReconciliationRequired || status.Connection === "reconciliation_required");
+      const facts = coverageFacts(status);
+      const unsafe = facts.unsafe;
       const count = Number(status.Messages || 0);
-      const hasStateSyncGap = !unsafe && (status.Codes || []).includes("app_state_sync_error");
-      const hasMessageGap = !unsafe && (status.Codes || []).some(code => ["undecryptable_message", "source_revision_conflict"].includes(code));
-      const hasUnresolvedDeletion = !unsafe && (status.Codes || []).includes("unresolved_deletion");
-      const hasRestoredSnapshot = !unsafe && status.Snapshot?.RecoveryCode === "owner_restored_snapshot";
       const historicalSnapshot = document.documentElement?.dataset?.historicalSnapshot === "true";
-      const liveRebuild = !unsafe && status.live_rebuild?.mode === "live_rebuild";
-      const deliveredSnapshot = status.Snapshot?.DeliveredHistorySnapshot === true || status.recovery?.strategy === "delivered-history";
       $("messages-count").textContent = unsafe ? "—" : count.toLocaleString();
-      $("coverage-status").textContent = unsafe ? "Archive checks required" : hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
-      $("history-detail").textContent = unsafe ? "Message counts are unavailable while this archive is paused." : count ? "Only the history delivered by WhatsApp is included." : "Messages appear here after WhatsApp sends them.";
+      $("coverage-status").textContent = unsafe ? "Archive checks required" : facts.stateSync || facts.messageGap || facts.deletion || facts.restored ? "Incomplete history" : count ? status.Coverage === "partial" ? "Some history received" : "Received history" : "Waiting for history";
+      $("history-detail").textContent = unsafe ? "Message counts are unavailable while this archive is paused." : count || historicalSnapshot ? "" : "Messages appear here after WhatsApp sends them.";
+      $("history-detail").hidden = !$("history-detail").textContent;
       $("keyword-status").textContent = unsafe ? "Unavailable" : !count ? "Waiting" : progressText(status.Keyword);
       $("keyword-detail").textContent = unsafe ? "Search is paused until the archive is safe to read." : !count ? "Ready when messages arrive." : status.Keyword?.Pending ? Number(status.Keyword.Pending).toLocaleString() + " waiting to index" : "Search your saved message text.";
       $("semantic-status").textContent = "Semantic search: " + (!status.Semantic || status.Semantic.State === "not_configured" ? "off" : progressText(status.Semantic));
@@ -682,39 +689,140 @@
       if (historicalSnapshot) {
         $("connection-status").textContent = "Historical snapshot";
         $("coverage-status").textContent = "Historical snapshot · partial coverage";
-        $("history-detail").textContent = "Current phone state unknown. Newer messages excluded.";
         $("pause-toggle").hidden = true;
         $("connection-open").hidden = true;
         $("keyword-detail").textContent = "Search your saved historical message text.";
       }
-      if (liveRebuild) {
-        $("coverage-status").textContent = deliveredSnapshot ? "Live archive · delivered history snapshot" : "Live archive · partial recovery";
-        $("history-detail").textContent = deliveredSnapshot ? "Phone-delivered history may omit older messages or later changes. Current phone state remains unknown." : "New messages and freshly returned phone copies are included. Current phone history remains unknown.";
-      }
-      const notices = [];
-      if (liveRebuild) notices.push(deliveredSnapshot ? "Live sync and AI connections use this archive. Earlier history is imported as a delivered snapshot without individual fresh-copy confirmation. Your date selection does not guarantee full history or current phone state." : "Live sync and AI connections use this archive. Earlier history appears only when the phone returns an eligible fresh copy; your date selection does not guarantee a complete import.");
-      if (hasRestoredSnapshot) notices.push("You restored this stored archive after an interrupted import. Messages, edits, or deletions during the interruption may be missing. Current WhatsApp state is unverified; known unavailable sources remain withheld.");
-      if (hasStateSyncGap) notices.push(stateSyncGapText(status));
-      if (hasMessageGap) notices.push("Some WhatsApp messages were unavailable, could not be decrypted, or had conflicting updates. Affected messages are withheld; other readable messages can still be imported and searched. Received history is incomplete." + ((status.Codes || []).includes("undecryptable_message") ? " WhatsApp may retry delivery." : ""));
-      if (hasUnresolvedDeletion) notices.push("Some deleted messages could not be matched completely. Possible matches are withheld; other messages remain searchable.");
-      for (const code of unsafe ? [] : status.Codes || []) {
-        if (code === "history_limit_exceeded") notices.push("Some history exceeded the import limit. Coverage remains partial.");
-        else if (code === "history_corrupt") notices.push("Some received history could not be read. Coverage remains partial.");
-        else if (code === "queue_limit_exceeded") notices.push("Import reached its queue limit. Some messages may be missing.");
-      }
-      $("status-notice").textContent = notices.join(" ");
-      $("status-notice").hidden = !notices.length;
-      $("status-notice").classList.toggle("warning", hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot);
+      if (facts.live) $("coverage-status").textContent = facts.delivered ? "Live archive · delivered history snapshot" : "Live archive · partial recovery";
+      renderCoverageNotice();
+      setStatusLine("");
       renderStatsStatus();
       if ($("settings-dialog").open && liveRebuildSettings()) refreshRecovery();
-      if (invalidated && activeView === "stats" && !unsafe) refreshStats();
+      if ((invalidated || recovering) && activeView === "stats" && !unsafe) refreshStats();
       if ($("connection-dialog").open) renderConnectionPresentation({...pairingSnapshot,state:status.Connection});
       const policy = setup?.Policy || setup?.policy;
       if (!unsafe && ["connected","discovery","importing"].includes(status.Connection) && policy?.ChatMode === "selective" && !(policy.IncludedChats || []).length && !chats.length && !$("connection-dialog").open && !chatDiscoveryBusy) {
         chatDiscoveryBusy = true;
         try { await loadChats(); } finally { if (epoch === authEpoch) chatDiscoveryBusy = false; }
       }
-    } catch (error) { if (version === statusVersion && !authExpired) { historyImportStatusUnavailable = true; renderHistoryImport(); $("status-notice").textContent = error.message; $("status-notice").hidden = false; } }
+    } catch (error) {
+      if (version === statusVersion && !authExpired) statusFailed(error);
+    }
+  }
+
+  // Ordinary gateway, timeout, network and busy failures are "checking again". A known
+  // archive source code is a hard state: earlier readable content is withdrawn, not retried.
+  function statusFailed(error) {
+    const source = sourceFailureCodes.includes(error.code);
+    const transient = !source && Boolean(error.transient || error.name === "AbortError" || error.name === "TimeoutError");
+    // The last definitive archive answer stays until a successful status replaces it.
+    if (transient && statusSourceUnavailable) return;
+    if (source) {
+      statusSourceUnavailable = true;
+      clearResults(); invalidateStats(true); invalidateSavedChats(); archiveRefreshNeeded = true;
+      $("messages-count").textContent = "—";
+      $("coverage-status").textContent = error.code === "reconciliation_required" ? "Archive checks required" : "Archive unavailable";
+      $("history-detail").textContent = ""; $("history-detail").hidden = true;
+      $("keyword-status").textContent = "Unavailable";
+      $("keyword-detail").textContent = "Search is unavailable until the archive can be read again.";
+      feedback("stats-feedback", "Stats are unavailable until the archive can be read again. Your saved files and AI connections are kept.", true);
+    }
+    historyImportStatusRetrying = transient;
+    historyImportStatusUnavailable = !transient;
+    renderCoverageNotice();
+    renderHistoryImport();
+    setStatusLine(transient ? "Could not refresh import status. Checking again…" : statusFailureText(error, source), !transient);
+  }
+
+  function statusFailureText(error, source) {
+    if (!source) return error.message;
+    if (error.code === "unauthorized") return "Current permissions no longer allow this status check. Refresh to try again.";
+    if (error.code === "source_unavailable" || error.code === "historical_source_unavailable") return messages.archive_unavailable;
+    return messages[error.code] || error.message;
+  }
+
+  function setStatusLine(text = "", error = false) {
+    const node = $("status-notice");
+    if (node.textContent !== text) node.textContent = text;
+    node.classList.toggle("error", error);
+    node.hidden = !text;
+  }
+
+  // One source for every partial-history explanation; the notice owns the wording.
+  function coverageFacts(snapshot = status) {
+    const unsafe = Boolean(snapshot?.ReconciliationRequired || snapshot?.Connection === "reconciliation_required");
+    const codes = unsafe ? [] : snapshot?.Codes || [];
+    return {
+      unsafe,
+      codes,
+      live: !unsafe && snapshot?.live_rebuild?.mode === "live_rebuild",
+      delivered: snapshot?.Snapshot?.DeliveredHistorySnapshot === true || snapshot?.recovery?.strategy === "delivered-history",
+      restored: !unsafe && snapshot?.Snapshot?.RecoveryCode === "owner_restored_snapshot",
+      stateSync: codes.includes("app_state_sync_error"),
+      undecryptable: codes.includes("undecryptable_message"),
+      conflicts: codes.includes("source_revision_conflict"),
+      messageGap: codes.includes("undecryptable_message") || codes.includes("source_revision_conflict"),
+      deletion: codes.includes("unresolved_deletion"),
+      limits: codes.filter(code => ["history_limit_exceeded", "history_corrupt", "queue_limit_exceeded"].includes(code)),
+    };
+  }
+
+  function coverageNoticeNodes() {
+    if (coverageNoticeParts) return coverageNoticeParts;
+    const notice = $("unknown-history-notice");
+    const summary = document.createElement("p");
+    summary.id = "coverage-notice-summary";
+    summary.setAttribute("role", "status");
+    summary.setAttribute("aria-live", "polite");
+    const details = document.createElement("details");
+    details.id = "coverage-notice-details";
+    const toggle = document.createElement("summary");
+    toggle.textContent = "Details";
+    const list = document.createElement("dl");
+    list.id = "coverage-notice-list";
+    details.append(toggle, list);
+    notice.replaceChildren(summary, details);
+    coverageNoticeParts = {notice, summary, list};
+    return coverageNoticeParts;
+  }
+
+  function renderCoverageNotice() {
+    const facts = coverageFacts(statusSourceUnavailable ? null : status);
+    const delivered = deliveredHistoryObserved || facts.delivered;
+    const items = [];
+    if (unknownHistoryGapObserved) items.push(["Unknown records", "Unsupported records may leave edits, deletions, or retention changes unreflected. Current phone state is unknown. Supported controls and current permissions remain enforced."]);
+    if (delivered) items.push(["Delivered history", "Delivered history snapshot: imported messages reflect the history returned by WhatsApp. Current phone state is unknown; older messages or later edits, deletions and retention changes may be missing." + (unknownHistoryGapObserved ? "" : " Supported controls and current permissions remain enforced.")]);
+    if (facts.live) items.push(["Earlier history", delivered ? "Live sync and AI connections use this archive. Earlier history comes from the delivered snapshot without individual fresh-copy confirmation; your date selection does not guarantee full history." : "Live sync and AI connections use this archive. Earlier history appears only when the phone returns an eligible fresh copy; your date selection does not guarantee a complete import."]);
+    if (facts.restored) items.push(["Restored snapshot", "You restored this stored archive after an interrupted import. Messages, edits, or deletions during the interruption may be missing. Current WhatsApp state is unverified; known unavailable sources remain withheld."]);
+    if (facts.undecryptable) items.push(["Undecryptable messages", "Some WhatsApp messages were unavailable or could not be decrypted. Affected messages are withheld; other readable messages can still be imported and searched. WhatsApp may retry delivery."]);
+    if (facts.conflicts) items.push(["Conflicting updates", "Some WhatsApp messages had conflicting updates. Affected messages are withheld; other readable messages can still be imported and searched."]);
+    if (facts.stateSync) items.push(["WhatsApp state sync", stateSyncGapText(status)]);
+    if (facts.deletion) items.push(["Deleted messages", "Some deleted messages could not be matched completely. Possible matches are withheld; other messages remain searchable."]);
+    for (const code of facts.limits) {
+      if (code === "history_limit_exceeded") items.push(["Import limit", "Some history exceeded the import limit. Coverage remains partial."]);
+      else if (code === "history_corrupt") items.push(["Unreadable history batch", "Some received history could not be read. Coverage remains partial."]);
+      else items.push(["Import queue", "Import reached its queue limit. Some messages may be missing."]);
+    }
+    let headline = "";
+    if (unknownHistoryGapObserved || delivered || facts.live) headline = "Partial history · current phone state unknown";
+    else if (facts.restored) headline = "Restored snapshot · current WhatsApp state unverified";
+    else if (facts.stateSync || facts.messageGap || facts.deletion || facts.limits.length) headline = "Incomplete history";
+    const parts = coverageNoticeNodes();
+    const key = JSON.stringify([headline, items]);
+    if (key !== coverageNoticeKey) {
+      coverageNoticeKey = key;
+      if (parts.summary.textContent !== headline) parts.summary.textContent = headline;
+      parts.list.replaceChildren(...items.map(([term, text]) => {
+        const group = document.createElement("div");
+        const label = document.createElement("dt");
+        label.textContent = term;
+        const body = document.createElement("dd");
+        body.textContent = text;
+        group.append(label, body);
+        return group;
+      }));
+    }
+    parts.notice.hidden = !headline;
   }
 
   function statsCount(value) {
@@ -794,8 +902,6 @@
     $("stats-custom-dates").hidden = true;
     $("stats-data").setAttribute("aria-busy", "false");
     $("stats-updated").textContent = "Checking archive";
-    $("stats-notice").textContent = "";
-    $("stats-notice").hidden = true;
     feedback("stats-feedback", "");
     for (const kind of ["keyword", "media", "semantic"]) {
       $("stats-" + kind + "-state").textContent = "Checking";
@@ -982,8 +1088,13 @@
       if (!keep) clearStatsData();
       $("stats-updated").textContent = "Update unavailable";
       document.querySelector(".stats-update").dataset.state = "error";
-      const notice = error.name === "AbortError" ? "Stats took too long to load. Use Refresh stats to try again." : error.message;
-      feedback("stats-feedback", notice + (keep && statsSnapshot ? " Last successful counts are kept; this update did not finish." : ""), true);
+      const transient = error.transient || error.name === "AbortError" || ["archive_busy", "saved_cursor_stale"].includes(error.code);
+      if (transient) {
+        const lead = error.name === "AbortError" ? "Stats took too long to load." : error.code === "archive_busy" ? "The archive is updating." : error.code === "saved_cursor_stale" ? "Saved messages changed while Stats was updating." : statsSnapshot ? "Stats did not update." : "Stats did not load.";
+        feedback("stats-feedback", lead + (statsSnapshot ? " Last successful counts are kept; checking again shortly." : " Checking again shortly."), false);
+      } else {
+        feedback("stats-feedback", error.message + (keep && statsSnapshot ? " Last successful counts are kept; this update did not finish." : ""), true);
+      }
     } finally {
       window.clearTimeout(timeout);
       if (statsController === controller) {
@@ -1033,9 +1144,6 @@
     $("stats-connection-description").textContent = historical ? "Read-only. Newer messages excluded. Sending and syncing disabled." : statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !viewStatus.Paused && Number(viewStatus.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
     $("stats-connection-action").disabled = historical;
     $("stats-connection-action").textContent = historical ? "Syncing disabled" : !setup?.configured ? "Set up your archive" : viewStatus.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
-    const notice = $("status-notice");
-    $("stats-notice").textContent = notice.textContent;
-    $("stats-notice").hidden = notice.hidden;
     for (const [kind, progress] of [["keyword", viewStatus.Keyword], ["media", viewStatus.Media], ["semantic", viewStatus.Semantic]]) renderStatsProgress(kind, progress);
   }
 
@@ -1726,9 +1834,9 @@
   }
 
   function renderArchiveSource() {
-    const meta = savedMetadata?.historical || setup?.archive_view;
+    const capturedView = Boolean(savedMetadata?.historical || setup?.archive_view || historicalSettings());
     $("archive-source-control").hidden = authExpired;
-    $("archive-source-note").textContent = meta ? "Includes eligible captured history. Partial history · current phone state unknown. Current archive choices and known message restrictions apply." : "Recent messages and search follow your current archive choices. WhatsApp history may be incomplete.";
+    $("archive-source-note").textContent = capturedView ? "Includes eligible captured history. Current phone state is unknown." : "Follows your current archive choices. WhatsApp history may be incomplete.";
     if (savedChatLoadError) $("archive-source-note").textContent += " " + savedChatLoadError;
     else if (savedChatsPartial) $("archive-source-note").textContent += " Chat filter shows the first 1,000 saved conversations.";
     renderHistoryImport();
@@ -2288,10 +2396,13 @@
     if (!panel) panel = historyImportPanel = createHistoryImportPanel();
     panel.hidden = false;
     const p = status?.recovery;
-    const unavailable = historyImportStatusUnavailable || !p || statsUnavailable();
+    const retrying = historyImportStatusRetrying && !statsUnavailable();
+    const unavailable = !retrying && (historyImportStatusUnavailable || !p || statsUnavailable());
+    const hasProgress = !unavailable && Boolean(p);
     const delivered = p?.strategy === "delivered-history";
     let title = "History import status unavailable", active = false;
-    if (!unavailable) {
+    if (retrying) title = "Checking import status again…";
+    else if (hasProgress) {
       const states = {paused:"Earlier history import paused", cancelled:"Earlier history recovery cancelled", exhausted:"History request allowance exhausted", waiting_phone:"Waiting for earlier history from your phone", waiting_transport:"Waiting for WhatsApp chat details", waiting_for_older_anchor:"Waiting for older history", no_anchor:"Waiting for eligible history", queue_full:"History discovery limit reached"};
       if (p.state === "paused" || p.state === "cancelled") title = states[p.state];
       else if (status.Paused) title = "Earlier history import paused";
@@ -2310,12 +2421,13 @@
     if (titleNode.textContent !== title) titleNode.textContent = title;
     $("history-import-spinner").hidden = !active;
     $("history-import-details").disabled = unavailable;
-    $("history-import-summary").textContent = unavailable ? "Keep the app running. Status will refresh automatically while this page is visible." : delivered ? statsNumber(p.delivered_accepted) + " snapshot messages accepted · " + statsNumber(p.readable_messages) + " readable messages in Live · " + statsNumber(p.accepted) + " earlier individual phone copies accepted" : statsNumber(p.accepted) + " accepted history copies · " + statsNumber(status.Messages) + " readable messages in Live";
-    const currentPending = unavailable ? 0 : Math.max(0, statsCount(p.pending) - statsCount(p.stale));
-    $("history-import-requests").textContent = unavailable ? "" : delivered ? statsNumber(p.page_attempts) + " page attempts · " + statsNumber(Math.max(0, statsCount(p.discovery_limit) - statsCount(p.discovery_spent))) + " history request credits remaining · " + statsNumber(p.delivered_limit) + " snapshot message allowance" : statsNumber(currentPending) + " current requests awaiting phone replies or outcome unknown" + (statsCount(p.stale) ? " · " + statsNumber(p.stale) + " earlier requests no longer valid under current choices" : "") + " · " + statsNumber(p.queued) + " eligible copies queued";
-    const range = !unavailable && typeof p.target_start === "string" && !p.target_start.startsWith("0001-") ? " Requested from " + dateText(p.target_start) + "." : "";
-    const oldest = !unavailable && delivered && statsCount(p.readable_messages) > 0 && typeof p.delivered_oldest === "string" && !p.delivered_oldest.startsWith("0001-") && Number.isFinite(Date.parse(p.delivered_oldest)) ? " Oldest readable message in Live: " + dateText(p.delivered_oldest) + "." : "";
-    $("history-import-help").textContent = "Phone history remains partial; older messages and a finish time are not guaranteed." + range + oldest;
+    $("history-import-summary").textContent = !hasProgress ? "Keep the app running. Status will refresh automatically while this page is visible." : delivered ? statsNumber(p.delivered_accepted) + " snapshot messages accepted · " + statsNumber(p.readable_messages) + " readable messages in Live · " + statsNumber(p.accepted) + " earlier individual phone copies accepted" : statsNumber(p.accepted) + " accepted history copies · " + statsNumber(status.Messages) + " readable messages in Live";
+    const currentPending = hasProgress ? Math.max(0, statsCount(p.pending) - statsCount(p.stale)) : 0;
+    $("history-import-requests").textContent = !hasProgress ? "" : delivered ? statsNumber(p.page_attempts) + " page attempts · " + statsNumber(Math.max(0, statsCount(p.discovery_limit) - statsCount(p.discovery_spent))) + " history request credits remaining · " + statsNumber(p.delivered_limit) + " snapshot message allowance" : statsNumber(currentPending) + " current requests awaiting phone replies or outcome unknown" + (statsCount(p.stale) ? " · " + statsNumber(p.stale) + " earlier requests no longer valid under current choices" : "") + " · " + statsNumber(p.queued) + " eligible copies queued";
+    const range = hasProgress && typeof p.target_start === "string" && !p.target_start.startsWith("0001-") ? " Requested from " + dateText(p.target_start) + "." : "";
+    const oldest = hasProgress && delivered && statsCount(p.readable_messages) > 0 && typeof p.delivered_oldest === "string" && !p.delivered_oldest.startsWith("0001-") && Number.isFinite(Date.parse(p.delivered_oldest)) ? " Oldest readable message in Live: " + dateText(p.delivered_oldest) + "." : "";
+    const confirmed = retrying && hasProgress ? "Last confirmed " + new Intl.DateTimeFormat(undefined, {hour:"numeric", minute:"2-digit"}).format(new Date(historyImportConfirmedAt)) + ". " : "";
+    $("history-import-help").textContent = confirmed + "Phone history remains partial; older messages and a finish time are not guaranteed." + range + oldest;
   }
 
   function renderRecovery() {

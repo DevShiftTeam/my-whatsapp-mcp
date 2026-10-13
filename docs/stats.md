@@ -35,11 +35,15 @@ Sort by **Most messages**, **Name**, or **Recently active**. Choose 10, 25, or 5
 
 ## Check processing and coverage
 
+One compact coverage notice summarizes incomplete history. Open **Details** to see the specific limitations, including delivered or captured history, accepted unknown records, snapshot recovery, and unavailable or conflicting messages. These are coverage warnings, not a claim that the service is offline.
+
 **Processing** reports work for the full archive and stays independent of these filters. **Voice notes with text** measures how many filtered saved voice notes have generated text; it does not measure recognition accuracy or complete WhatsApp history.
 
 Stats counts the permitted saved view once, including eligible captured-only messages. A current copy takes precedence over its captured copy. Current archive choices and known deletion, edit, expiry and view-once restrictions apply to captured history too. Captured originals do not add current downloads or processing jobs.
 
 Stats reflects readable saved data within your archive choices. WhatsApp may have delivered only part of your history. Updates happen in place with a small loading indicator; the page does not reload. During import, refresh keeps the last successful counts until a new guarded read succeeds. Busy, oversized, timed-out or temporarily unreachable reads leave those counts visible with an explanation; narrow the filters if the view is too large. Permission changes, source failures or an ended owner session clear withheld data. Use **Refresh stats** to retry other failed updates. Remote access uses the same password-protected admin setup described in [MCP and remote access](mcp.md).
+
+If import status briefly cannot be refreshed, the app labels the last confirmed progress and checks again without implying that import is still active. The activity spinner stays off until fresh status confirms work. Transient Stats updates keep the last successful counts with calm feedback; actual permission or source failures remain errors.
 
 Normal syncing, older-history import and media processing do not require Stats or MCP to stop. An archive-safety pause is different: the app cannot verify that protected reads are still safe, for example after an unresolved source change or interrupted write. It withholds those reads rather than showing potentially deleted or unauthorized data. Saved files and existing connections are retained; resetting the archive or replacing credentials is not the ordinary remedy.
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Consolidate overlapping history limitations into one coverage notice with expandable Details. Retain clearly labeled last-confirmed progress during transient refresh failures without showing an active-import spinner.
+- Retry one short internal saved-Stats response-fence timeout while the owner request remains valid, preserving final source and authority checks and refusing genuine invalidations.
+
 - Let expiry cleanup yield between records when a privacy control is waiting, so background cleanup does not consume that control's deadline. Expired content remains withheld until physical cleanup finishes; genuinely lost controls still pause protected reads.
 
 - Refresh Archive and Stats in place with subtle loading feedback. Keep the selected conversation, loaded pages, filters, focus and scroll during bounded background updates, unless the selected message itself is unavailable; retain the last successful view on transient connection failures while preserving access and archive-safety checks.
