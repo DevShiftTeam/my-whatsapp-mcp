@@ -6,6 +6,18 @@ The default setup uses a multilingual OpenAI large-v3-turbo conversion with fast
 
 Transcripts are generated text and can contain errors. Recognition quality and processing time depend on the recording and hardware; inspect a real result before relying on it.
 
+## Use the browser setup guide
+
+In the local first-run **Set up your archive** window, choose **Voice notes → Hebrew transcription**. You can also open **Models and media → Set up Hebrew transcription** later, including after a restart. This guide is available in the local owner window, not remote administration, demo mode or read-only historical snapshots.
+
+The guide provides three steps: install the Hebrew runtime/model, start the separate loopback service, and add the shared private env file to the archive's existing launch. Copy buttons copy commands only; the browser cannot install Python, run shell commands or restart either process. Run native commands on the archive computer from the source checkout. Docker users should use the [optional container service](#optional-docker-service) instead.
+
+Keep your original archive data directory and all existing launch arguments. The guide copies the transcription argument separately so it cannot silently replace your custom launch settings. Its default-launch example is only for an original `./bin/wa-indexer serve` command. **Continue without voice setup** skips the guide without changing any running transcription configuration or archive choices.
+
+After restarting, reopen the private owner window and return through **Models and media**. **Check running app** checks the voice worker attached to that running archive—not an unrelated service on an open port. **Hebrew transcription connected** requires the pinned ivrit-ai model, runtime versions and Hebrew language settings to match, with a successful authenticated health check. A busy response is labeled busy, with any previous worker verification distinguished from a fresh check; check again once it finishes. Missing configuration, connecting, unavailable, changed or mismatched service identities, and stopped workers are not reported as connected. The bounded check is read-only and returns no tokens, paths or service URL. Check again to refresh its result.
+
+Completing a guide step or downloading weights is not proof of an enabled worker. Compare a real Hebrew recording with its generated text as described in [step 4](#_4-check-a-recording-through-mcp); synthetic setup checks do not establish recognition quality.
+
 ## 1. Install the optional runtime and model
 
 Run these commands from the source checkout. Install Python 3.11 using the [official Python downloads](https://www.python.org/downloads/) or your package manager, then choose a private directory outside the checkout:
@@ -67,7 +79,7 @@ Listen to the recording and compare the text. Then restart the archive with the 
 
 ## Configuration
 
-The installer generates one env file shared by the service and app. Its directory must be owned by you with mode `0700`, and the file must have mode `0600`, no ACL entries, no symlinks, and a single hardlink. Pass its absolute path to the app. The file contains literal `KEY=value` lines: do not quote values, add `export`, or source it in a shell. Paths containing spaces remain literal values.
+The installer generates one env file shared by the service and app. Its directory must be owned by you with mode `0700`, and the file must have mode `0600`, no ACL entries, no symlinks, and a single hardlink. Pass its absolute path to the app. The file contains literal `KEY=value` lines: do not quote values, add `export`, or source it in a shell. Paths containing spaces and Hebrew remain literal values. Choose paths without quotes, backticks, dollar signs, control characters or line breaks, or leading/trailing spaces; the installer refuses incompatible paths before provisioning rather than leaving a configuration that the app cannot load.
 
 | App variable | Default or purpose |
 | --- | --- |
@@ -166,6 +178,8 @@ docker run --rm --mount source=wa-indexer-transcription,target=/var/lib/transcri
 ```
 
 Provisioning downloads dependencies and the verified model and creates a mode-0600 private env file inside mode-0700 directories owned by UID/GID 10001. That file includes both `WA_TRANSCRIPTION_TOKEN` and matching `WA_INDEXER_TRANSCRIPTION_TOKEN`; do not print it or put it in the checkout. Keep the generated URL/listen pair `http://127.0.0.1:6971` and `127.0.0.1:6971`. Set `TRANSCRIPTION_BASE` to the pinned base image you intend to use before building this optional image.
+
+For Hebrew in a fresh transcription volume, append `--profile hebrew --language he` to the provisioning command above. This writes Hebrew to both service and archive language settings. Do not replace an existing multilingual model in place; use a separate private volume and update the transcription volume mapping deliberately, retaining the existing archive volume.
 
 ```sh
 docker compose -f compose.yaml -f compose.build.yaml -f compose.transcription.yaml \

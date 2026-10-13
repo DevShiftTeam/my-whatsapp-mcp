@@ -48,6 +48,8 @@ Sending uses a separate owner-approved permission and a persistent request journ
 
 The optional voice service uploads retained recordings to a local faster-whisper service. Generated transcripts are stored separately from source text and enter keyword search. Its CPU and model-memory budget is separate from the archive. See [transcription](transcription.md).
 
+Local browser first-run can guide Hebrew service setup, but cannot run an installer or change launch configuration. Its native-owner-only `GET /api/transcription/status` requires the owner session and CSRF capability, accepts no body or query parameters, and returns only `configured`, a fixed `state`, and `hebrew_ready`. Both remote-admin realms deny this route. Checks use the active voice owner's frozen adapter identity, recheck lifecycle and owner authority before buffered delivery, and have a three-second deadline, one active probe and a one-second admission cooldown. Busy responses distinguish earlier verification from a fresh model check. No model pins, private paths, URLs or credentials are returned.
+
 Offline recovery commands operate on existing stopped profiles. Preserve archive policy, deletions, expiry, client permissions, and current source checks during recovery. See [snapshot recovery](setup.md#recover-the-committed-archive-snapshot) and [original-cache recovery](setup.md#recover-associations-for-existing-original-recordings).
 
 ## Storage
@@ -123,6 +125,8 @@ python3 -m unittest discover -s services/transcription/tests
 ```
 
 Exercise the retained-original, extraction, keyword search, MCP scope, source-invalidation, and restart boundaries when changing voice processing. A passing synthetic suite does not establish real Hebrew recognition quality or performance.
+
+`cmd/wa-indexer/transcription_installer_test.go` passes the installer's actual synthetic private env output through the Go launch loader without installing dependencies or a model. The Python Hebrew setup tests fake provisioning tools while exercising the real CLI. `scripts/ui/test_transcription_setup.mjs` covers the shipped guide script's finite readiness states, commands, cancellation, cooldown, clipboard fallback and owner expiry. With the docs Playwright dependencies installed, `node scripts/test-transcription-setup-browser.mjs` checks first-run and returning-owner flows in a real browser with intercepted synthetic APIs. Keep any screenshots and local results outside the tracked tree.
 
 For browser JavaScript changes, Node.js can check syntax:
 

@@ -64,6 +64,8 @@ type Server struct {
 	sessionTTL                             time.Duration
 	mu                                     sync.Mutex
 	owner                                  *session
+	transcriptionChecking                  bool
+	transcriptionNextCheck                 time.Time
 	// The independent remote interface supplies its own session revocation on
 	// archive deletion; the local owner capability flow remains unchanged.
 	deleteOwnerSessions  func(http.ResponseWriter)
@@ -342,6 +344,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 var routeMethods = map[string]string{
+	"/api/transcription/status": http.MethodGet,
+
 	"/api/recovery":         http.MethodGet,
 	"/api/recovery/control": http.MethodPost,
 	"/api/remote/password":  http.MethodPut,
@@ -599,6 +603,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	switch r.URL.Path {
+	case "/api/transcription/status":
+		s.transcriptionStatus(w, r, ctx)
 	case "/api/recovery", "/api/recovery/control":
 		s.recovery(w, r, ctx)
 	case "/api/remote/status", "/api/remote/configure", "/api/remote/disable", "/api/remote/remove", "/api/remote/sign-in":
@@ -954,6 +960,9 @@ func fail(w http.ResponseWriter, status int, code string) {
 }
 
 var publicMessages = map[string]string{
+	"transcription_status_unavailable": "Transcription status is unavailable. Try again shortly.",
+	"transcription_status_busy":        "A transcription status check is already running or was just requested. Wait briefly and try again.",
+
 	"archive_busy":         "The archive is busy. Try again shortly.",
 	"saved_cursor_stale":   "The saved view changed. Start again from the first page.",
 	"saved_read_limit":     "Use a narrower date range or chat selection and try again.",

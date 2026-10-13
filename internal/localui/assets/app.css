@@ -95,6 +95,25 @@ dialog{border:1px solid var(--line);border-radius:14px;width:min(610px,calc(100%
   .client-send-chats { max-height: 210px; }
 }
 
+/* Optional voice setup is a guide, not an HTTP software installer. */
+.transcription-entry { margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.transcription-entry h3 { font-size: 16px; }
+.transcription-entry > button { margin-top: 13px; min-height: 44px; }
+.transcription-steps { margin: 22px 0; padding-inline-start: 24px; }
+.transcription-steps > li { padding-inline-start: 5px; margin-bottom: 16px; min-width: 0; }
+.transcription-steps summary { cursor: pointer; font-size: 14px; font-weight: 600; min-height: 44px; padding-block: 10px; }
+.transcription-steps textarea { width: 100%; resize: vertical; background: var(--rail); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.transcription-steps .text-button { min-height: 44px; margin-inline-end: 14px; }
+.transcription-steps .secondary { min-height: 44px; margin-block: 12px; font-size: 12px; }
+.transcription-default-launch { margin-top: 12px; }
+.transcription-default-launch summary { color: var(--muted); font-size: 12px; font-weight: 400; }
+.transcription-verification { padding-top: 15px; border-top: 1px solid var(--line); }
+.transcription-verification > button { min-height: 44px; }
+#transcription-continue { min-height: 44px; }
+#setup-transcription-open { min-height: 44px; }
+#transcription-setup-close { min-width: 44px; min-height: 44px; }
+#transcription-setup-dialog a { color: var(--emerald); text-underline-offset: 3px; }
+
 /* The two workspace views share controls and keep their filters independent. */
 .view-navigation { display: flex; flex-direction: column; gap: 5px; margin: -8px -9px 0; }
 .view-navigation button { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 11px 12px; text-align: start; font-weight: 600; color: var(--muted); }

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add optional Hebrew transcription guidance to local browser first-run and Models and media, with copyable terminal steps and a bounded check of the running voice worker. The browser does not install software or restart the archive, and remote, demo and historical views do not offer native setup.
+- Refuse transcription installation paths incompatible with the shared private configuration before provisioning; spaces and Hebrew paths remain supported.
+
 - Consolidate overlapping history limitations into one coverage notice with expandable Details. Retain clearly labeled last-confirmed progress during transient refresh failures without showing an active-import spinner.
 - Retry one short internal saved-Stats response-fence timeout while the owner request remains valid, preserving final source and authority checks and refusing genuine invalidations.
 

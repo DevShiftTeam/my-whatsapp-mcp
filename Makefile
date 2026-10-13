@@ -39,3 +39,4 @@ ui-test:
 	node scripts/test-saved-archive-ui.mjs
 	node scripts/ui/test_stats.mjs
 	node scripts/ui/test_send_permissions.mjs
+	node scripts/ui/test_transcription_setup.mjs

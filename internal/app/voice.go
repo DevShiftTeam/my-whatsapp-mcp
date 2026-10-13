@@ -18,6 +18,7 @@ const voiceRetryInterval = 5 * time.Second
 // Voice processing is configured at launch, independently of native previews.
 // An unavailable service never prevents the archive from opening or being read.
 type voiceOwner struct {
+	ctx     context.Context
 	mu      sync.Mutex
 	backend *transcription.Backend
 	jobs    *primaryMediaJobs
@@ -48,7 +49,7 @@ func validateTranscriptionConfig(cfg Config) error {
 
 func (r *resources) startVoice(store *archive.Store, opts transcription.Options) {
 	ctx, cancel := context.WithCancel(context.Background())
-	owner := &voiceOwner{cancel: cancel, done: make(chan struct{}), code: "transcription_connecting"}
+	owner := &voiceOwner{ctx: ctx, cancel: cancel, done: make(chan struct{}), code: "transcription_connecting"}
 	r.voice = owner
 	r.voiceStatus.Store(owner)
 	go owner.run(ctx, store, r, opts)

@@ -116,6 +116,8 @@
   let qrURL = "";
   const remoteAdmin = document.documentElement.dataset.remoteAdmin === "true";
   const capabilityKey = "wa_archive_owner_capability";
+  let transcriptionSetupVersion = 0;
+  let transcriptionSetupController = null;
 
   const messages = {
     remote_operation_busy: "Another remote action is finishing. Wait a moment, then retry.",
@@ -317,6 +319,7 @@
     clearRemoteSecret();
     clearSendPermissions();
     clearRemoteWizard();
+    clearTranscriptionSetup();
     budgetVersion++;
     budgetSnapshot=null;
     budgetDirty=false;
@@ -2507,12 +2510,131 @@
     $("selective-panel").hidden = document.querySelector("input[name=chat-mode]:checked").value !== "selective";
   }
 
+  function transcriptionSetupAllowed() {
+    return !!setup && !authExpired && !remoteAdmin && !remoteMode && !setup.demo && !historicalSettings();
+  }
+
+  function configureTranscriptionSetup() {
+    const allowed = transcriptionSetupAllowed();
+    $("setup-transcription").hidden = !allowed || setup?.configured !== false;
+    $("models-transcription").hidden = !allowed;
+  }
+
+  function clearTranscriptionSetup() {
+    transcriptionSetupVersion++;
+    transcriptionSetupController?.abort();
+    transcriptionSetupController = null;
+    $("transcription-status").textContent = "";
+    $("transcription-check").disabled = authExpired;
+    $("transcription-check").textContent = "Check running app";
+    $("transcription-check").setAttribute("aria-busy", "false");
+    $("setup-voice-choice").value = "later";
+    refreshSelects("setup-voice-choice");
+    feedback("transcription-feedback", "");
+  }
+
+  function fitTranscriptionCommands() {
+    if (!transcriptionSetupAllowed() || !$("transcription-setup-dialog").open) return;
+    for (const id of ["transcription-install-command", "transcription-service-command", "transcription-launch-argument", "transcription-default-command"]) {
+      const field = $(id);
+      if (!Number.isFinite(field.scrollHeight) || field.scrollHeight <= 0) continue;
+      field.style.height = "auto";
+      field.style.height = field.scrollHeight + 2 + "px";
+    }
+  }
+
+  async function openTranscriptionSetup() {
+    if (!transcriptionSetupAllowed()) return;
+    const directory = '$HOME/.local/share/my-whatsapp-mcp/transcription-hebrew';
+    $("transcription-install-command").value = 'TRANSCRIPTION_DIR="' + directory + '"\npython3.11 services/transcription/setup.py \\\n  --data-dir "$TRANSCRIPTION_DIR" \\\n  --python python3.11 \\\n  --profile hebrew \\\n  --language he';
+    $("transcription-service-command").value = 'TRANSCRIPTION_DIR="' + directory + '"\n"$TRANSCRIPTION_DIR/venv/bin/python" services/transcription/server.py \\\n  --env-file "$TRANSCRIPTION_DIR/transcription.env"';
+    $("transcription-launch-argument").value = '--transcription-env-file "' + directory + '/transcription.env"';
+    $("transcription-default-command").value = './bin/wa-indexer serve \\\n  ' + $("transcription-launch-argument").value;
+    feedback("transcription-feedback", "");
+    if (!$("transcription-setup-dialog").open) {
+      $("transcription-install-step").open = true;
+      $("transcription-service-step").open = false;
+      $("transcription-archive-step").open = false;
+      $("transcription-setup-dialog").showModal();
+    }
+    fitTranscriptionCommands();
+    await refreshTranscriptionStatus();
+  }
+
+  function validTranscriptionStatus(value) {
+    const ready = value?.state === "ready", busy = value?.state === "busy";
+    return value && typeof value.configured === "boolean" && typeof value.hebrew_ready === "boolean" &&
+      ["not_configured", "connecting", "ready", "busy", "unavailable", "mismatch", "stopped"].includes(value.state) &&
+      (ready ? value.hebrew_ready : busy || !value.hebrew_ready) && (!(ready || busy) || value.configured) &&
+      (!["connecting", "unavailable", "mismatch"].includes(value.state) || value.configured) &&
+      (value.state !== "not_configured" || !value.configured);
+  }
+
+  async function refreshTranscriptionStatus() {
+    if (!transcriptionSetupAllowed() || !$("transcription-setup-dialog").open || transcriptionSetupController) return;
+    const epoch = authEpoch, version = ++transcriptionSetupVersion;
+    const controller = new AbortController();
+    transcriptionSetupController = controller;
+    const current = () => epoch === authEpoch && version === transcriptionSetupVersion && transcriptionSetupAllowed() && $("transcription-setup-dialog").open;
+    const button = $("transcription-check");
+    button.disabled = true;
+    button.textContent = "Checking…";
+    button.setAttribute("aria-busy", "true");
+    feedback("transcription-status", "Checking the running app and its voice service…");
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    try {
+      const value = await api("/api/transcription/status", "GET", undefined, {signal:controller.signal});
+      if (!current()) return;
+      if (controller.signal.aborted) throw new Error("Transcription status check timed out.");
+      if (!validTranscriptionStatus(value)) throw new Error("Transcription status could not be verified. Check the service and try again.");
+      const text = {
+        not_configured:"Voice transcription is not configured in this running app. Complete the install and launch steps above.",
+        connecting:"The app is configured and connecting to its voice service. Keep the service running, then check again.",
+        ready:"Last check: Hebrew transcription connected. The running worker verified the Hebrew model, runtime and language settings.",
+        busy:value.hebrew_ready ? "Hebrew worker previously verified · service busy now. Check again after the current recording finishes." : "The voice service reports busy. Hebrew setup is not yet verified; check again after the current recording finishes.",
+        unavailable:"The configured voice service is unavailable. Keep its terminal running and check again.",
+        mismatch:"The configured model, runtime or language does not match this Hebrew setup. Review both services' settings and restart with the matching private env file.",
+        stopped:"The voice worker is stopped. Reopen the app with its existing launch settings and check again.",
+      };
+      feedback("transcription-status", text[value.state], value.state === "mismatch");
+    } catch (error) {
+      if (current()) {
+        const busy = error.code === "transcription_status_busy";
+        feedback("transcription-status", busy ? "Another status check is finishing or just ran. Wait a moment and check again." : "Transcription status could not be verified. Check the service and try again.", !busy);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (current()) {
+        transcriptionSetupController = null;
+        button.disabled = false;
+        button.textContent = "Check running app";
+        button.setAttribute("aria-busy", "false");
+      }
+    }
+  }
+
+  async function copyTranscriptionCommand(id) {
+    if (!transcriptionSetupAllowed() || !$("transcription-setup-dialog").open || !["transcription-install-command", "transcription-service-command", "transcription-launch-argument", "transcription-default-command"].includes(id)) return;
+    const epoch = authEpoch, version = transcriptionSetupVersion;
+    const current = () => epoch === authEpoch && version === transcriptionSetupVersion && transcriptionSetupAllowed() && $("transcription-setup-dialog").open;
+    try {
+      await navigator.clipboard.writeText($(id).value);
+      if (current()) feedback("transcription-feedback", "Copied. Review the command in the archive computer's terminal before running it.");
+    } catch {
+      if (current()) {
+        $(id).focus(); $(id).select();
+        feedback("transcription-feedback", "Select the command and copy it with your keyboard.");
+      }
+    }
+  }
+
   async function openSettings(expectedPairingVersion = null) {
     const epoch = authEpoch;
     try {
       const nextSetup = await api("/api/setup");
       assertOwner(epoch);
       setup = nextSetup;
+      configureTranscriptionSetup();
       recoveryVersion++;
       recoveryBusy = false;
       recoverySnapshot = setup.recovery || null;
@@ -3105,7 +3227,20 @@
   $("policy-form").addEventListener("submit",savePolicy);
   for (const action of ["pause", "resume", "extend", "cancel"]) $("recovery-" + action).addEventListener("click", () => controlRecovery(action));
   $("settings-open").addEventListener("click",openSettings);
-  $("models-open").addEventListener("click",()=>{if(!authExpired){feedback("models-feedback","Checking model state…");updateVoiceRetryControls();$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();refreshVoiceRecovery();}});
+  $("models-open").addEventListener("click",()=>{if(!authExpired){configureTranscriptionSetup();feedback("models-feedback","Checking model state…");updateVoiceRetryControls();$("models-dialog").showModal();refreshModels();refreshLocalAI();refreshBudget();refreshVoiceRecovery();}});
+  for (const id of ["setup-transcription-open", "models-transcription-open"]) $(id).addEventListener("click", openTranscriptionSetup);
+  $("setup-voice-choice").addEventListener("change", () => { if ($("setup-voice-choice").value === "hebrew") openTranscriptionSetup(); });
+  $("transcription-setup-close").addEventListener("click", () => $("transcription-setup-dialog").close());
+  $("transcription-continue").addEventListener("click", () => $("transcription-setup-dialog").close());
+  $("transcription-setup-dialog").addEventListener("close", clearTranscriptionSetup);
+  $("transcription-check").addEventListener("click", refreshTranscriptionStatus);
+  for (const step of document.querySelectorAll("#transcription-setup-dialog details")) step.addEventListener("toggle", fitTranscriptionCommands);
+  window.addEventListener("resize", fitTranscriptionCommands);
+  for (const [button, field] of [["transcription-copy-install", "transcription-install-command"], ["transcription-copy-service", "transcription-service-command"], ["transcription-copy-argument", "transcription-launch-argument"], ["transcription-copy-default", "transcription-default-command"]]) $(button).addEventListener("click", () => copyTranscriptionCommand(field));
+  for (const [button, step] of [["transcription-next-service", "transcription-service-step"], ["transcription-next-archive", "transcription-archive-step"]]) $(button).addEventListener("click", () => {
+    if (!transcriptionSetupAllowed() || !$("transcription-setup-dialog").open) return;
+    $(step).open = true; $(step).querySelector("summary").focus();
+  });
   $("models-close").addEventListener("click",()=>$("models-dialog").close());
   $("models-dialog").addEventListener("close",()=>{modelVersion++;localAIVersion++;budgetVersion++;stopVoiceRecovery();});
   $("models-refresh").addEventListener("click",()=>{refreshModels();refreshLocalAI();refreshBudget();});

@@ -2,7 +2,7 @@
 
 The ordinary source build provides text import and keyword search. Semantic search, image OCR, image descriptions, and native whisper.cpp transcription are off unless a trusted native bundle is prepared and the owner explicitly enables them.
 
-Hebrew voice transcription has a separate, optional [faster-whisper setup](transcription.md). It works with the ordinary source build and does not require the native bundle or semantic search. Native preview settings do not control that service.
+Hebrew voice transcription has a separate, optional [faster-whisper setup](transcription.md). The local first-run window and **Models and media → Set up Hebrew transcription** provide a guided terminal setup with a read-only check of the running worker. It works with the ordinary source build and does not require the native bundle or semantic search. Native preview settings do not control that service.
 
 Downloading model weights alone does not provide the required native runtimes. No supported one-command native bundle installer is included. Use text search for the normal local setup.
 

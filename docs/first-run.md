@@ -25,6 +25,10 @@ The local app creates its owner login link; this is separate from WhatsApp pairi
 4. On your phone open **WhatsApp → Linked devices → Link a device**, then scan the QR code. Use an account you own or have permission to archive. Request a new code if it expires.
 5. Watch **WhatsApp connection**, **Saved messages**, and **Keyword search** in the status panel. After allowed messages arrive, [search](everyday/search.md) for a known received phrase and open its context.
 
+### Optional Hebrew voice notes
+
+In the local first-run window, choose **Voice notes → Hebrew transcription** to open the [transcription guide](transcription.md#use-the-browser-setup-guide). It supplies copyable installation, service and archive-launch steps, plus **Check running app** to verify the attached Hebrew worker. You still run the commands in terminals on the archive computer; the browser installs nothing and restarts nothing. Keep your existing data directory and launch settings. You can continue without voice setup and return through **Models and media** later. Remote administration, demo and historical snapshots do not offer this native setup guide.
+
 ## Check observed coverage
 
 Wait for messages to arrive after connecting. Check the received count and visible date range, then confirm an actual search result. **All available history** means what WhatsApp supplies to this linked device. Earlier history may still be missing.

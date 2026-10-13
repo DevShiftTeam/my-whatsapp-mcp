@@ -39,6 +39,7 @@ var (
 	ErrBusy            = errors.New("transcription busy")
 	ErrUnauthorized    = errors.New("transcription authentication failed")
 	ErrModelChanged    = errors.New("transcription model changed")
+	ErrStopped         = errors.New("transcription stopped")
 	tokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`)
 	languagePattern    = regexp.MustCompile(`^[a-z]{2,3}$`)
 )
@@ -51,15 +52,20 @@ type Options struct {
 // Backend freezes the verified model recipe for the lifetime of a primary
 // extraction version. The application owns job leases and commit authorization.
 type Backend struct {
-	options   Options
-	baseURL   string
-	client    *http.Client
-	transport *http.Transport
-	version   archive.ExtractionVersion
-	identity  string
-	gate      chan struct{}
-	mu        sync.Mutex
-	closed    bool
+	options       Options
+	baseURL       string
+	client        *http.Client
+	transport     *http.Transport
+	version       archive.ExtractionVersion
+	identity      string
+	gate          chan struct{}
+	healthGate    chan struct{}
+	lifetime      context.Context
+	stop          context.CancelFunc
+	hebrewProfile bool
+	mu            sync.Mutex
+	closed        bool
+	verified      bool
 }
 
 func normalizedOptions(o Options) (Options, string, error) {
@@ -104,19 +110,24 @@ func New(ctx context.Context, options Options) (*Backend, error) {
 		ResponseHeaderTimeout:  o.Timeout,
 		MaxResponseHeaderBytes: 16 << 10,
 	}
-	b := &Backend{options: o, baseURL: base, transport: transport, gate: make(chan struct{}, 1)}
+	lifetime, stop := context.WithCancel(context.Background())
+	b := &Backend{options: o, baseURL: base, transport: transport, gate: make(chan struct{}, 1), healthGate: make(chan struct{}, 1), lifetime: lifetime, stop: stop}
 	b.client = &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	info, err := b.fetchInfo(ctx)
 	if err != nil {
+		stop()
 		transport.CloseIdleConnections()
 		return nil, err
 	}
 	b.identity = info.Identity
 	b.version, err = extractionVersion(info)
 	if err != nil {
+		stop()
 		transport.CloseIdleConnections()
 		return nil, ErrInvalidResponse
 	}
+	b.hebrewProfile = supportedHebrewRecipe(info, o.Language)
+	b.verified = true
 	return b, nil
 }
 
@@ -130,14 +141,83 @@ func (b *Backend) Ready(ctx context.Context) error {
 	if b.isClosed() {
 		return ErrUnavailable
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(b.lifetime, cancel)
+	defer func() { stop(); cancel() }()
+	// Worker and owner checks share a finite, cancellable probe admission. A
+	// status request cannot start another probe beside an in-flight worker check.
+	select {
+	case b.healthGate <- struct{}{}:
+		defer func() { <-b.healthGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	info, err := b.fetchInfo(ctx)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return ErrUnavailable
+	}
 	if err != nil {
+		if !errors.Is(err, ErrBusy) {
+			b.verified = false
+		}
 		return err
 	}
 	if info.Identity != b.identity {
+		b.verified = false
 		return ErrModelChanged
 	}
+	if err := ctx.Err(); err != nil {
+		b.verified = false
+		return err
+	}
+	b.verified = true
 	return nil
+}
+
+func supportedHebrewRecipe(info infoResponse, language string) bool {
+	r := info.Recipe
+	x := r.Runtime
+	return language == "he" && x.Language == "he" && r.Model == "ivrit-ai/whisper-large-v3-turbo-ct2" &&
+		r.Revision == "72ad623a37947395efcc3933132353790e5a12f5" &&
+		r.ModelSHA256 == "db2a2265aa012c16c7db9edda3d699c99f984efdd3f2e22a72a8ce7e9720f3a2" &&
+		x.FasterWhisper == "1.2.1" && x.CTranslate2 == "4.8.2" && x.AV == "18.0.0" &&
+		x.ONNXRuntime == "1.31.0" && x.Tokenizers == "0.22.1"
+}
+
+// HebrewStatus checks only this adapter's frozen, previously authenticated
+// recipe. It exposes no model names, paths, URLs, tokens or runtime metadata and
+// never changes extraction versions. Busy is ready only while verification has
+// remained unbroken; an outage or changed identity requires a fresh good probe.
+func (b *Backend) HebrewStatus(ctx context.Context) (bool, error) {
+	if ctx == nil {
+		return false, ErrInvalidRequest
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if b.isClosed() {
+		return false, ErrStopped
+	}
+	if !b.hebrewProfile {
+		return false, ErrModelChanged
+	}
+	err := b.Ready(ctx)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return false, ErrStopped
+	}
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	if err != nil {
+		return errors.Is(err, ErrBusy) && b.verified, err
+	}
+	if !b.verified {
+		return false, ErrUnavailable
+	}
+	return true, nil
 }
 
 func (b *Backend) isClosed() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.closed }
@@ -145,7 +225,9 @@ func (b *Backend) isClosed() bool { b.mu.Lock(); defer b.mu.Unlock(); return b.c
 func (b *Backend) Close(context.Context) error {
 	b.mu.Lock()
 	b.closed = true
+	b.verified = false
 	b.mu.Unlock()
+	b.stop()
 	b.transport.CloseIdleConnections()
 	return nil
 }

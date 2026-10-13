@@ -14,6 +14,22 @@ from private_files import load_env_file, private_directory, private_file, servic
 from server import Configuration
 
 
+def env_value_compatible(value):
+    """Refuse what cmd/wa-indexer parseTranscriptionEnv or the service env loader would refuse."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return (bool(value) and value.splitlines() == [value] and value == value.strip()
+            and not any(ord(character) < 32 or character in "\"'`$" for character in value))
+
+
+def data_dir_compatible(data_dir):
+    data_dir = Path(data_dir)
+    return all(env_value_compatible(str(path))
+               for path in (data_dir, data_dir / "model", data_dir / "transcription.env"))
+
+
 def configure_environment(data_dir, *, language=None, profile_language="auto", cpu_threads=None, port=None):
     with service_lock(data_dir, "setup.lock"):
         return _configure_environment(data_dir, language=language, profile_language=profile_language,
@@ -82,9 +98,13 @@ def main():
         parser.error("Choose an explicit language code such as he or en.")
     if any((args.model, args.revision, args.model_sha256)) and not all((args.model, args.revision, args.model_sha256)):
         parser.error("A custom model requires its immutable revision and model.bin SHA-256.")
+    if not data_dir_compatible(args.data_dir):
+        parser.error("The data directory must not contain quotes, backticks, dollar signs, control or line-break characters, or leading or trailing spaces. The app refuses them in its private configuration.")
     try:
         data_dir = private_directory(args.data_dir, create=True)
         existing = load_env_file(data_dir / "transcription.env") if (data_dir / "transcription.env").exists() else {}
+        if not all(env_value_compatible(value) for value in existing.values()):
+            raise ValueError("unsafe_existing_environment")
         if args.profile is None and args.model is None and (data_dir / "model").exists():
             verified = verify_model(data_dir / "model")
             model, revision, model_hash = verified["model"], verified["revision"], verified["model_sha256"]

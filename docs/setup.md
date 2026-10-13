@@ -51,6 +51,8 @@ Optional: run `./bin/wa-indexer demo` instead to explore sample conversations. D
 
 On the first run, choose **Set up your archive**, set a date range, and click **Link WhatsApp to discover chats**. The first-run flow discovers chat names without saving message bodies, so you can choose contacts after linking.
 
+For optional Hebrew voice notes, choose **Voice notes → Hebrew transcription** in that local window. The guide supplies commands for the separate service and verifies the running archive's Hebrew worker. It does not install software or restart the app from the browser. You can skip it and return through **Models and media** later; see [browser transcription setup](transcription.md#use-the-browser-setup-guide).
+
 Messages received before you select chats are discarded and may not be delivered again. Selecting a longer date range cannot make WhatsApp deliver history it no longer provides.
 
 ## 4. Link your phone
@@ -94,7 +96,7 @@ Choosing partial mode accepts that unsupported metadata, edits, deletions or ret
 
 ## Everyday use
 
-To transcribe voice notes, follow the optional [Hebrew transcription setup](transcription.md). The basic setup above imports text; it does not install a speech model. Voice transcription works without configuring semantic search or image models.
+To transcribe voice notes, open **Models and media → Set up Hebrew transcription**, or follow the optional [Hebrew transcription setup](transcription.md). The basic text setup does not install a speech model. Voice transcription works without configuring semantic search or image models.
 
 Start the app with `./bin/wa-indexer serve`. It reuses the saved linked-device session when available. Ctrl+C stops the app; saved messages remain on disk.
 
