@@ -1008,7 +1008,7 @@ func (a *Application) Search(ctx context.Context, r archive.SearchRequest) (arch
 	return a.resources.retrieval.Search(ctx, scope, r)
 }
 func (a *Application) Context(ctx context.Context, r archive.ContextRequest) (archive.ContextPage, error) {
-	if archive.IsHistoricalHandle(string(r.MessageID)) {
+	if foreignArchiveHandle(string(r.MessageID)) {
 		return archive.ContextPage{}, archive.ErrInvalidQuery
 	}
 	a.data.RLock()
@@ -1025,7 +1025,7 @@ func (a *Application) Context(ctx context.Context, r archive.ContextRequest) (ar
 	return a.store.Context(ctx, scope, r)
 }
 func (a *Application) Chats(ctx context.Context, r archive.ChatListRequest) (archive.DiscoveryPage, error) {
-	if archive.IsHistoricalHandle(r.Cursor) {
+	if foreignArchiveHandle(r.Cursor) {
 		return archive.DiscoveryPage{}, archive.ErrInvalidQuery
 	}
 	a.data.RLock()

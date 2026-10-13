@@ -106,7 +106,7 @@ Use the same `--data-dir` argument if you originally chose a custom directory. A
 
 ## Check Stats
 
-The app opens on **Stats**; use **Archive** to search conversations. See the [Stats guide](stats.md) for filters, visible-only refresh, UTC activity, and the difference between saved-data counts and global processing status.
+The app opens on **Stats**. Stats and Archive show **All saved messages** within your current archive choices. Archive opens a recent-message list without requiring a search; clearing the search returns to that list. When captured history is configured, eligible messages missing from the current archive appear with a **Captured** date and **Read-only** label. Current copies take precedence, and current permissions and known message restrictions still apply. Captured rows cannot be used for sending, current reply targets, original downloads or processing jobs. Settings, AI connections and import progress always describe the current archive. Saved history may be partial and does not establish your phone's current state. See the [Stats guide](stats.md) for filters, visible-only refresh, UTC activity, and the difference between saved-data counts and global processing status.
 
 ## Choose light or dark
 

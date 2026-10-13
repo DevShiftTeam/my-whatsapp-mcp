@@ -57,6 +57,16 @@ Offline recovery commands operate on existing stopped profiles. Preserve archive
 
 Keyword search uses FTS5 with scope-local scoring and shared Hebrew normalization. Original logical-order text is preserved. Semantic retrieval uses authorized vector-distance scans; it does not use an ANN or HNSW index.
 
+## Owner saved reads
+
+Owner Archive and Stats explicitly request `source=saved`. The request-local archive reader supplements current data with eligible historical candidates, without copying bodies or changing MCP defaults. It applies current original-message dominance before search matching and rechecks the contributing sources before buffered delivery. Current Settings, AI permissions, DiscoveryChats and operational status keep their existing APIs.
+
+An empty Archive query uses `POST /api/archive/browse`; keyword search still requires a query. Search and browse use RFC3339 date strings, while Stats uses Unix-second date bounds. Message kind filters apply to Stats only. Historical `h1.` message handles retain their provenance and cannot become current mutation targets; `s1.` cursors belong to saved reads. Typed busy and stale-cursor responses are separate from an expired owner session.
+
+Browser requests use sequence checks so superseded responses cannot replace a newer view. Ordinary revision polling coalesces a guarded refresh without clearing displayed messages or aborting pending reads. Policy, recovery, unsafe-source and authentication changes clear withheld data. This is polling freshness, not an instant push notification of every deletion or edit.
+
+`make ui-test` includes `scripts/test-saved-archive-ui.mjs`, which evaluates the shipped browser script with synthetic DOM and deferred responses. It covers initial browsing, request races, import refresh, captured provenance and source/auth invalidation. Geometry and native browser behavior require separate synthetic browser journeys.
+
 ## Browser appearance
 
 `internal/localui/assets/theme.js` is a separate, self-hosted bootstrap loaded before the stylesheet. It applies the browser-local **System**, **Light**, or **Dark** choice before the page paints, then synchronizes the login and workspace **Appearance** controls. Missing, invalid, or unavailable storage defaults to System. Device theme changes update System; explicit Light or Dark choices stay fixed. Storage failures must not prevent login or archive startup.

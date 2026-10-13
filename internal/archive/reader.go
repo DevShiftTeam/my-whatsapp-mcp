@@ -24,6 +24,9 @@ var _ GuardedReader = (*Store)(nil)
 // readFrame owns a bounded snapshot. Every source query uses its authorization
 // predicate before ordering/limiting, and finish verifies newer revocations.
 type readFrame struct {
+	savedEvidenceChats []ChatID
+	savedEvidence      *savedEvidence
+	savedOrderAliases  map[string]string
 	s                  *Store
 	ctx                context.Context
 	cancel             context.CancelFunc

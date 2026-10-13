@@ -4,6 +4,8 @@
 
 ### Added
 
+- Show All saved messages in owner Archive and Stats, including eligible captured-only history when configured. Archive opens recent messages without a search, labels captured rows, and preserves successful reads during ordinary import refresh. Current permissions and known message restrictions still apply; settings, AI connections and message actions remain current-archive operations.
+
 - In explicit partial-history mode, record unsupported noncontent metadata, notices and control shapes as uncertainty while retaining supported source controls and current permissions. Keep readable Archive, Stats and MCP data available with persistent partial-history warnings; genuine source-safety failures remain visible.
 
 - Add explicit rebuilt-profile delivered-history import with bounded page and body budgets, durable startup selection, preserved client/session authority and negative controls, and honest partial-snapshot labels. Individually correlated recovery remains the default; no full-history guarantee is implied.

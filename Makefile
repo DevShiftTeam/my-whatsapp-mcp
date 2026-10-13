@@ -36,5 +36,6 @@ ui-test:
 	node --check internal/localui/assets/app.js
 	node scripts/ui/test_theme.mjs
 	node scripts/ui/test_selects.mjs
+	node scripts/test-saved-archive-ui.mjs
 	node scripts/ui/test_stats.mjs
 	node scripts/ui/test_send_permissions.mjs

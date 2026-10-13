@@ -323,11 +323,12 @@ await check('history progress cannot reappear after logout or from an older stat
   assert.equal(h.document.getElementById('history-import-summary').textContent,'');
   lateRequest.resolve(recoveryStatus({accepted:999})); await late; assert.equal(panel.hidden,true);
 });
-await check('history indicator remains specific to Live when viewing a captured archive',async()=>{
+await check('saved archive keeps the history indicator specific to current import',async()=>{
   const h=harness(); await statusPoll(h,recoveryStatus());
   h.api.setSetup({configured:true,archive_view:{source:'historical',captured_at:'2026-01-02T03:04:05Z'},Policy:{ChatMode:'all'}});
-  h.nodes.get('archive-source').value='historical'; h.nodes.get('archive-source').dispatch('change');
-  assert.match(h.document.getElementById('history-import-help').textContent,/historical view.*unchanged.*live/i);
+  await statusPoll(h,recoveryStatus());
+  assert.match(h.document.getElementById('history-import-help').textContent,/partial.*finish time.*not guaranteed/i);
+  assert.equal(h.nodes.get('chat-choices').children.length,0,'saved history never populates current policy choices');
   h.api.expireAuth();
   const ordinary=harness(); await statusPoll(ordinary,{Connection:'connected',Messages:219,Codes:[]});
   assert.equal(ordinary.document.getElementById('history-import-progress'),null,'ordinary profiles do not receive a rebuild banner');
@@ -379,31 +380,20 @@ await check('live rebuild retains date controls and explains protected session d
  h.nodes.get('delete-confirmation').value='DELETE LOCAL DATA'; h.nodes.get('delete-form').dispatch('submit'); await flush(); assert.equal(h.requests.length,2);
  h.api.savePolicy({preventDefault(){}}); assert.equal(h.requests[2].path,'/api/policy');
 });
-await check('historical archive selection is explicit and labels captured scope',async()=>{
- assert.match(html,/id="archive-source"/);
- assert.match(html,/value="live"[^>]*>Live/);
- assert.match(html,/value="historical"[^>]*>Historical/);
+await check('all saved is the owner default with no mandatory source picker',async()=>{
+ assert.doesNotMatch(html,/id="archive-source"/);
+ assert.match(html,/All saved messages/);
  assert.match(html,/id="archive-source-note"/);
+ const h=harness(); assert.equal(h.api.statsFilter().source,'saved');
 });
-await check('historical selection clears filters and keeps settings and permissions live',async()=>{
+await check('saved default keeps settings and permission choices current',async()=>{
  const h=harness();
  const meta={source:'historical',snapshot_id:'0123456789abcdef',captured_at:'2026-01-02T03:04:05Z',read_only:true,coverage:'partial',current_phone_state:'unknown'};
  h.api.setSetup({configured:true,archive_view:meta,Policy:{ChatMode:'all'}});
- h.nodes.get('search-chat').value='live-chat'; h.nodes.get('stats-chat').value='live-chat';
- h.nodes.get('archive-source').value='historical'; h.nodes.get('archive-source').dispatch('change');
- assert.equal(h.nodes.get('search-chat').value,''); assert.equal(h.nodes.get('stats-chat').value,'');
- assert.equal(h.requests[0].path,'/api/status?source=historical');
- h.requests[0].resolve({Connection:'historical_snapshot',Messages:10,archive_view:meta}); await flush();
- assert.equal(h.requests[1].path,'/api/chats?source=historical&limit=100');
- h.requests[1].resolve({Chats:[{ID:'h1.0123456789abcdef.c.chat',Name:'Captured chat'}],archive_view:meta}); await flush();
- assert.equal(JSON.parse(h.requests[2].options.body).source,'historical');
- h.requests[2].resolve(snapshot()); await flush();
- assert.match(h.nodes.get('archive-source-note').textContent,/2026.*Read-only.*partial.*unknown/i);
- assert.equal(h.nodes.get('search-content').hidden,false);
- assert.equal(h.nodes.get('chat-choices').children.length,0,'historical chats must not populate live policy choices');
- const opened=h.api.openSettings(); h.requests[3].resolve({configured:true,archive_view:meta,Policy:{DateMode:'all_available',ChatMode:'all',RollingRetention:0}}); await flush();
- assert.equal(h.requests[4].path,'/api/chats?limit=100'); h.requests[4].resolve({Chats:[]}); await opened;
+ const opened=h.api.openSettings(); h.requests[0].resolve({configured:true,archive_view:meta,Policy:{DateMode:'all_available',ChatMode:'all',RollingRetention:0}}); await flush();
+ assert.equal(h.requests[1].path,'/api/chats?limit=100'); h.requests[1].resolve({Chats:[]}); await opened;
  assert.equal(h.nodes.get('save-policy').disabled,false);
+ assert.ok(h.requests.every(request=>!request.path.includes('source=')),'settings never inherits saved selection');
  h.api.expireAuth(); assert.equal(h.nodes.get('archive-source-control').hidden,true);
 });
 await check('recovery shows attempts separately from accepted copies and reuses an uncertain command',async()=>{
@@ -444,7 +434,7 @@ await check('historical snapshot disables connection action without changing nor
   action.click(); assert.equal(h.requests.length,1); assert.equal(h.requests[0].path,'/api/resume');
 });
 await check('filter payload uses scoped IDs, type and inclusive dates',async()=>{
-  const h=harness(); const paging={breakdown:'chats',page:1,page_size:10,sort:'messages'}; assert.deepEqual(JSON.parse(JSON.stringify(h.api.statsFilter())),paging);
+  const h=harness(); const paging={source:'saved',breakdown:'chats',page:1,page_size:10,sort:'messages'}; assert.deepEqual(JSON.parse(JSON.stringify(h.api.statsFilter())),paging);
   h.nodes.get('stats-range').value='custom'; h.nodes.get('stats-from').value='2026-10-05'; h.nodes.get('stats-until').value='2026-10-11'; h.nodes.get('stats-chat').value='synthetic-chat'; h.nodes.get('stats-kind').value='voice';
   const actual=JSON.parse(JSON.stringify(h.api.statsFilter()));
   assert.deepEqual(actual,{...paging,from:new Date('2026-10-05T00:00:00').getTime()/1000,until:new Date('2026-10-12T00:00:00').getTime()/1000,chat_id:'synthetic-chat',kind:'voice'});
@@ -498,7 +488,7 @@ await check('aggregate paging controls send bounded pages and display a clamped 
   assert.equal(h.nodes.get('stats-page-prev').disabled,true); assert.equal(h.nodes.get('stats-page-next').disabled,false);
   assert.match(h.nodes.get('stats-page-description').textContent,/1[–-]10.*23/);
   h.nodes.get('stats-page-next').click(); assert.equal(h.requests.length,1);
-  assert.deepEqual(JSON.parse(h.requests[0].options.body),{breakdown:'chats',page:2,page_size:10,sort:'messages'});
+  assert.deepEqual(JSON.parse(h.requests[0].options.body),{source:'saved',breakdown:'chats',page:2,page_size:10,sort:'messages'});
   h.requests[0].resolve(pageSnapshot(2)); await flush(); assert.equal(h.nodes.get('stats-page-prev').disabled,false);
   h.nodes.get('stats-page-next').click(); assert.equal(JSON.parse(h.requests[1].options.body).page,3);
   h.requests[1].resolve(pageSnapshot(2,12)); await flush();
@@ -511,17 +501,17 @@ await check('aggregate paging controls send bounded pages and display a clamped 
 await check('dimension, sort and page-size controls reset to page one while polling preserves the chosen page',async()=>{
   const h=harness(); h.api.renderStats(pageSnapshot(3));
   h.nodes.get('stats-breakdown-people').click(); assert.equal(h.requests.length,1);
-  assert.deepEqual(JSON.parse(h.requests[0].options.body),{breakdown:'people',page:1,page_size:10,sort:'messages'});
+  assert.deepEqual(JSON.parse(h.requests[0].options.body),{source:'saved',breakdown:'people',page:1,page_size:10,sort:'messages'});
   h.requests[0].resolve({...pageSnapshot(),breakdown:{...pageSnapshot().breakdown,dimension:'people'}}); await flush();
   assert.equal(h.nodes.get('stats-breakdown-people').getAttribute('aria-pressed'),'true'); assert.equal(h.nodes.get('stats-breakdown-chats').getAttribute('aria-pressed'),'false');
   h.nodes.get('stats-breakdown-sort').value='name'; h.nodes.get('stats-breakdown-sort').dispatch('change');
-  assert.deepEqual(JSON.parse(h.requests[1].options.body),{breakdown:'people',page:1,page_size:10,sort:'name'});
+  assert.deepEqual(JSON.parse(h.requests[1].options.body),{source:'saved',breakdown:'people',page:1,page_size:10,sort:'name'});
   h.requests[1].resolve({...pageSnapshot(),breakdown:{...pageSnapshot().breakdown,dimension:'people',sort:'name'}}); await flush();
   h.nodes.get('stats-breakdown-size').value='25'; h.nodes.get('stats-breakdown-size').dispatch('change');
-  assert.deepEqual(JSON.parse(h.requests[2].options.body),{breakdown:'people',page:1,page_size:25,sort:'name'});
+  assert.deepEqual(JSON.parse(h.requests[2].options.body),{source:'saved',breakdown:'people',page:1,page_size:25,sort:'name'});
   h.requests[2].resolve({...pageSnapshot(1,53,25),breakdown:{...pageSnapshot(1,53,25).breakdown,dimension:'people',sort:'name'}}); await flush();
   h.nodes.get('stats-page-next').click(); h.requests[3].resolve({...pageSnapshot(2,53,25),breakdown:{...pageSnapshot(2,53,25).breakdown,dimension:'people',sort:'name'}}); await flush();
-  const poll=h.api.refreshStats(); assert.deepEqual(JSON.parse(h.requests[4].options.body),{breakdown:'people',page:2,page_size:25,sort:'name'});
+  const poll=h.api.refreshStats(); assert.deepEqual(JSON.parse(h.requests[4].options.body),{source:'saved',breakdown:'people',page:2,page_size:25,sort:'name'});
   h.requests[4].resolve({...pageSnapshot(2,53,25),breakdown:{...pageSnapshot(2,53,25).breakdown,dimension:'people',sort:'name'}}); await poll;
   h.nodes.get('stats-kind').value='voice'; h.api.changeStatsFilters(); assert.equal(JSON.parse(h.requests[5].options.body).page,1); assert.equal(JSON.parse(h.requests[5].options.body).breakdown,'people'); assert.equal(JSON.parse(h.requests[5].options.body).page_size,25);
 });
@@ -531,14 +521,14 @@ await check('newer aggregate controls abort a page request and discard its names
   h.api.changeStatsBreakdown({sort:'recent'}); assert.equal(h.requests[0].options.signal.aborted,true); assert.equal(h.requests.length,1);
   assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0);
   h.requests[0].resolve(pageSnapshot(2,23,10,'STALE_PAGE_NAME')); await flush();
-  assert.equal(h.requests.length,2); assert.deepEqual(JSON.parse(h.requests[1].options.body),{breakdown:'chats',page:1,page_size:10,sort:'recent'});
+  assert.equal(h.requests.length,2); assert.deepEqual(JSON.parse(h.requests[1].options.body),{source:'saved',breakdown:'chats',page:1,page_size:10,sort:'recent'});
   assert.doesNotMatch(h.nodes.get('stats-aggregate-rows').textContent,/STALE_PAGE_NAME/); assert.equal(h.api.state().statsPage,1);
   h.requests[1].resolve({...pageSnapshot(1,4,10,'CURRENT_SORT_NAME'),breakdown:{...pageSnapshot(1,4,10,'CURRENT_SORT_NAME').breakdown,sort:'recent'}}); await flush();
   assert.match(h.nodes.get('stats-aggregate-rows').textContent,/CURRENT_SORT_NAME/); assert.equal(h.nodes.get('stats-page-next').disabled,true);
 });
 await check('reset restores default aggregate and chart choices and removes selected details',async()=>{
   const h=harness(); h.api.renderStats(pageSnapshot(2)); h.api.changeStatsBreakdown({dimension:'people',sort:'recent',pageSize:50}); h.api.setStatsChartMode('line'); h.api.resetStats();
-  assert.deepEqual(JSON.parse(JSON.stringify(h.api.statsFilter())),{breakdown:'chats',page:1,page_size:10,sort:'messages'});
+  assert.deepEqual(JSON.parse(JSON.stringify(h.api.statsFilter())),{source:'saved',breakdown:'chats',page:1,page_size:10,sort:'messages'});
   assert.equal(h.api.state().statsChartMode,'bars'); assert.equal(h.nodes.get('stats-breakdown-sort').value,'messages'); assert.equal(h.nodes.get('stats-breakdown-size').value,'10');
   assert.equal(h.nodes.get('stats-aggregate-rows').children.length,0); assert.equal(h.nodes.get('stats-heatmap').children.length,0); assert.doesNotMatch(h.nodes.get('stats-rhythm-detail').textContent,/Synthetic/);
 });

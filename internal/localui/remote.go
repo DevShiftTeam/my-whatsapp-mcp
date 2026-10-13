@@ -305,7 +305,7 @@ func (s *RemoteServer) handle(w http.ResponseWriter, r *http.Request) {
 		current, _, valid := s.authenticated(r)
 		return valid && subtle.ConstantTimeCompare([]byte(current), []byte(csrf)) == 1
 	}))
-	r = r.WithContext(context.WithValue(r.Context(), ownerReadAdmissionKey{}, func() bool { return s.historicalAdmission(r, ownerDigest, csrf) }))
+	r = r.WithContext(context.WithValue(r.Context(), ownerReadAdmissionErrorKey{}, func() error { return s.historicalAdmissionError(r, ownerDigest, csrf) }))
 	s.dispatch.api(w, r, csrf)
 }
 

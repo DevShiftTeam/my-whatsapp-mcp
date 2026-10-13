@@ -53,6 +53,10 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 		fail(w, http.StatusBadRequest, "invalid_query")
 		return
 	}
+	if request.Source == "saved" {
+		s.savedRead(w, r, ctx, ArchiveReadRequest{Kind: "stats", Stats: query})
+		return
+	}
 	if request.Source == "historical" {
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "stats", Stats: query})
 		return

@@ -255,12 +255,20 @@ const statsMediaSourceSQL = `l.message_id=m.id AND l.account=m.account AND l.loc
 func (f *readFrame) statsMedia(page *StatsSnapshot) error {
 	// Successful roots survive cache eviction. Exact single-member authority
 	// keeps transcript counts independent of optional encoder configuration.
-	transcript := `EXISTS(SELECT 1 FROM extension_media_associations l JOIN extension_roots r ON r.media_id=l.id
+
+	err := f.tx.QueryRowContext(f.ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN `+statsTranscriptSQL+` THEN 1 ELSE 0 END),0),
+	 COALESCE(SUM(CASE WHEN `+statsRetainedSQL+` THEN 1 ELSE 0 END),0)
+	 FROM `+authorizedTables+` WHERE `+f.where+` AND m.body_kind='voice'`, f.args...).Scan(&page.Media.VoiceMessages, &page.Media.TranscribedVoice, &page.Media.RetainedVoice)
+	return readError(f.ctx, err)
+}
+
+const statsTranscriptSQL = `EXISTS(SELECT 1 FROM extension_media_associations l JOIN extension_roots r ON r.media_id=l.id
 	 WHERE ` + statsMediaSourceSQL + ` AND r.kind='transcript' AND r.source_count=1 AND ` + extensionRootMetadataPredicate + ` AND ` + extensionRootMediaPredicate + `
 	 AND EXISTS(SELECT 1 FROM extension_root_sources rs WHERE rs.root_id=r.id AND rs.ordinal=0
 	 AND rs.account=m.account AND rs.message_id=m.id AND rs.local_revision=m.local_revision
 	 AND rs.policy_generation=ap.generation AND rs.content_hash=m.content_hash AND rs.expires_at=m.expires_at))`
-	retained := `EXISTS(SELECT 1 FROM extension_media_associations l JOIN extension_media_artifacts a ON a.id=l.artifact_id
+
+const statsRetainedSQL = `EXISTS(SELECT 1 FROM extension_media_associations l JOIN extension_media_artifacts a ON a.id=l.artifact_id
 	 WHERE ` + statsMediaSourceSQL + ` AND a.media_id=l.id AND a.account=l.account AND a.message_id=l.message_id
 	 AND a.local_revision=l.local_revision AND a.policy_generation=l.policy_generation
 	 AND a.content_hash=l.content_hash AND a.source_expires_at=l.source_expires_at
@@ -268,8 +276,3 @@ func (f *readFrame) statsMedia(page *StatsSnapshot) error {
 	 AND a.bytes>0 AND a.bytes<=a.maximum_bytes AND a.sha256=l.last_original_sha256
 	 AND length(a.sha256)=64 AND a.sha256 NOT GLOB '*[^0-9a-f]*'
 	 AND a.actual_format IN ('ogg','opus','wav','mp3','flac','m4a'))`
-	err := f.tx.QueryRowContext(f.ctx, `SELECT COUNT(*),COALESCE(SUM(CASE WHEN `+transcript+` THEN 1 ELSE 0 END),0),
-	 COALESCE(SUM(CASE WHEN `+retained+` THEN 1 ELSE 0 END),0)
-	 FROM `+authorizedTables+` WHERE `+f.where+` AND m.body_kind='voice'`, f.args...).Scan(&page.Media.VoiceMessages, &page.Media.TranscribedVoice, &page.Media.RetainedVoice)
-	return readError(f.ctx, err)
-}

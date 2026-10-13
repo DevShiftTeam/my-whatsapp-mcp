@@ -19,9 +19,16 @@
   let wizardConfirmation = "";
   let setup = null;
   let status = null;
-  let archiveSource = "live";
-  let historicalStatus = null;
-  let historicalChats = [];
+  let savedMetadata = null;
+  let savedChats = [];
+  let savedChatLoadError = "";
+  let savedChatRetry = false;
+  let savedChatsLoading = false;
+  let savedChatsPartial = false;
+  let savedChatsController = null;
+  let savedChatRefreshNeeded = false;
+  let archiveRefreshNeeded = false;
+  let searchController = null;
   let archiveSourceVersion = 0;
   let recoverySnapshot = null;
   let recoveryBusy = false;
@@ -107,6 +114,11 @@
     remote_invalid_intent: "Check the saved HTTPS hostname, device name, and provider token.",
     remote_state_unavailable: "Remote setup is unavailable. Refresh its status or restart the app. Local archive search remains available.",
 
+    request_interrupted: "The read was interrupted. Try again.",
+    policy_changed: "Archive permissions changed. Refresh to see permitted messages.",
+    archive_busy: "The archive is updating. Trying again shortly…",
+    saved_cursor_stale: "Saved messages changed. Restarting this view…",
+    saved_read_limit: "This view is too large to read at once. Choose a narrower date range or chat.",
     unauthorized: "Your owner session has ended. Open the app again to request a fresh private owner window.",
     csrf_denied: "This page has no active owner session. Open the app again to request a fresh private owner window.",
     origin_denied: "Open the owner interface directly to make this change.",
@@ -189,6 +201,11 @@
     if (!response.ok) {
       if (path !== "/api/bootstrap" && (response.status === 401 || response.status === 403 && value.code === "csrf_denied")) expireAuth();
       if (path === "/api/pairing/start" && ["source_unavailable", "connection_unavailable"].includes(value.code)) throw new Error("WhatsApp did not complete the connection. Try again from Connection details; a saved linked session reconnects without a new code.");
+      if ((["/api/search", "/api/archive/browse", "/api/context", "/api/stats"].includes(path) || path.startsWith("/api/chats?source=saved")) && ["source_unavailable", "historical_source_unavailable", "reconciliation_required", "archive_unavailable", "policy_changed", "unauthorized"].includes(value.code)) {
+        clearResults(); invalidateStats(true); invalidateSavedChats();
+        const notice = response.status === 403 && value.code === "unauthorized" ? "Current permissions no longer allow this saved view. Refresh to try again." : messages[value.code] || "Saved messages are unavailable. Refresh to try again.";
+        feedback("search-feedback", notice, true); feedback("stats-feedback", notice, true);
+      }
       const error = new Error(messages[value.code] || "This action did not finish. Try again or restart the app.");
       error.code = value.code;
       error.status = response.status;
@@ -216,8 +233,8 @@
   }
 
   function expireAuth() {
-    archiveSourceVersion++; archiveSource = "live"; historicalStatus = null; historicalChats = [];
-    $("archive-source-control").hidden = true; $("archive-source").value = "live"; $("archive-source-note").textContent = "";
+    invalidateSavedChats(); savedMetadata = null; savedChatLoadError = ""; savedChatRetry = false;
+    $("archive-source-control").hidden = true; $("archive-source-note").textContent = "";
     window.MyWhatsAppSelects?.closeAll();
     authExpired = true;
     authEpoch++;
@@ -319,8 +336,10 @@
       if (remoteSecretExpiry && remoteSecretExpiry <= Date.now()) clearRemoteSecret();
       if (!document.hidden && !authExpired) {
         renderHistoryImport();
+        if ((savedChatRetry || savedChatRefreshNeeded) && !savedChatsLoading && !statsUnavailable()) loadSavedChats().catch(() => {});
         refreshStatus(); refreshPairing(); refreshModels(); refreshLocalAI(); refreshConnections(); refreshBudget();
         if (activeView === "stats") refreshStats();
+        else if (archiveRefreshNeeded && !searching) runSearch(false, true);
       }
     }, 5000);
   }
@@ -568,7 +587,6 @@
   }
 
   function renderImportState() {
-    if (archiveSource === "historical") { $("import-panel").hidden = true; $("search-content").hidden = false; return; }
     const policy = setup?.Policy || setup?.policy;
     const view = importPresentation(status, policy, setup?.configured, chats.length, pairingSnapshot);
     const panel = $("import-panel");
@@ -593,7 +611,7 @@
     $("progress-link-detail").textContent = view.linked ? "Phone linked" : "Scan a code with your phone";
     $("progress-choose-detail").textContent = policy?.ChatMode === "all" ? "All chats selected" : policy?.IncludedChats?.length ? policy.IncludedChats.length.toLocaleString() + " chats selected" : "Select after your phone links";
     $("progress-import-detail").textContent = view.receiving ? Number(status.Messages).toLocaleString() + " messages saved" : view.phase === "receiving" ? "Waiting for messages from WhatsApp" : "Search as messages arrive";
-    $("search-content").hidden = Boolean(status?.ReconciliationRequired || status?.Connection === "reconciliation_required" || !Number(status?.Messages || 0));
+    $("search-content").hidden = Boolean(status?.ReconciliationRequired || status?.Connection === "reconciliation_required" || (!Number(status?.Messages || 0) && !setup?.archive_view && !savedMetadata?.historical));
   }
 
   async function refreshStatus() {
@@ -604,13 +622,16 @@
       const next = await api("/api/status");
       if (version !== statusVersion || authExpired) return;
       const previous = status;
-      const changed = previous && (previous.Snapshot?.PolicyGeneration !== next.Snapshot?.PolicyGeneration || previous.Snapshot?.ArchiveRevision !== next.Snapshot?.ArchiveRevision);
-      if (changed || next.ReconciliationRequired || next.Connection === "reconciliation_required") {
+      const changed = previous && previous.Snapshot?.ArchiveRevision !== next.Snapshot?.ArchiveRevision;
+      const invalidated = previous && ["PolicyGeneration", "RecoveryEpoch"].some(key => previous.Snapshot?.[key] !== next.Snapshot?.[key]);
+      if (invalidated || next.ReconciliationRequired || next.Connection === "reconciliation_required") {
         window.MyWhatsAppSelects?.closeAll();
         clearResults();
-        invalidateStats(true);
-        feedback("search-feedback", next.ReconciliationRequired ? "" : "The archive changed. Run your search again to see current messages.");
+        invalidateStats(true); invalidateSavedChats();
+        feedback("search-feedback", next.ReconciliationRequired ? "" : "Archive permissions or message availability changed. Refreshing saved messages…");
+        archiveRefreshNeeded = true;
       }
+      if (changed) { savedChatRefreshNeeded = true; archiveRefreshNeeded = true; if (statsController) statsReloadQueued = true; }
       status = next;
       historyImportStatusUnavailable = false;
       renderHistoryImport();
@@ -668,7 +689,7 @@
       $("status-notice").classList.toggle("warning", hasStateSyncGap || hasMessageGap || hasUnresolvedDeletion || hasRestoredSnapshot);
       renderStatsStatus();
       if ($("settings-dialog").open && liveRebuildSettings()) refreshRecovery();
-      if (changed && activeView === "stats" && !unsafe) refreshStats();
+      if (invalidated && activeView === "stats" && !unsafe) refreshStats();
       if ($("connection-dialog").open) renderConnectionPresentation({...pairingSnapshot,state:status.Connection});
       const policy = setup?.Policy || setup?.policy;
       if (!unsafe && ["connected","discovery","importing"].includes(status.Connection) && policy?.ChatMode === "selective" && !(policy.IncludedChats || []).length && !chats.length && !$("connection-dialog").open && !chatDiscoveryBusy) {
@@ -784,6 +805,7 @@
       if (focus) $("stats-title").focus({preventScroll:true});
     } else {
       invalidateStats();
+      if (!searchRequest || archiveRefreshNeeded) runSearch(false, true);
       if (focus) ($("search-content").hidden ? $("import-action") : $("search-query")).focus({preventScroll:true});
     }
   }
@@ -792,8 +814,8 @@
     const select = $("stats-chat");
     const chosen = select.value;
     select.replaceChildren(new Option("All archived chats", ""));
-    for (const chat of archiveSource === "historical" ? historicalChats : chats) {
-      if (archiveSource === "historical" || setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
+    for (const chat of savedChats) {
+      select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
     }
     select.value = chosen;
     refreshSelects("stats-chat");
@@ -801,8 +823,7 @@
   }
 
   function statsFilter() {
-    const request = {breakdown:statsDimension, page:statsPage, page_size:statsPageSize, sort:statsSort};
-    if (archiveSource === "historical") request.source = "historical";
+    const request = {source:"saved", breakdown:statsDimension, page:statsPage, page_size:statsPageSize, sort:statsSort};
     const range = $("stats-range").value;
     if (range === "custom") {
       if (!$("stats-from").value && !$("stats-until").value) throw new Error("Choose at least one custom date.");
@@ -895,7 +916,7 @@
     return !breakdown || breakdown.dimension === statsDimension && breakdown.sort === statsSort && breakdown.page_size === statsPageSize && Number.isSafeInteger(breakdown.page) && breakdown.page > 0 && breakdown.page <= statsPage && count(breakdown.total) && Array.isArray(breakdown.rows) && breakdown.rows.length <= breakdown.page_size && breakdown.rows.every(row => typeof row.id === "string" && typeof row.name === "string" && [row.messages, row.sent, row.received, row.chats].every(count) && timestamp(row.last_message_at) && row.sent + row.received === row.messages);
   }
 
-  async function refreshStats() {
+  async function refreshStats(retry = 0) {
     if (authExpired || activeView !== "stats" || document.hidden) return;
     if (statsUnavailable()) {
       invalidateStats(true);
@@ -920,17 +941,20 @@
     statsController = controller;
     $("stats-data").setAttribute("aria-busy", "true");
     $("stats-refresh").disabled = true;
+    let retryStats = false;
     try {
       const snapshot = await api("/api/stats", "POST", filter, {signal:controller.signal});
       if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden || statsUnavailable()) return;
       if (!validStatsSnapshot(snapshot)) throw new Error("Stats could not be read. Use Refresh stats to try again.");
+      if (snapshot.saved_view) { savedMetadata = snapshot.saved_view; renderArchiveSource(); }
       renderStats(snapshot);
       $("stats-updated").textContent = "Updated " + statsDate(snapshot.sampled_at, {hour:"numeric", minute:"2-digit", second:"2-digit"});
       document.querySelector(".stats-update").dataset.state = "ready";
       feedback("stats-feedback", "");
     } catch (error) {
       if (version !== statsVersion || epoch !== authEpoch || authExpired || activeView !== "stats" || document.hidden) return;
-      clearStatsData();
+      retryStats = retry < 1 && ["archive_busy", "saved_cursor_stale"].includes(error.code);
+      if (!["archive_busy", "saved_cursor_stale", "saved_read_limit"].includes(error.code)) clearStatsData();
       $("stats-updated").textContent = "Update unavailable";
       document.querySelector(".stats-update").dataset.state = "error";
       feedback("stats-feedback", error.name === "AbortError" ? "Stats took too long to load. Use Refresh stats to try again." : error.message, true);
@@ -944,7 +968,10 @@
           if (version === statsVersion) restoreStatsPageFocus();
         }
       }
-      if (statsReloadQueued && !authExpired && activeView === "stats" && !document.hidden) {
+      if (retryStats) {
+        window.setTimeout(() => { if (version === statsVersion && epoch === authEpoch && !authExpired) refreshStats(retry + 1); }, 1000);
+      }
+      if (!retryStats && statsReloadQueued && !authExpired && activeView === "stats" && !document.hidden) {
         statsReloadQueued = false;
         refreshStats();
       }
@@ -969,7 +996,7 @@
   }
 
   function renderStatsStatus() {
-    const viewStatus = archiveSource === "historical" ? historicalStatus : status;
+    const viewStatus = status;
     if (!viewStatus) return;
     const policy = setup?.Policy || setup?.policy;
     const view = importPresentation(viewStatus, policy, setup?.configured, chats.length, pairingSnapshot);
@@ -977,12 +1004,12 @@
     const connected = ["connected", "discovery", "importing"].includes(viewStatus.Connection);
     $("stats-connection-state").textContent = historical ? "Historical snapshot" : viewStatus.Paused ? "Import paused" : $("connection-status").textContent;
     $("stats-connection-dot").dataset.state = viewStatus.Connection || "setup_required";
-    $("stats-connection-description").textContent = historical ? (archiveSource === "historical" ? "Captured read-only history. Current phone state unknown. Live syncing continues separately." : "Read-only. Newer messages excluded. Sending and syncing disabled.") : statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !viewStatus.Paused && Number(viewStatus.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
+    $("stats-connection-description").textContent = historical ? "Read-only. Newer messages excluded. Sending and syncing disabled." : statsUnavailable() ? "Import and stats are paused while the archive requires checks. Your local files are retained." : connected && !viewStatus.Paused && Number(viewStatus.Messages) ? "New messages arrive while WhatsApp is connected. History coverage may be incomplete." : view.description;
     $("stats-connection-action").disabled = historical;
-    $("stats-connection-action").textContent = historical ? (archiveSource === "historical" ? "Historical view" : "Syncing disabled") : !setup?.configured ? "Set up your archive" : viewStatus.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
+    $("stats-connection-action").textContent = historical ? "Syncing disabled" : !setup?.configured ? "Set up your archive" : viewStatus.Paused && !statsUnavailable() ? "Resume import" : !connected ? "Link or reconnect WhatsApp" : "Connection details";
     const notice = $("status-notice");
-    $("stats-notice").textContent = archiveSource === "historical" ? $("archive-source-note").textContent : notice.textContent;
-    $("stats-notice").hidden = archiveSource === "historical" ? false : notice.hidden;
+    $("stats-notice").textContent = notice.textContent;
+    $("stats-notice").hidden = notice.hidden;
     for (const [kind, progress] of [["keyword", viewStatus.Keyword], ["media", viewStatus.Media], ["semantic", viewStatus.Semantic]]) renderStatsProgress(kind, progress);
   }
 
@@ -1624,47 +1651,63 @@
   function renderArchiveChatOptions() {
     const select = $("search-chat"), chosen = select.value;
     select.replaceChildren(new Option("All included chats", ""));
-    for (const chat of archiveSource === "historical" ? historicalChats : chats) {
-      if (archiveSource === "historical" || setup?.Policy?.ChatMode === "all" || chat.Selected) select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
+    for (const chat of savedChats) {
+      select.append(new Option(chat.Name || "Unnamed chat", chat.ID));
     }
     select.value = chosen;
     refreshSelects("search-chat"); renderStatsChatOptions();
   }
 
   function renderArchiveSource() {
-    const meta = setup?.archive_view;
-    $("archive-source-control").hidden = !meta || authExpired;
-    $("archive-source").value = archiveSource;
-    $("archive-source-note").textContent = archiveSource === "historical" ? "Captured " + (meta?.captured_at || "") + ". Read-only · partial history · current phone state unknown. Later phone changes are not reflected here. Settings, syncing and send permissions always apply to Live." : "Live archive. Settings, syncing and send permissions always apply to Live.";
-    refreshSelects("archive-source");
+    const meta = savedMetadata?.historical || setup?.archive_view;
+    $("archive-source-control").hidden = authExpired;
+    $("archive-source-note").textContent = meta ? "Includes eligible captured history. Partial history · current phone state unknown. Current archive choices and known message restrictions apply." : "Recent messages and search follow your current archive choices. WhatsApp history may be incomplete.";
+    if (savedChatLoadError) $("archive-source-note").textContent += " " + savedChatLoadError;
+    else if (savedChatsPartial) $("archive-source-note").textContent += " Chat filter shows the first 1,000 saved conversations.";
     renderHistoryImport();
   }
 
-  async function selectArchiveSource() {
-    if (authExpired) return;
-    const selected = $("archive-source").value;
-    if (!["live", "historical"].includes(selected) || selected === "historical" && !setup?.archive_view) { renderArchiveSource(); return; }
-    archiveSource = selected;
-    const version = ++archiveSourceVersion, epoch = authEpoch;
-    clearResults(); searchRequest = null; $("search-chat").value = ""; $("stats-chat").value = "";
-    statsPage = 1; invalidateStats(true); historicalChats = []; historicalStatus = null;
-    renderArchiveSource(); renderArchiveChatOptions(); renderImportState();
+  function invalidateSavedChats() {
+    archiveSourceVersion++;
+    savedChatsController?.abort(); savedChatsController = null; savedChatsLoading = false;
+    savedChats = []; savedChatsPartial = false; savedChatLoadError = ""; savedChatRetry = false;
+    savedChatRefreshNeeded = true;
+    $("search-chat").value = ""; $("stats-chat").value = "";
+    renderArchiveChatOptions();
+  }
+
+  async function loadSavedChats() {
+    if (savedChatsLoading || authExpired || statsUnavailable()) return;
+    savedChatsLoading = true; savedChatRefreshNeeded = false;
+    const epoch = authEpoch, version = ++archiveSourceVersion;
+    const controller = new AbortController(); savedChatsController = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    const list = []; let cursor = "";
     try {
-      if (selected === "historical") {
-        const state = await api("/api/status?source=historical");
-        if (version !== archiveSourceVersion || epoch !== authEpoch || authExpired) return;
-        historicalStatus = state;
-        let cursor = ""; const list = [];
-        for (let page = 0; page < 10; page++) {
-          const value = await api("/api/chats?source=historical&limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
-          if (version !== archiveSourceVersion || epoch !== authEpoch || authExpired) return;
-          list.push(...(value.Chats || [])); cursor = value.NextCursor || ""; if (!cursor) break;
-        }
-        historicalChats = list;
+      for (let page = 0; page < 10; page++) {
+        const result = await api("/api/chats?source=saved&limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), "GET", undefined, {signal:controller.signal});
+        if (epoch !== authEpoch || version !== archiveSourceVersion || authExpired) return;
+        list.push(...(result.Chats || [])); cursor = result.NextCursor || "";
+        if (!cursor) break;
       }
-      if (version !== archiveSourceVersion || epoch !== authEpoch || authExpired) return;
-      renderArchiveChatOptions(); renderStatsStatus(); await refreshStats();
-    } catch (error) { if (version === archiveSourceVersion && epoch === authEpoch && !authExpired) feedback("stats-feedback", error.message, true); }
+      savedChats = list; savedChatsPartial = Boolean(cursor); savedChatLoadError = ""; savedChatRetry = false;
+      renderArchiveChatOptions(); renderArchiveSource();
+    } catch (error) {
+      if (epoch === authEpoch && version === archiveSourceVersion && !authExpired) {
+        savedChatLoadError = "Saved chat choices are unavailable. " + error.message;
+        savedChatRetry = error.code === "archive_busy" || error.code === "request_interrupted" || error.name === "AbortError";
+        renderArchiveSource();
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+      if (savedChatsController === controller) {
+        savedChatsController = null; savedChatsLoading = false;
+        if (savedChatRefreshNeeded && epoch === authEpoch && !authExpired && !statsUnavailable()) {
+          window.setTimeout(() => { if (version === archiveSourceVersion && epoch === authEpoch && !authExpired && savedChatRefreshNeeded) loadSavedChats().catch(() => {}); }, 1000);
+        }
+      }
+    }
   }
 
   async function loadChats() {
@@ -2204,7 +2247,7 @@
     $("history-import-requests").textContent = unavailable ? "" : delivered ? statsNumber(p.page_attempts) + " page attempts · " + statsNumber(Math.max(0, statsCount(p.discovery_limit) - statsCount(p.discovery_spent))) + " history request credits remaining · " + statsNumber(p.delivered_limit) + " snapshot message allowance" : statsNumber(currentPending) + " current requests awaiting phone replies or outcome unknown" + (statsCount(p.stale) ? " · " + statsNumber(p.stale) + " earlier requests no longer valid under current choices" : "") + " · " + statsNumber(p.queued) + " eligible copies queued";
     const range = !unavailable && typeof p.target_start === "string" && !p.target_start.startsWith("0001-") ? " Requested from " + dateText(p.target_start) + "." : "";
     const oldest = !unavailable && delivered && statsCount(p.readable_messages) > 0 && typeof p.delivered_oldest === "string" && !p.delivered_oldest.startsWith("0001-") && Number.isFinite(Date.parse(p.delivered_oldest)) ? " Oldest readable message in Live: " + dateText(p.delivered_oldest) + "." : "";
-    $("history-import-help").textContent = (archiveSource === "historical" ? "This captured historical view remains unchanged. Recovery updates Live separately. " : "") + "Phone history remains partial; older messages and a finish time are not guaranteed." + range + oldest;
+    $("history-import-help").textContent = "Phone history remains partial; older messages and a finish time are not guaranteed." + range + oldest;
   }
 
   function renderRecovery() {
@@ -2364,19 +2407,23 @@
       $("settings-dialog").close();
       // Policy changes invalidate visible results rather than leaving stale bodies on screen.
       clearResults();
-      invalidateStats(true);
+      invalidateStats(true); invalidateSavedChats();
       await refreshStatus();
       assertOwner(epoch);
       await loadChats();
       assertOwner(epoch);
       if (initial) { openConnection(); if (!setup.demo) await startPairing(); }
-      else feedback("search-feedback", "Archive choices saved. Run a search to see messages in this range.");
+      else {
+        archiveRefreshNeeded = true;
+        feedback("search-feedback", "Archive choices saved. Refreshing permitted saved messages…");
+      }
     } catch (error) { if(epoch===authEpoch&&!authExpired)feedback("policy-feedback", error.message, true); }
     finally { if(epoch===authEpoch)button.disabled = false; }
   }
 
   function clearResults() {
     searchVersion++; contextVersion++;
+    searchController?.abort(); searchController = null;
     searching = false; $("search-submit").disabled = false; $("search-more").disabled = false;
     nextCursor = ""; selectedMessage = ""; visibleMessages = [];
     $("search-results").replaceChildren(); $("conversation-messages").replaceChildren();
@@ -2386,32 +2433,71 @@
     feedback("context-feedback", "Choose a result to read the messages around it.");
   }
 
-  async function runSearch(more = false) {
-    if (searching || authExpired) return;
-    const epoch = authEpoch;
-    searching = true;
-    if (!more) clearResults();
-    const version = ++searchVersion;
+  async function runSearch(more = false, refresh = false, retry = 0) {
+    if (authExpired || statsUnavailable()) return;
+    if (searching && (more || refresh)) { archiveRefreshNeeded = true; return; }
+    searchController?.abort();
+    const epoch = authEpoch, version = ++searchVersion;
+    const controller = new AbortController(); searchController = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    searching = true; archiveRefreshNeeded = false;
     $("search-submit").disabled = true; $("search-more").disabled = true;
-    feedback("search-feedback", "Searching saved messages…");
+    feedback("search-feedback", $("search-query").value.trim() ? "Searching saved messages…" : "Loading recent saved messages…");
+    let retryRequest = null;
     try {
       if (!more) {
-        activeQuery = $("search-query").value;
-        searchRequest = {...(archiveSource === "historical" ? {source:"historical"} : {}), query:activeQuery, limit:30, chats:$("search-chat").value ? [$("search-chat").value] : []};
+        activeQuery = $("search-query").value.trim();
+        searchRequest = {source:"saved", limit:50, chats:$("search-chat").value ? [$("search-chat").value] : []};
+        if (activeQuery) searchRequest.query = activeQuery;
         if ($("search-from").value) searchRequest.from = dayStart($("search-from").value).toISOString();
         if ($("search-until").value) { const until = dayStart($("search-until").value); until.setDate(until.getDate()+1); searchRequest.until = until.toISOString(); }
+        if (searchRequest.from && searchRequest.until && searchRequest.from >= searchRequest.until) throw new Error("The end date must be on or after the start date.");
       }
-      const result = await api("/api/search", "POST", {...searchRequest, cursor:more ? nextCursor : ""});
-      if (version !== searchVersion) return;
+      const result = await api(searchRequest.query ? "/api/search" : "/api/archive/browse", "POST", {...searchRequest, cursor:more ? nextCursor : ""}, {signal:controller.signal});
+      if (version !== searchVersion || epoch !== authEpoch || authExpired) return;
+      if (result.saved_view) { savedMetadata = result.saved_view; renderArchiveSource(); }
+      if (!more) {
+        contextVersion++; selectedMessage = ""; visibleMessages = [];
+        $("search-results").replaceChildren(); $("conversation-messages").replaceChildren(); $("context-copy").hidden = true;
+        $("context-title").textContent = "Conversation";
+        feedback("context-feedback", "Choose a result to read the messages around it.");
+      }
       for (const hit of result.Hits || []) addResult(hit);
       nextCursor = result.NextCursor || "";
       const count = $("search-results").children.length;
       $("result-count").textContent = count + " shown";
       $("results-empty").hidden = count > 0;
       $("search-more").hidden = !nextCursor;
-      feedback("search-feedback", count ? count + " saved messages shown. Choose one to read its conversation." : "No saved messages match. Try fewer words, another date, or a different chat. History that was not delivered cannot appear here.");
-    } catch (error) { if (version === searchVersion) feedback("search-feedback", error.message, true); }
-    finally { if(epoch===authEpoch){searching = false; $("search-submit").disabled = false; $("search-more").disabled = false;} }
+      feedback("search-feedback", count ? count + " saved messages shown. Choose one to read its conversation." : nextCursor ? "No matches on this page. Continue to check more saved messages." : "No saved messages match. Try fewer words, another date, or a different chat. History that was not delivered cannot appear here.");
+    } catch (error) {
+      if (version !== searchVersion || epoch !== authEpoch || authExpired) return;
+      if (error.code === "saved_cursor_stale" && retry < 1) retryRequest = () => runSearch(false, false, retry + 1);
+      else if (error.code === "archive_busy" && retry < 1) retryRequest = () => {
+        const expected = searchVersion;
+        window.setTimeout(() => { if (expected === searchVersion && epoch === authEpoch && !authExpired) runSearch(more, false, retry + 1); }, 1000);
+      };
+      else if (["source_unavailable", "reconciliation_required", "archive_unavailable"].includes(error.code)) clearResults();
+      feedback("search-feedback", error.name === "AbortError" ? "Saved messages took too long to load. Try again." : error.message, true);
+    } finally {
+      window.clearTimeout(timeout);
+      if (version === searchVersion && epoch === authEpoch) {
+        searching = false; searchController = null;
+        $("search-submit").disabled = false; $("search-more").disabled = false;
+        retryRequest?.();
+        if (!retryRequest && archiveRefreshNeeded && activeView === "archive" && !document.hidden) {
+          const expected = searchVersion;
+          window.setTimeout(() => { if (expected === searchVersion && epoch === authEpoch && !authExpired && archiveRefreshNeeded) runSearch(false, true); }, 1000);
+        }
+      }
+    }
+  }
+
+  function appendHistoricalProvenance(parent, id) {
+    if (!String(id || "").startsWith("h1.")) return;
+    const note = document.createElement("span"); note.className = "historical-provenance";
+    const captured = savedMetadata?.historical?.captured_at || setup?.archive_view?.captured_at;
+    note.textContent = captured ? "Captured " + dateText(captured) + " · Read-only" : "Captured history · Read-only";
+    parent.append(note);
   }
 
   function addResult(hit) {
@@ -2419,6 +2505,7 @@
     const button = document.createElement("button"); button.type="button"; button.className="result-button"; button.setAttribute("aria-pressed", "false"); button.dataset.messageId=hit.MessageID;
     const meta = document.createElement("div"); meta.className="result-meta";
     meta.append(bdi(hit.ChatName || "Unnamed chat", "result-chat"), bdi(dateText(hit.SentAt)));
+    appendHistoricalProvenance(meta, hit.MessageID);
     const sender = document.createElement("div"); sender.className="result-sender"; sender.append(bdi(hit.SenderName || "Unknown sender"));
     const snippet = document.createElement("div"); snippet.className="message-text result-snippet";
     renderText(snippet, hit.Snippet, activeQuery);
@@ -2438,8 +2525,9 @@
     $("context-title").replaceChildren(bdi(hit.ChatName || "Conversation"));
     feedback("context-feedback", "Loading permitted surrounding messages…");
     try {
-      const result = await api("/api/context", "POST", {...(archiveSource === "historical" ? {source:"historical"} : {}), message_id:hit.MessageID, before:10, after:10});
+      const result = await api("/api/context", "POST", {source:"saved", message_id:hit.MessageID, before:10, after:10});
       if (version !== contextVersion) return;
+      if (result.saved_view) { savedMetadata = result.saved_view; renderArchiveSource(); }
       visibleMessages = result.Messages || [];
       for (const message of visibleMessages) addMessage(message);
       feedback("context-feedback", visibleMessages.length ? "Only messages allowed by your current archive settings are shown." : "This message is no longer available. Run your search again.");
@@ -2453,12 +2541,13 @@
   function addMessage(message) {
     const article = document.createElement("article"); article.className="conversation-message"; article.classList.toggle("selected", message.ID === selectedMessage);
     const meta = document.createElement("div"); meta.className="message-meta"; meta.append(bdi(message.SenderName || "Unknown sender"), bdi(dateText(message.SentAt) + (message.Edited ? " · Edited" : "")));
+    appendHistoricalProvenance(meta, message.ID);
     article.append(meta);
     if (message.ReplyQuote) { const quote=document.createElement("div"); quote.className="reply-quote message-text"; renderText(quote,message.ReplyQuote); article.append(quote); }
     const body = document.createElement("div"); body.className="message-text"; renderText(body,message.Body,activeQuery); article.append(body);
     if (message.Caption) { const caption=document.createElement("div"); caption.className="message-text message-caption"; renderText(caption,message.Caption,activeQuery); article.append(caption); }
     appendDerived(article, message.Derived || []);
-    if (message.Kind !== "text") { const note=document.createElement("p"); note.className="media-note"; const name=message.Kind === "voice" ? "Voice note" : message.Kind === "image" ? "Image" : "Media"; note.textContent=name + ": " + (message.MediaAvailability === "retained" ? "original available" : "original unavailable") + ((message.Derived || []).length ? "; extracted text is shown separately" : "; no extracted text available"); article.append(note); }
+    if (message.Kind !== "text") { const note=document.createElement("p"); note.className="media-note"; const name=message.Kind === "voice" ? "Voice note" : message.Kind === "image" ? "Image" : "Media"; note.textContent=name + ": " + (String(message.ID || "").startsWith("h1.") ? "captured original unavailable here" : message.MediaAvailability === "retained" ? "original available" : "original unavailable") + ((message.Derived || []).length ? "; extracted text is shown separately" : "; no extracted text available"); article.append(note); }
     $("conversation-messages").append(article);
   }
 
@@ -2740,7 +2829,6 @@
   window.addEventListener("pagehide",()=>clearRemoteSecret());
   $("settings-close").addEventListener("click",()=>$("settings-dialog").close());
   $("settings-dialog").addEventListener("cancel",event=>{if(!setup?.configured)event.preventDefault();});
-  $("archive-source").addEventListener("change", selectArchiveSource);
   $("refresh-chats").addEventListener("click",async()=>{const epoch=authEpoch;try{await loadChats();}catch(error){if(epoch===authEpoch&&!authExpired)feedback("policy-feedback",error.message,true);}});
   $("connection-open").addEventListener("click",()=>setup?.configured?openConnection():openSettings());
   $("connection-close").addEventListener("click",()=>$("connection-dialog").close());
@@ -2761,6 +2849,8 @@
   $("pause-toggle").addEventListener("click",()=>command($("pause-toggle"),status?.Paused?"/api/resume":"/api/pause",$("search-content").hidden?"import-feedback":"search-feedback",status?.Paused?"Import resumed.":"Import paused. Saved messages remain searchable."));
   $("filters-toggle").addEventListener("click",()=>{const hidden=!$("search-filters").hidden;$("search-filters").hidden=hidden;$("filters-toggle").setAttribute("aria-expanded",String(!hidden));});
   $("search-form").addEventListener("submit",event=>{event.preventDefault();runSearch();});
+  for (const id of ["search-chat", "search-from", "search-until"]) $(id).addEventListener("change", () => runSearch());
+  $("search-query").addEventListener("input", () => { if (!$("search-query").value.trim()) runSearch(); });
   $("search-more").addEventListener("click",()=>runSearch(true));
   $("context-copy").addEventListener("click",async()=>{const epoch=authEpoch;try{assertOwner(epoch);await navigator.clipboard.writeText(visibleMessages.map(message=>(message.SenderName||"Unknown sender")+" · "+dateText(message.SentAt)+"\n"+(message.Body||"")+(message.Caption?"\n"+message.Caption:"")+(message.Derived||[]).map(excerpt=>"\n"+extractionLabel(excerpt)+"\n"+excerpt.Text).join("")).join("\n\n"));assertOwner(epoch);feedback("context-feedback","Visible messages copied in their original text order.");}catch{if(epoch===authEpoch&&!authExpired)feedback("context-feedback","Select the message text and copy it with your keyboard.");}});
   $("delete-open").addEventListener("click",()=>{if(historicalSettings()||liveRebuildSettings())return;$("delete-confirmation").value="";$("delete-confirm").disabled=true;feedback("delete-feedback","");$("delete-dialog").showModal();});
@@ -2926,6 +3016,10 @@
       else {
         await loadChats();
         if (epoch !== authEpoch || authExpired) return;
+        try { await loadSavedChats(); }
+        catch (error) { if (epoch === authEpoch && !authExpired) feedback("search-feedback", error.message, true); }
+        if (epoch !== authEpoch || authExpired) return;
+        await runSearch();
       }
       if (epoch === authEpoch && !authExpired) startPolling();
     } catch (error) {

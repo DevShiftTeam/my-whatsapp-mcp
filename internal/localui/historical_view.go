@@ -16,6 +16,7 @@ import (
 // credential authority and cannot select a mutation.
 type ArchiveReadRequest struct {
 	Kind    string
+	Browse  archive.SavedBrowseRequest
 	Search  archive.SearchRequest
 	Context archive.ContextRequest
 	Chats   archive.ChatListRequest
@@ -25,10 +26,11 @@ type ArchiveReadRequest struct {
 // ArchiveReadResult retains the selected reader until the entire buffered
 // response has passed its final authority check and been delivered/discarded.
 type ArchiveReadResult struct {
-	Value    any
-	Metadata archive.HistoricalViewMetadata
-	Check    func(context.Context) error
-	Release  func()
+	Value         any
+	SavedMetadata *archive.SavedViewMetadata
+	Metadata      archive.HistoricalViewMetadata
+	Check         func(context.Context) error
+	Release       func()
 }
 type ArchiveReadApplication interface {
 	ReadArchive(context.Context, ArchiveReadRequest) (ArchiveReadResult, error)
@@ -40,6 +42,7 @@ type LiveArchiveReadApplication interface {
 }
 type ownerReadCheckKey struct{}
 type ownerReadAdmissionKey struct{}
+type ownerReadAdmissionErrorKey struct{}
 
 func (s *Server) ownerReadCheck(r *http.Request) bool {
 	if check, ok := r.Context().Value(ownerReadCheckKey{}).(func() bool); ok {
@@ -57,24 +60,40 @@ func (s *Server) ownerReadCheck(r *http.Request) bool {
 
 // ownerReadAdmission performs no blocking lock acquisition or generation lookup
 // after the final selected-source fence. Contention fails closed.
-func (s *Server) ownerReadAdmission(r *http.Request) bool {
-	if admit, ok := r.Context().Value(ownerReadAdmissionKey{}).(func() bool); ok {
+func (s *Server) ownerReadAdmission(r *http.Request) bool { return s.ownerReadAdmissionError(r) == nil }
+
+func (s *Server) ownerReadAdmissionError(r *http.Request) error {
+	if admit, ok := r.Context().Value(ownerReadAdmissionErrorKey{}).(func() error); ok {
 		return admit()
 	}
+	if admit, ok := r.Context().Value(ownerReadAdmissionKey{}).(func() bool); ok {
+		if admit() {
+			return nil
+		}
+		return archive.ErrUnauthorized
+	}
 	if !s.mu.TryLock() {
-		return false
+		return errOwnerAdmissionBusy
 	}
 	defer s.mu.Unlock()
 	var owner session
 	if s.remote != nil {
 		key, ok := cookieDigest(r, remoteCookie)
 		if !ok {
-			return false
+			return archive.ErrUnauthorized
 		}
 		v, ok := s.remote.sessions[key]
+		if !ok || s.remote.revoked || s.remote.ctx.Err() != nil || !s.clock.nowLocked().Before(v.expires) || subtle.ConstantTimeCompare([]byte(v.csrf), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
+			return archive.ErrUnauthorized
+		}
 		generation, ready := s.remote.auth.TryGeneration()
-		if !ok || !ready || s.remote.revoked || s.remote.ctx.Err() != nil || v.generation != generation {
-			return false
+		if !ready {
+			// The authenticator cannot distinguish contention from closed state.
+			// Withhold the response without claiming invalid credentials.
+			return archive.ErrArchiveUnavailable
+		}
+		if v.generation != generation {
+			return archive.ErrUnauthorized
 		}
 		owner = v.session
 	} else {
@@ -87,28 +106,40 @@ func (s *Server) ownerReadAdmission(r *http.Request) bool {
 			}
 		}
 		if count != 1 || token == "" || len(token) > 128 || s.owner == nil {
-			return false
+			return archive.ErrUnauthorized
 		}
 		digest := sha256.Sum256([]byte(token))
 		if subtle.ConstantTimeCompare(digest[:], s.owner.digest[:]) != 1 {
-			return false
+			return archive.ErrUnauthorized
 		}
 		owner = *s.owner
 	}
-	return r.Context().Err() == nil && s.clock.nowLocked().Before(owner.expires) && subtle.ConstantTimeCompare([]byte(owner.csrf), []byte(r.Header.Get("X-CSRF-Token"))) == 1
+	if r.Context().Err() != nil || !s.clock.nowLocked().Before(owner.expires) || subtle.ConstantTimeCompare([]byte(owner.csrf), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
+		return archive.ErrUnauthorized
+	}
+	return nil
 }
 func (s *RemoteServer) historicalAdmission(r *http.Request, digest [32]byte, csrf string) bool {
+	return s.historicalAdmissionError(r, digest, csrf) == nil
+}
+func (s *RemoteServer) historicalAdmissionError(r *http.Request, digest [32]byte, csrf string) error {
 	if !s.mu.TryLock() {
-		return false
+		return errOwnerAdmissionBusy
 	}
 	defer s.mu.Unlock()
 	owner, ok := s.sessions[digest]
-	return ok && !s.closed && r.Context().Err() == nil && s.clock.nowLocked().Before(owner.expires) && subtle.ConstantTimeCompare([]byte(owner.csrf), []byte(csrf)) == 1
+	if !ok || s.closed || r.Context().Err() != nil || !s.clock.nowLocked().Before(owner.expires) || subtle.ConstantTimeCompare([]byte(owner.csrf), []byte(csrf)) != 1 {
+		return archive.ErrUnauthorized
+	}
+	return nil
 }
 func validArchiveSource(source string) bool {
-	return source == "" || source == "live" || source == "historical"
+	return source == "" || source == "live" || source == "historical" || source == "saved"
 }
 func validArchiveID(id, source, kind string) bool {
+	if source == "saved" && kind == "m" && archive.IsHistoricalHandle(id) {
+		return validArchiveID(id, "historical", kind)
+	}
 	if source != "historical" {
 		return !archive.IsHistoricalHandle(id) && validOpaque(id)
 	}
@@ -140,6 +171,12 @@ func validArchiveIDs(ids []archive.ChatID, source string) bool {
 	return true
 }
 func validArchiveCursor(cursor, source string) bool {
+	if source == "saved" {
+		return len(cursor) <= 8192 && (cursor == "" || strings.HasPrefix(cursor, "s1.") && len(cursor) > 3)
+	}
+	if strings.HasPrefix(cursor, "s1.") {
+		return false
+	}
 	if source != "historical" {
 		return len(cursor) <= 8192 && !archive.IsHistoricalHandle(cursor)
 	}
@@ -194,7 +231,7 @@ func (s *Server) deliverArchiveRead(w http.ResponseWriter, r *http.Request, ctx 
 	if value.Release != nil {
 		defer value.Release()
 	}
-	if value.Check == nil || value.Release == nil || (historical && value.Metadata.Source != "historical") || (!historical && value.Metadata.Source != "") {
+	if value.Check == nil || value.Release == nil || (historical && value.Metadata.Source != "historical") || (!historical && value.Metadata.Source != "") || (historical && value.SavedMetadata != nil) || (value.SavedMetadata != nil && (value.SavedMetadata.Source != "saved" || value.SavedMetadata.Coverage != "partial" || value.SavedMetadata.CurrentPhoneState != "unknown")) {
 		fail(w, 503, "archive_unavailable")
 		return
 	}
@@ -209,7 +246,7 @@ func (s *Server) deliverArchiveRead(w http.ResponseWriter, r *http.Request, ctx 
 	}
 	defer clear(data)
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(data, &fields) != nil || fields == nil {
+	if len(data) > maxArchiveResponseBytes || json.Unmarshal(data, &fields) != nil || fields == nil {
 		fail(w, 503, "archive_unavailable")
 		return
 	}
@@ -220,13 +257,28 @@ func (s *Server) deliverArchiveRead(w http.ResponseWriter, r *http.Request, ctx 
 			return
 		}
 	}
+	if value.SavedMetadata != nil {
+		fields["saved_view"], err = json.Marshal(value.SavedMetadata)
+		if err != nil {
+			fail(w, 503, "archive_unavailable")
+			return
+		}
+	}
 	body, err := json.Marshal(fields)
-	if err != nil {
+	if err != nil || len(body) > maxArchiveResponseBytes {
 		fail(w, 503, "archive_unavailable")
 		return
 	}
 	defer clear(body)
-	if ctx.Err() != nil || !s.ownerReadCheck(r) {
+	if err := ctx.Err(); err != nil {
+		publicError(w, err)
+		return
+	}
+	if !s.ownerReadCheck(r) {
+		if interrupted := ctx.Err(); interrupted != nil {
+			publicError(w, interrupted)
+			return
+		}
 		fail(w, 401, "unauthorized")
 		return
 	}
@@ -234,8 +286,28 @@ func (s *Server) deliverArchiveRead(w http.ResponseWriter, r *http.Request, ctx 
 		publicError(w, err)
 		return
 	}
-	if !s.ownerReadAdmission(r) || ctx.Err() != nil {
+	if err := ctx.Err(); err != nil {
+		publicError(w, err)
+		return
+	}
+	if err := s.ownerReadAdmissionError(r); err != nil {
+		if interrupted := ctx.Err(); interrupted != nil {
+			publicError(w, interrupted)
+			return
+		}
+		if err == errOwnerAdmissionBusy {
+			fail(w, 503, "archive_busy")
+			return
+		}
+		if err == archive.ErrArchiveUnavailable {
+			fail(w, 503, "archive_unavailable")
+			return
+		}
 		fail(w, 401, "unauthorized")
+		return
+	}
+	if interrupted := ctx.Err(); interrupted != nil {
+		publicError(w, interrupted)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -243,7 +315,7 @@ func (s *Server) deliverArchiveRead(w http.ResponseWriter, r *http.Request, ctx 
 }
 func (s *Server) archiveStatus(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	q, err := archiveReadQuery(r, false)
-	if err != nil {
+	if err != nil || q.Get("source") == "saved" {
 		fail(w, 400, "invalid_query")
 		return
 	}

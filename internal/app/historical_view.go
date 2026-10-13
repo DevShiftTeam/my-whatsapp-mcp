@@ -117,6 +117,9 @@ func (a *Application) historicalViewMetadata() *archive.HistoricalViewMetadata {
 // result retains data ownership through final HTTP delivery; ordinary settings
 // and send operations never call this entry point.
 func (a *Application) ReadArchive(ctx context.Context, request localui.ArchiveReadRequest) (localui.ArchiveReadResult, error) {
+	if strings.HasPrefix(request.Search.Cursor, "s1.") || strings.HasPrefix(request.Chats.Cursor, "s1.") {
+		return localui.ArchiveReadResult{}, archive.ErrInvalidQuery
+	}
 	a.data.RLock()
 	if a.closed || a.historicalReadFactory() == nil {
 		a.data.RUnlock()
@@ -170,11 +173,11 @@ func (a *Application) ReadArchive(ctx context.Context, request localui.ArchiveRe
 	return localui.ArchiveReadResult{Value: value, Metadata: reader.Metadata(), Check: check, Release: release}, nil
 }
 func liveSearchHandles(request archive.SearchRequest) bool {
-	if archive.IsHistoricalHandle(request.Cursor) {
+	if foreignArchiveHandle(request.Cursor) {
 		return false
 	}
 	for _, chat := range request.Chats {
-		if archive.IsHistoricalHandle(string(chat)) {
+		if foreignArchiveHandle(string(chat)) {
 			return false
 		}
 	}

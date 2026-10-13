@@ -28,7 +28,7 @@ func (a *Application) ReadLiveArchive(ctx context.Context, q localui.ArchiveRead
 	if q.Kind == "chats" || q.Kind == "status" {
 		var snapshot archive.ReadSnapshot
 		if q.Kind == "chats" {
-			if archive.IsHistoricalHandle(q.Chats.Cursor) {
+			if foreignArchiveHandle(q.Chats.Cursor) {
 				return fail(archive.ErrInvalidQuery)
 			}
 			page, err := a.store.DiscoveryChats(queryCtx, q.Chats)
@@ -48,7 +48,7 @@ func (a *Application) ReadLiveArchive(ctx context.Context, q localui.ArchiveRead
 		checkSource = func(c context.Context) error { return a.store.CheckOwnerMetadataSnapshot(c, snapshot) }
 	} else {
 		scope, err := a.scope(queryCtx)
-		if errors.Is(err, archive.ErrUnauthorized) && q.Kind == "stats" && archive.ValidStatsRequest(q.Stats) && !archive.IsHistoricalHandle(string(q.Stats.ChatID)) {
+		if errors.Is(err, archive.ErrUnauthorized) && q.Kind == "stats" && archive.ValidStatsRequest(q.Stats) && !foreignArchiveHandle(string(q.Stats.ChatID)) {
 			diagnostic, e := a.store.DiagnosticStatus(queryCtx)
 			if e != nil {
 				return fail(e)
@@ -70,12 +70,12 @@ func (a *Application) ReadLiveArchive(ctx context.Context, q localui.ArchiveRead
 				}
 				value, guard, err = a.resources.retrieval.SearchGuarded(queryCtx, scope, q.Search)
 			case "context":
-				if archive.IsHistoricalHandle(string(q.Context.MessageID)) {
+				if foreignArchiveHandle(string(q.Context.MessageID)) {
 					return fail(archive.ErrInvalidQuery)
 				}
 				value, guard, err = a.store.ContextGuarded(queryCtx, scope, q.Context)
 			case "stats":
-				if archive.IsHistoricalHandle(string(q.Stats.ChatID)) {
+				if foreignArchiveHandle(string(q.Stats.ChatID)) {
 					return fail(archive.ErrInvalidQuery)
 				}
 				value, guard, err = a.store.StatsGuarded(queryCtx, scope, q.Stats)

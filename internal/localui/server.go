@@ -353,8 +353,9 @@ var routeMethods = map[string]string{
 	"/api/session":          http.MethodGet, "/api/setup": http.MethodGet, "/api/policy": http.MethodPut,
 	"/api/pairing/start": http.MethodPost, "/api/pairing": http.MethodGet, "/api/pairing/qr": http.MethodGet,
 	"/api/status": http.MethodGet, "/api/chats": http.MethodGet, "/api/search": http.MethodPost,
-	"/api/stats":   http.MethodPost,
-	"/api/context": http.MethodPost, "/api/pause": http.MethodPost, "/api/resume": http.MethodPost,
+	"/api/stats":          http.MethodPost,
+	"/api/archive/browse": http.MethodPost,
+	"/api/context":        http.MethodPost, "/api/pause": http.MethodPost, "/api/resume": http.MethodPost,
 	"/api/disconnect": http.MethodPost, "/api/data/delete": http.MethodPost,
 	"/api/models": http.MethodGet, "/api/models/state": http.MethodGet,
 	"/api/models/operations": http.MethodPost, "/api/models/operations/cancel": http.MethodPost,
@@ -654,6 +655,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 		s.policy(w, r, ctx)
 	case "/api/search":
 		s.search(w, r, ctx)
+	case "/api/archive/browse":
+		s.savedBrowse(w, r, ctx)
 	case "/api/stats":
 		s.stats(w, r, ctx)
 	case "/api/context":
@@ -791,6 +794,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, ctx context.Cont
 	}
 	if request.Limit == 0 {
 		request.Limit = 30
+		if request.Source == "saved" {
+			request.Limit = 50
+		}
+	}
+	if request.Source == "saved" {
+		s.savedRead(w, r, ctx, ArchiveReadRequest{Kind: "search", Search: archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor}})
+		return
 	}
 	if request.Source == "historical" {
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "search", Search: archive.SearchRequest{Query: request.Query, Chats: request.Chats, From: request.From, Until: request.Until, Limit: request.Limit, Cursor: request.Cursor}})
@@ -817,6 +827,10 @@ func (s *Server) context(w http.ResponseWriter, r *http.Request, ctx context.Con
 		fail(w, http.StatusBadRequest, "invalid_query")
 		return
 	}
+	if request.Source == "saved" {
+		s.savedRead(w, r, ctx, ArchiveReadRequest{Kind: "context", Context: archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After}})
+		return
+	}
 	if request.Source == "historical" {
 		s.historicalRead(w, r, ctx, ArchiveReadRequest{Kind: "context", Context: archive.ContextRequest{MessageID: request.MessageID, Before: request.Before, After: request.After}})
 		return
@@ -835,11 +849,18 @@ func (s *Server) chats(w http.ResponseWriter, r *http.Request, ctx context.Conte
 		return
 	}
 	limit := 100
+	if query.Get("source") == "saved" {
+		limit = 50
+	}
 	if value := query.Get("limit"); value != "" {
 		limit, err = strconv.Atoi(value)
 	}
 	if err != nil || limit < 1 || limit > 100 || !validArchiveCursor(query.Get("cursor"), query.Get("source")) {
 		fail(w, http.StatusBadRequest, "invalid_query")
+		return
+	}
+	if query.Get("source") == "saved" {
+		s.savedRead(w, r, ctx, ArchiveReadRequest{Kind: "chats", Chats: archive.ChatListRequest{Limit: limit, Cursor: query.Get("cursor")}})
 		return
 	}
 	if query.Get("source") == "historical" {
@@ -872,6 +893,18 @@ func respond(w http.ResponseWriter, value any) {
 }
 
 func publicError(w http.ResponseWriter, err error) {
+	if errors.Is(err, archive.ErrSavedCursorStale) {
+		fail(w, 409, "saved_cursor_stale")
+		return
+	}
+	if errors.Is(err, archive.ErrSavedReadLimit) {
+		fail(w, 409, "saved_read_limit")
+		return
+	}
+	if errors.Is(err, errOwnerAdmissionBusy) {
+		fail(w, 503, "archive_busy")
+		return
+	}
 	if errors.Is(err, archive.ErrRebuildSessionTransition) {
 		fail(w, 409, "requires_session_transition")
 		return
@@ -918,6 +951,9 @@ func fail(w http.ResponseWriter, status int, code string) {
 }
 
 var publicMessages = map[string]string{
+	"archive_busy":         "The archive is busy. Try again shortly.",
+	"saved_cursor_stale":   "The saved view changed. Start again from the first page.",
+	"saved_read_limit":     "Use a narrower date range or chat selection and try again.",
 	"local_ai_unavailable": "Local AI is unavailable. Keyword search remains usable.",
 	"local_ai_conflict":    "Local AI settings changed. Review the current choice and try again.",
 	"local_ai_invalid":     "Choose eligible local AI components or turn local AI off.",

@@ -1,6 +1,6 @@
 # Stats
 
-The app opens on **Stats**. Use **Archive** to search conversations. Stats refreshes every five seconds while that view and browser tab are visible.
+The app opens on **Stats**. Stats and **Archive** use **All saved messages**: current messages plus eligible captured history when configured. Archive opens recent messages before you search; clearing the search returns to browsing. Stats refreshes every five seconds while that view and browser tab are visible.
 
 ## Appearance
 
@@ -37,7 +37,9 @@ Sort by **Most messages**, **Name**, or **Recently active**. Choose 10, 25, or 5
 
 **Processing** reports work for the full archive and stays independent of these filters. **Voice notes with text** measures how many filtered saved voice notes have generated text; it does not measure recognition accuracy or complete WhatsApp history.
 
-Stats reflects readable saved data within your archive choices. WhatsApp may have delivered only part of your history. If an update fails, use **Refresh stats**; stale counts are cleared. Remote access uses the same password-protected admin setup described in [MCP and remote access](mcp.md).
+Stats counts the permitted saved view once, including eligible captured-only messages. A current copy takes precedence over its captured copy. Current archive choices and known deletion, edit, expiry and view-once restrictions apply to captured history too. Captured originals do not add current downloads or processing jobs.
+
+Stats reflects readable saved data within your archive choices. WhatsApp may have delivered only part of your history. During import, refresh keeps the last successful counts until a new guarded read succeeds. A busy or oversized read leaves those counts visible with an explanation; narrow the filters if the view is too large. Permission changes, source failures or an ended owner session clear withheld data. Use **Refresh stats** to retry other failed updates. Remote access uses the same password-protected admin setup described in [MCP and remote access](mcp.md).
 
 Charts and aggregates run locally without a chart service, model, or additional setup.
 

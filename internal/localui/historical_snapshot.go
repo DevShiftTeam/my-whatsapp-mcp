@@ -24,7 +24,7 @@ func historicalSnapshotRead(method, path string) bool {
 	}
 	if method == http.MethodPost {
 		switch path {
-		case "/api/search", "/api/context", "/api/stats":
+		case "/api/search", "/api/context", "/api/stats", "/api/archive/browse":
 			return true
 		}
 	}
