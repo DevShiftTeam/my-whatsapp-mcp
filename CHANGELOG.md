@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Clarify Docker source-revision labels, the completed synthetic native container checks and the remaining real-account/client limits. Correct setup labels and existing data-directory paths without changing stored data or credentials.
+
+- Test live controls and scoped MCP reads during older-history import, and make the Stats accessibility fixture honor localized weekday names.
+
+- Voice recovery can keep a private fixed reason code for a rejected phone-copy reply while a recording request is pending. Storage failures are not mistaken for rejected replies. The code is not exposed through status or MCP and is cleared when a valid reply is accepted.
+
 - Saved chat lists and statistics share repeated metadata to read larger rebuilt archives within the existing memory limit.
 
 - Owner voice retries can recover eligible missing recordings with fresh phone responses, optionally target one permitted chat, and show recovery progress separately from transcription. Phone-copy requests run before queued downloads are woken, and new request failures remain visible.

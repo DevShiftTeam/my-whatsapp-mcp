@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -108,6 +110,23 @@ func TestOwnerVoiceDurableDeliveredReplyPreservesParentAndBodyReceipts(t *testin
 	r.client.Store.LIDs = &voiceRedeliveryLIDStore{mappings: make(map[types.JID]types.JID)}
 	r.status.Connection = "connected"
 	r.runCtx = ctx
+	address := url.URL{Scheme: "file", Path: filepath.Join(destination, "archive.sqlite")}
+	address.RawQuery = "mode=ro"
+	db, err := sql.Open("sqlite3", address.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	assertDiagnostic := func(id, wantState, wantCode string) {
+		t.Helper()
+		var state, code string
+		if err := db.QueryRowContext(ctx, "SELECT state,last_code FROM owner_voice_redownload_intents WHERE request_id=?", id).Scan(&state, &code); err != nil {
+			t.Fatal(err)
+		}
+		if state != wantState || code != wantCode {
+			t.Fatalf("durable reply diagnostic: state=%s code=%s, want %s %s", state, code, wantState, wantCode)
+		}
+	}
 	r.sendRebuildRequest = func(sendCtx context.Context, id string, _ *waE2E.Message) error {
 		_, known, err := store.LookupOwnerVoiceRequest(sendCtx, id)
 		if err != nil || !known {
@@ -118,9 +137,25 @@ func TestOwnerVoiceDurableDeliveredReplyPreservesParentAndBodyReceipts(t *testin
 			return err
 		}
 		response.UnavailableRequestID = id
+		malformed := *response
+		malformed.SourceWebMsg = nil
+		malformed.UnavailableRequestID = "unknown-request"
+		if handled, err := r.ownerVoiceDescriptorReply(sendCtx, &malformed); err != nil || handled {
+			t.Fatal("unknown reply gained owner correlation", err)
+		}
+		assertDiagnostic(id, "awaiting_phone", "")
+		malformed.UnavailableRequestID = id
+		if err := r.message(sendCtx, &malformed); !errors.Is(err, archive.ErrInvalidEvent) {
+			t.Fatal("known malformed reply changed rejection", err)
+		}
+		assertDiagnostic(id, "awaiting_phone", "voice_reply_invalid_envelope")
+		if current, err := store.CurrentSource(sendCtx, key); err != nil || current != before {
+			t.Fatal("malformed reply diagnostic changed source", err)
+		}
 		if err = r.message(sendCtx, response); err != nil {
 			return err
 		}
+		assertDiagnostic(id, "ready", "")
 		return r.message(sendCtx, response)
 	}
 	scope := archive.ReadScope{Account: durableAccount, Principal: "owner", AllChats: true, PolicyGeneration: p.Generation}

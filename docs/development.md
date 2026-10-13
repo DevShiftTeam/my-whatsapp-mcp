@@ -28,6 +28,7 @@ The product is My WhatsApp and the repository is `DevShiftTeam/my-whatsapp-mcp`.
 | `internal/compute`, `internal/diskspace`, `internal/workerlife` | Work admission, disk reservations, and child-process lifetime. |
 | `internal/textnorm`, `internal/sqlitelex`, `internal/sqlitevec` | Shared text normalization and SQLite search extensions. |
 | `scripts/app`, `scripts/package`, `packaging` | Source build, optional bundle assembly, manifests, and notices. |
+| `Dockerfile`, `compose*.yaml`, `scripts/docker`, `scripts/acceptance` | Container image, Compose overlays, synthetic Docker acceptance and benchmark tooling, and the developer-only remote acceptance coordinator. |
 
 ## Data flow
 
@@ -81,6 +82,14 @@ Keep colors in semantic CSS tokens so charts, status states, search highlights, 
 
 ## Checks
 
+Go commands need Go 1.27.1. If `go env GOTOOLCHAIN` prints `local` and your `go` is older, prefix Go commands with `GOTOOLCHAIN=go1.27.1`. Go then uses the toolchain already in your module cache or downloads it once. Offline use works only when that toolchain is already cached.
+
+On macOS, `TMPDIR` usually goes through the `/var` → `/private/var` symlink. CI runs Go tests in a physical, owner-only temporary directory, so resolve it before running the tests locally, outside the repository:
+
+```sh
+export TMPDIR="$(python3 -c 'import os, tempfile; print(os.path.realpath(tempfile.gettempdir()))')"
+```
+
 From the source root:
 
 ```sh
@@ -89,7 +98,7 @@ make vet
 make formatcheck
 ```
 
-Go tests use the `fts5,sqlite_fts5` build tags. Test fixtures are synthetic. Keep any live test profile separate from the default user archive.
+Go tests use the `fts5,sqlite_fts5,ts_omit_logtail` build tags from the Makefile. Test fixtures are synthetic. Keep any live test profile separate from the default user archive.
 
 The portable build helper and optional macOS package tooling have Python tests. Python 3.11 or newer is a contributor dependency for these checks, not an app runtime requirement:
 
@@ -118,6 +127,10 @@ With Node.js 20 or newer, run `make ui-test` for synthetic Stats filter, request
 Manually check keyboard access, dialogs, narrow screens, and Hebrew/English text when changing the browser interface. There is no npm install step.
 
 Optional native tests use separate build tags and verified artifacts. A passing ordinary test suite does not establish inference quality, memory use on target hardware, or clean-machine bundle startup. See [native models](native-models.md) and [macOS packaging](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/packaging/macos/README.md).
+
+## Docker source-build checks
+
+The Dockerfile, Compose overlays, and synthetic container acceptance are described in the [Docker tooling notes](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/scripts/docker/README.md). Those checks need Docker Engine 28+, Compose 2.20.2+, Node.js 24, the locked documentation Playwright dependency with Chromium, Go 1.27.1, and a separately built harness image. Public CI runs the native checks on Linux ARM64 and AMD64 runners for pull requests and pushes to `main`. The checks use synthetic fixtures; they do not use real WhatsApp accounts, live tunnel providers, end-user AI clients, or physical phones. The CI helper steps in `scripts/docker/ci.mjs` depend on the hosted runner's preparation step, so a local run is a developer check rather than CI evidence.
 
 ## Documentation website
 

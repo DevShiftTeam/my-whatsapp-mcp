@@ -41,6 +41,8 @@ Build and start the app:
 ./bin/wa-indexer serve
 ```
 
+The source build downloads its Go dependencies and, on supported platforms, a verified Cloudflare helper from GitHub. To build with an already downloaded helper asset, set `WA_INDEXER_CLOUDFLARED_ASSET` to its absolute file path before running the build; the asset must still match the pinned platform and checksum. Normal application startup does not download build tools or models.
+
 The browser opens an authenticated owner window. The fixed local address is `http://127.0.0.1:64165`, but entering that address alone does not create an owner session. Keep this terminal open while using the archive; the server waits for requests in that terminal. The executable name remains `wa-indexer` for compatibility.
 
 Optional: run `./bin/wa-indexer demo` instead to explore sample conversations. Demo data is separate from your real archive. Stop the demo with Ctrl+C before running `serve`.
@@ -122,10 +124,10 @@ Selected mode permits up to 100 chats. All mode includes current and future chat
 
 | OS | Default data directory |
 | --- | --- |
-| macOS | `~/Library/Application Support/My WhatsApp` |
-| Linux | `$XDG_CONFIG_HOME/My WhatsApp`, or `~/.config/My WhatsApp` when unset |
+| macOS | `~/Library/Application Support/WA Indexer` |
+| Linux | `$XDG_CONFIG_HOME/WA Indexer`, or `~/.config/WA Indexer` when unset |
 
-The data directory keeps its original `My WhatsApp` name so existing archives remain usable. The app keeps the archive, WhatsApp session, model files, media, and client credentials outside the source checkout. Directories use mode `0700`; ordinary private files use `0600`. The app rejects symlinks and unsafe permissions. Choose a new, empty local directory if using `--data-dir`; do not point it at your home directory or a folder of unrelated files.
+The data directory keeps its original `WA Indexer` name so existing archives remain usable. Keep the same explicit `--data-dir` if you use another location. The app keeps the archive, WhatsApp session, model files, media, and client credentials outside the source checkout. Directories use mode `0700`; ordinary private files use `0600`. The app rejects symlinks and unsafe permissions. Choose a new, empty local directory if using `--data-dir`; do not point it at your home directory or a folder of unrelated files.
 
 The databases are unencrypted. Enable OS disk encryption. Stop the app before copying the entire data directory for a backup, preserve its private permissions, and keep it out of public or shared folders. Do not open or modify its SQLite files while the app is running.
 

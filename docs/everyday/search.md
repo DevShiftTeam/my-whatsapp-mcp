@@ -22,7 +22,7 @@ Image processing remains experimental. The demo shows sample extraction text. Se
 
 | Control | Effect |
 | --- | --- |
-| Archive settings | Retains or removes stored messages according to policy |
+| Chats and dates | Retains or removes stored messages according to policy |
 | Search filters | Narrows the view of already retained messages |
 | AI connection scope | Restricts what one AI client may read |
 

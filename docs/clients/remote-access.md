@@ -4,9 +4,9 @@ description: Configure a named MCP-only tunnel with private owner access and sco
 ---
 # Remote access setup
 
-Use this guide to set up a Cloudflare tunnel manually for a native installation. Remote access is in preview; live-provider and AI-client tests are still pending.
+Use this guide to set up a Cloudflare tunnel manually for a native installation. Remote access is in preview; real-account, live-provider, and AI-client tests are still pending.
 
-For managed persistent access, use the local **Remote access** wizard and [provider guides](../remote/index.md). The manual MCP-only procedure below is an alternative for a native POSIX executable and a separately supervised helper on the same host. It must replay the same flags each launch, does not enable the managed wizard or remote browser, and is not a Docker host-to-container loopback recipe.
+For managed persistent access, use the local **Remote access** wizard and [provider guides](../remote/index.md). The manual MCP-only procedure below is an alternative for a native POSIX executable and a separately supervised helper on the same host. It must replay the same flags each launch, does not enable the managed wizard or remote browser, and is not a Docker host-to-container loopback recipe. Use one route per launch: a launch with `--mcp-listen` does not start the managed Remote access manager, and the managed Cloudflare route uses the fixed origin `127.0.0.1:8124`, the same port as the example below. Stop one route before starting the other.
 
 ## Choose one mode and the intended client
 
@@ -36,7 +36,7 @@ bin/wa-indexer serve \
   --mcp-public-url https://wa-mcp.example.com/mcp
 ```
 
-Use your own hostname and preserve your usual `--data-dir` if applicable. These flags must be supplied together; changing a running configuration requires restart. Port **8124** is this example's dedicated MCP port. **Never use the private owner interface or its address as the tunnel origin.** No packaged executable is available; see [desktop availability](../install/desktop.md).
+Use your own hostname and preserve your usual `--data-dir` if applicable. These flags must be supplied together; changing a running configuration requires restart. Do not run this listener while managed remote access is active on the same host. Port **8124** is this example's dedicated MCP port. **Never use the private owner interface or its address as the tunnel origin.** No packaged executable is available; see [desktop availability](../install/desktop.md).
 
 ### 2. Install cloudflared and create your own named tunnel
 

@@ -46,6 +46,7 @@ type OwnerVoiceRecoveryStatus struct {
 	Code           string `json:"code,omitempty"`
 }
 type OwnerVoiceRecoveryStore interface {
+	RecordOwnerVoiceReplyDiagnostic(context.Context, string, SourceRef, string) (bool, error)
 	RecordOwnerVoiceRestriction(context.Context, string, SourceKey, time.Time, bool) error
 	PrepareOwnerVoiceRedownloads(context.Context, ReadScope, int) ([]OwnerVoiceIntent, error)
 	RegisterOwnerVoiceRequest(context.Context, OwnerVoiceRequestRegistration) error
@@ -80,6 +81,8 @@ type ownerVoiceCommand struct {
 	registration OwnerVoiceRequestRegistration
 	reply        OwnerVoiceDescriptorReply
 	request      string
+	diagnostic   string
+	source       SourceRef
 }
 
 func (c ownerVoiceCommand) priority() bool                    { return false }
@@ -91,6 +94,8 @@ func (c ownerVoiceCommand) run(s *Store, ctx context.Context) (any, error) {
 	err := s.extensionTransaction(ctx, c.account(), func(tx *sql.Tx) error {
 		var err error
 		switch c.op {
+		case "reply_diagnostic":
+			v, err = s.ownerVoiceReplyDiagnostic(ctx, tx, c.request, c.source, c.diagnostic)
 		case "prepare":
 			v, err = s.ownerVoicePrepare(ctx, tx, c.scope, c.limit)
 		case "register":
@@ -118,6 +123,55 @@ func (c ownerVoiceCommand) run(s *Store, ctx context.Context) (any, error) {
 		return false, nil
 	}
 	return v, err
+}
+
+// These codes are private attempt evidence, never response content or authority.
+const ownerVoiceReplyDiagnosticSQL = `'voice_reply_invalid_envelope','voice_reply_key_mismatch','voice_reply_original_mismatch','voice_reply_no_audio','voice_reply_invalid_descriptor','voice_reply_not_accepted','voice_reply_bodyless','voice_reply_mutation','voice_reply_restricted'`
+
+func validOwnerVoiceReplyDiagnostic(code string) bool {
+	switch code {
+	case "voice_reply_invalid_envelope", "voice_reply_key_mismatch", "voice_reply_original_mismatch", "voice_reply_no_audio", "voice_reply_invalid_descriptor", "voice_reply_not_accepted", "voice_reply_bodyless", "voice_reply_mutation", "voice_reply_restricted":
+		return true
+	}
+	return false
+}
+
+func (s *Store) RecordOwnerVoiceReplyDiagnostic(ctx context.Context, request string, source SourceRef, code string) (bool, error) {
+	if !validString(request, 128) || !validExtensionMediaSource(source) || !validOwnerVoiceReplyDiagnostic(code) {
+		return false, ErrInvalidExtension
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	value, err := s.submitExtension(ctx, ownerVoiceCommand{op: "reply_diagnostic", scope: ReadScope{Account: source.Account}, request: request, source: source, diagnostic: code}, 2048)
+	if err != nil {
+		return false, err
+	}
+	return value.(bool), nil
+}
+
+func (s *Store) ownerVoiceReplyDiagnostic(ctx context.Context, tx *sql.Tx, request string, source SourceRef, code string) (bool, error) {
+	r, err := ownerVoiceLoad(ctx, tx, "request_id", request)
+	if errors.Is(err, ErrNoWork) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if r.state != "awaiting_phone" || unixms(s.now()) >= r.expires || r.snapshot.Intent.Source != source {
+		return false, nil
+	}
+	if _, err = s.readSafety(source.Account); err != nil {
+		return false, err
+	}
+	if err = s.ownerVoiceCurrent(ctx, tx, r); err != nil {
+		if errors.Is(err, ErrSourceUnavailable) || errors.Is(err, ErrPolicyChanged) {
+			return false, nil
+		}
+		return false, err
+	}
+	s.extensionRegisterDeadline(tx, fromMillis(r.expires))
+	_, err = tx.ExecContext(ctx, "UPDATE owner_voice_redownload_intents SET last_code=? WHERE id=?", code, r.snapshot.Intent.ID)
+	return err == nil, fixedSQLError(err)
 }
 
 type ownerVoiceLookup struct {
@@ -299,7 +353,7 @@ func (s *Store) ownerVoiceCheckScope(ctx context.Context, q sqlQuerier, scope Re
 	return nil
 }
 func (s *Store) ownerVoiceExpire(ctx context.Context, tx *sql.Tx, account string) error {
-	_, err := tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='expired',last_code='media_deadline_exceeded' WHERE account=? AND state IN ('prepared','awaiting_phone') AND request_expires_at<=?`, account, unixms(s.now()))
+	_, err := tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='expired',last_code=CASE WHEN last_code IN (`+ownerVoiceReplyDiagnosticSQL+`) THEN last_code ELSE 'media_deadline_exceeded' END WHERE account=? AND state IN ('prepared','awaiting_phone') AND request_expires_at<=?`, account, unixms(s.now()))
 	return fixedSQLError(err)
 }
 func (s *Store) ownerVoicePrepare(ctx context.Context, tx *sql.Tx, scope ReadScope, limit int) ([]OwnerVoiceIntent, error) {
@@ -480,7 +534,7 @@ func (s *Store) ownerVoiceAccept(ctx context.Context, tx *sql.Tx, reply OwnerVoi
 	if err != nil || len(snapshot) > 8192 {
 		return false, ErrInvalidExtension
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='ready',protocol_sha256=?,snapshot=?,protocol_reference=? WHERE id=?`, raw, snapshot, reply.Media.ProtocolReference, i.ID)
+	_, err = tx.ExecContext(ctx, `UPDATE owner_voice_redownload_intents SET state='ready',last_code='',protocol_sha256=?,snapshot=?,protocol_reference=? WHERE id=?`, raw, snapshot, reply.Media.ProtocolReference, i.ID)
 	return err == nil, fixedSQLError(err)
 }
 func (s *Store) ownerVoiceStatus(ctx context.Context, tx *sql.Tx, scope ReadScope) (OwnerVoiceRecoveryStatus, error) {
@@ -536,6 +590,16 @@ func (s *Store) ownerVoiceStatus(ctx context.Context, tx *sql.Tx, scope ReadScop
 		case "failed", "cancelled", "expired":
 			status.Failed++
 			status.Code = r.code
+			if validOwnerVoiceReplyDiagnostic(r.code) {
+				switch r.state {
+				case "expired":
+					status.Code = "media_deadline_exceeded"
+				case "cancelled":
+					status.Code = "media_canceled"
+				default:
+					status.Code = "media_invalid_admission"
+				}
+			}
 		case "ready":
 			var clean bool
 			err = tx.QueryRowContext(ctx, `SELECT `+extensionDownloadNoPhysicalSQL+` FROM extension_media_associations a WHERE a.id=?`, r.snapshot.Intent.MediaID).Scan(&clean)

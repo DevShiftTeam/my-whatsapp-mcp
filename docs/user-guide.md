@@ -16,7 +16,7 @@ For a first look without connecting WhatsApp:
 bin/wa-indexer demo
 ```
 
-The browser opens a private owner session. Save archive choices, open **Manage connection**, then choose **Load synthetic messages**. Search the sample Hebrew and English conversations. Demo has its own data directory and never displays a real pairing code. The demo transcripts and image text are samples. Stop the process with Ctrl-C before starting your real archive.
+The browser opens a private owner session. Save your choices, use the WhatsApp connection card's button (**Link WhatsApp** or **Connection details**), then choose **Load synthetic messages**. Search the sample Hebrew and English conversations. Demo has its own data directory and never displays a real pairing code. The demo transcripts and image text are samples. Stop the process with Ctrl-C before starting your real archive.
 
 Start the real-account workflow with:
 
@@ -26,17 +26,17 @@ bin/wa-indexer serve
 
 Keep the app process running while using the browser or an AI connection. Closing a browser tab does not stop the app. Starting the same archive again normally opens its existing owner interface rather than starting another archive writer.
 
-By default, data is stored outside the source checkout in your OS application-data directory (`~/Library/Application Support/My WhatsApp` on macOS). `--data-dir /absolute/local/directory` selects a different private data root; use an empty/new directory or an existing My WhatsApp root. Keep it on local storage outside cloud synchronization. Use the same data directory on later launches.
+By default, data is stored outside the source checkout in your OS application-data directory (`~/Library/Application Support/WA Indexer` on macOS). `--data-dir /absolute/local/directory` selects a different private data root; use an empty/new directory or an existing archive data root. Keep it on local storage outside cloud synchronization. Use the same data directory on later launches.
 
 `--no-open` suppresses automatic browser opening. The app manages a private owner link in its data directory; keep that link private. `--listen` accepts only a literal loopback address, such as `127.0.0.1:0`; the owner interface is for this computer.
 
 ## Choose what to keep, then link WhatsApp
 
-1. Open **Archive settings** and choose **Last 30 days**, **Last 90 days**, **A date I choose**, or **All available history**. The start date is inclusive.
-2. Choose **All chats** or **Only chats I select**, then **Save choices**. With no selected chat, selective mode saves no message bodies. Chat discovery retains metadata while discarding bodies until their chat is selected.
-3. Open **Manage connection → Show linking code**.
+1. Open **Set up your archive** (later, **Chats and dates**) and choose **Last 30 days**, **Last 90 days**, **A date I choose**, or **All available history**. The start date is inclusive.
+2. Choose **All chats** or **Only chats I select**, then **Save choices** (on first run, **Link WhatsApp to discover chats**). With no selected chat, selective mode saves no message bodies. Chat discovery retains metadata while discarding bodies until their chat is selected.
+3. Use **Link WhatsApp** in the WhatsApp connection card, then choose **Show linking code**.
 4. On your phone, open **WhatsApp → Linked devices → Link a device** and scan the private QR code. Use an account you own or have permission to archive. If the code expires, request a new one.
-5. Watch **WhatsApp**, **History received**, and **Keyword search** in the status strip. Search becomes useful as allowed messages arrive.
+5. Watch **WhatsApp connection**, **Saved messages**, and **Keyword search** in the status panel. Search becomes useful as allowed messages arrive.
 
 **All available history** means the history WhatsApp supplies to this linked device. The oldest received message is not proof that import is complete. Messages discarded before you selected a chat may be unavailable later. Older-history/backfill and retry wiring is still under development; do not rely on expanding a filter to restore removed or never-received messages.
 
@@ -46,13 +46,13 @@ Saving fewer chats or a later import date removes saved messages outside those c
 
 Enter a remembered name, place, word, phrase, or number in **Find a message**. Hebrew and English are supported. For example, `שלום` can match `שָׁלוֹם`; the displayed message keeps its original text and order.
 
-Use **Filters** to select a chat and inclusive **From**/**Through** dates. Choose a result to read neighboring messages in **Conversation**. **Copy visible messages** copies the displayed original body/caption and separately labeled extraction text, when present. **Show more messages** requests another bounded page; rerun the search if the app says the archive changed.
+Use **Filters** to choose a chat and set the **From, inclusive** and **Through, inclusive** dates. Choose a result to read neighboring messages in **Conversation**. **Copy visible messages** copies the displayed original body/caption and separately labeled extraction text, when present. **Show more messages** requests another bounded page; rerun the search if the app says the archive changed.
 
 These controls have different purposes:
 
 | Control | What it changes |
 | --- | --- |
-| Archive settings | Which messages are retained in your archive |
+| Chats and dates | Which messages are retained in your archive |
 | Search filters | Which already-retained messages this search displays |
 | AI connection scope | Which retained messages one client may read |
 
@@ -92,7 +92,7 @@ With the app stopped, the CLI also supports `wa-indexer models install PROFILE_I
 
 ## Connect an AI client
 
-An AI connection exposes four bounded read-only MCP tools: `search_messages`, `get_context`, `list_chats`, and `get_index_status`. It cannot change archive settings or send WhatsApp messages. The receiving AI app may send returned text to its own service.
+A new AI connection is read-only. Its MCP tools can search and read permitted messages, list permitted chats, search permitted contact and group names, find and retrieve permitted attachments, and report index and send status. The tool list also includes the three send tools, but calls to them are denied until you grant sending for that connection. The receiving AI app may send returned text to its own service.
 
 Open **AI connections**, choose the exact client and connection mode, name the connection, select its chats/dates, and set a future expiry. **Only chats I select** requires at least one included chat. **All archived chats, current and future** explicitly includes every chat you archive now or later, within the selected dates. Blank date fields permit all dates that your archive keeps; they never expand the archive itself.
 
@@ -122,7 +122,7 @@ bin/wa-indexer serve \
   --mcp-public-url https://wa-mcp.example.com/mcp
 ```
 
-Both flags are required together. The listener is a fixed literal loopback address; the public URL has no credentials, query string, or fragment. Include your usual `--data-dir` if you use a custom archive location. Changing these flags requires restarting; a second launch does not change the running route.
+Both flags are required together. The listener is a fixed literal loopback address; the public URL has no credentials, query string, or fragment. Include your usual `--data-dir` if you use a custom archive location. Changing these flags requires restarting; a second launch does not change the running route. This manual listener is an alternative to managed remote access. A launch with `--mcp-listen` does not start the managed Remote access manager, and the managed Cloudflare route uses the same fixed origin, `127.0.0.1:8124`. Use one route per launch.
 
 Separately configure your chosen HTTPS tunnel to reach that dedicated loopback origin. Follow your provider's setup for your own domain/account; My WhatsApp does not create, activate, or change it. The app records the public URL but does not provision or prove tunnel reachability.
 
@@ -134,7 +134,7 @@ Hosted Claude header support requires the owner's actual account capability and 
 
 ### Check access and revoke
 
-In the chosen client, try searching a phrase from a chat/date you allowed and open the returned context. Confirm excluded chats/dates are unavailable. Exercise all twelve tools before treating the connection as tested.
+In the chosen client, try searching a phrase from a chat/date you allowed and open the returned context. Confirm excluded chats/dates are unavailable. Check the read tools you plan to use before treating the connection as tested.
 
 Use the connection's **Revoke access** control in My WhatsApp when finished, and check that the old connection can no longer read through any tool. Then remove its client configuration. Removing a configuration or closing the token dialog alone does not revoke server access. Expired connections also stop granting access.
 
@@ -142,9 +142,9 @@ Use the connection's **Revoke access** control in My WhatsApp when finished, and
 
 **Pause import** stops import while keeping saved messages searchable, provided the archive is safe to read. **Resume import** resumes the configured connection. **Disconnect WhatsApp** keeps the local archive. These actions do not establish that offline changes or missing history have been recovered.
 
-**Archive settings → Delete all local data** requires typing `DELETE LOCAL DATA`. It removes the local archive, linked session, retained media, models, and client material after the app stops their use. It does not delete messages in WhatsApp. Treat it as deletion, not as a way to repair missing history.
+**Chats and dates → Delete all local data** requires typing `DELETE LOCAL DATA`. It removes the local archive, linked session, retained media, models, and client material after the app stops their use. It does not delete messages in WhatsApp. Treat it as deletion, not as a way to repair missing history.
 
-If the app reports **Needs attention** or reconciliation required, reads can remain blocked until safe recovery is established. Do not remove private state markers or modify database files to bypass it.
+If the app reports **Import stopped**, search can remain unavailable until the archive is verified or safely recovered. Do not remove private state markers or modify database files to bypass it.
 
 For a local diagnostic report, stop the running app and use the same data directory:
 

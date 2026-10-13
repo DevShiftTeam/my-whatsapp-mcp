@@ -537,10 +537,11 @@ await check('rhythm renders all UTC hours accessibly from sparse data with a tab
   const cells=descendants(h.nodes.get('stats-heatmap')).filter(node=>node.tagName==='BUTTON'); assert.equal(cells.length,168);
   assert.equal(cells.filter(node=>node.tabIndex===0).length,1);
   const selected=cells.find(node=>node.dataset.weekday==='0'&&node.dataset.hour==='8'); assert.ok(selected);
-  assert.match(selected.getAttribute('aria-label'),/Sunday.*08|Sun.*08/); assert.match(selected.getAttribute('aria-label'),/4.*message/);
+  const sunday=new Intl.DateTimeFormat(undefined,{weekday:'long',timeZone:'UTC'}).format(new Date(Date.UTC(2026,9,11)));
+  assert.equal(selected.getAttribute('aria-label'),`${sunday}, 08:00–08:59 UTC: 4 messages`);
   selected.focus(); assert.match(h.nodes.get('stats-rhythm-detail').textContent,/4.*message/); assert.match(h.nodes.get('stats-rhythm-detail').textContent,/UTC/);
   const zero=cells.find(node=>node.dataset.weekday==='6'&&node.dataset.hour==='23'); assert.match(zero.getAttribute('aria-label'),/0.*message/);
-  assert.equal(h.nodes.get('stats-rhythm-rows').children.length,7); assert.match(h.nodes.get('stats-rhythm-rows').children[0].textContent,/Sun.*6/);
+  assert.equal(h.nodes.get('stats-rhythm-rows').children.length,7); assert.ok(h.nodes.get('stats-rhythm-rows').children[0].textContent.startsWith(sunday)); assert.match(h.nodes.get('stats-rhythm-rows').children[0].textContent.slice(sunday.length),/6/);
 });
 await check('heatmap keyboard navigation has one tab stop and stays within its weekday and hour boundaries',async()=>{
   const h=harness(); h.api.renderStats(snapshot()); const cells=descendants(h.nodes.get('stats-heatmap')).filter(node=>node.tagName==='BUTTON');

@@ -112,6 +112,6 @@ These binary-stream examples are for POSIX shells. Do not translate `>` or `<` t
 
 ## Native data roots
 
-For native development, record the build and explicit `--data-dir`; macOS defaults to `~/Library/Application Support/My WhatsApp`. Stop the app, supervisors and every model/resource writer, confirm they have exited, then use a trusted backup tool to copy the complete root to a new private location preserving ownership, modes and resource metadata. Restore to a separate private root with the recorded build and verify it deliberately.
+For native development, record the build and explicit `--data-dir`; macOS defaults to `~/Library/Application Support/WA Indexer`. Stop the app, supervisors and every model/resource writer, confirm they have exited, then use a trusted backup tool to copy the complete root to a new private location preserving ownership, modes and resource metadata. Restore to a separate private root with the recorded build and verify it deliberately.
 
 Test a restore before depending on a backup. Backups cannot recover history WhatsApp never supplied or messages discarded before selection. [Updates](updates.md) explains migration/rollback limits; [compatibility](../compatibility.md) lists the current limits.

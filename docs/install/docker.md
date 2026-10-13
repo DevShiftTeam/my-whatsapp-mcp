@@ -4,7 +4,7 @@ description: Run the locally built preview manually with the same private contai
 ---
 # Docker
 
-Prefer [Docker Compose](docker-compose.md) to keep settings together. The manual option below uses an image you build locally. First build the `wa-indexer:development` image using the Compose guide, then stop that installation before starting another archive instance. Docker Engine **28+** is required. Full Linux ARM64 and AMD64 installation tests are still pending.
+Prefer [Docker Compose](docker-compose.md) to keep settings together. The manual option below uses an image you build locally. First build the `wa-indexer:development` image with the Compose guide's build command, which records the source revision, then stop that installation before starting another archive instance. Docker Engine **28+** is required. Public CI for commit `401c4ba` passed synthetic native Linux ARM64 and AMD64 container checks; real-account, live-provider, and end-user client tests are still pending.
 
 ## Run the built image
 
@@ -35,4 +35,4 @@ docker rm wa-indexer-standalone
 
 These commands retain `wa-indexer-standalone-data`. Run the original command again to recreate the container with that same volume. For an update, take a [full stopped-writer backup](../maintenance/backups.md) first and select the intended image; do not delete the volume. The backup helper commands also work for this named volume after every writer has stopped, substituting the exact standalone volume and container. [Uninstall](../maintenance/uninstall.md) separates removal from irreversible data deletion.
 
-This uses the same preview image as [Docker Compose](docker-compose.md#current-limits). There is no published image to pull, and real WhatsApp imports and actual AI-client calls have not yet been confirmed for this setup.
+This uses the same preview image as [Docker Compose](docker-compose.md#current-limits). There is no published image to pull, and real WhatsApp imports, live providers, and actual AI-client calls have not yet been confirmed for this setup.

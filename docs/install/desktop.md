@@ -14,7 +14,7 @@ After building, run this from the source checkout:
 bin/wa-indexer demo
 ```
 
-The browser opens automatically. Save your archive choices, then choose **Manage connection → Load synthetic messages**. Search the sample Hebrew and English conversations. The demo uses a separate archive and never connects to your WhatsApp account. Its sample transcripts and image text are examples.
+The browser opens automatically. Save your choices, then use the WhatsApp connection card's button (**Link WhatsApp** or **Connection details**) and choose **Load synthetic messages**. Search the sample Hebrew and English conversations. The demo uses a separate archive and never connects to your WhatsApp account. Its sample transcripts and image text are examples.
 
 Stop the demo with Ctrl+C before starting your own archive.
 
@@ -28,7 +28,7 @@ Follow [First run](../first-run.md) to choose chats and dates, then link your ph
 
 ## Find your data
 
-On macOS, the default directory is `~/Library/Application Support/My WhatsApp`. A custom `--data-dir` must be an absolute path to private local storage. Use the same directory on later launches, keep it outside shared or cloud-synced folders, and protect it with disk encryption.
+On macOS, the default directory is `~/Library/Application Support/WA Indexer`. A custom `--data-dir` must be an absolute path to private local storage. Use the same directory on later launches, keep it outside shared or cloud-synced folders, and protect it with disk encryption.
 
 Use `--no-open` to skip automatic browser opening. If needed, open the app's private `owner-url` on the same computer. Keep that link private. Starting the same archive again normally opens its existing owner interface.
 

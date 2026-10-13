@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
@@ -705,5 +706,164 @@ func TestOwnerVoiceRecoveryKnownNegativeSurvivesPolicyAndLocalRevisionDrift(t *t
 				t.Fatal("known negative gained positive authority", err)
 			}
 		})
+	}
+}
+
+func ownerVoiceDiagnosticPort(t *testing.T, s *Store) interface {
+	RecordOwnerVoiceReplyDiagnostic(context.Context, string, SourceRef, string) (bool, error)
+} {
+	t.Helper()
+	port, ok := any(s).(interface {
+		RecordOwnerVoiceReplyDiagnostic(context.Context, string, SourceRef, string) (bool, error)
+	})
+	if !ok {
+		t.Fatal("missing source-checked owner reply diagnostic port")
+	}
+	return port
+}
+
+func TestOwnerVoiceReplyDiagnosticPreservesAwaitingAndClearsOnAcceptance(t *testing.T) {
+	s, _, _, port, _, intent, reply, _ := ownerVoiceFixture(t)
+	ctx := context.Background()
+	diagnostics := ownerVoiceDiagnosticPort(t, s)
+	parent := ownerVoiceParentSnapshot(t, s, intent.Source.Version.MessageID)
+	initial := ownerVoiceInitialSnapshot(t, s, intent.MediaID)
+	for _, code := range []string{"voice_reply_invalid_envelope", "voice_reply_key_mismatch", "voice_reply_original_mismatch", "voice_reply_no_audio", "voice_reply_invalid_descriptor", "voice_reply_not_accepted", "voice_reply_bodyless", "voice_reply_mutation", "voice_reply_restricted"} {
+		ok, err := diagnostics.RecordOwnerVoiceReplyDiagnostic(ctx, reply.RequestID, intent.Source, code)
+		if err != nil || !ok {
+			t.Fatalf("diagnostic write: %s %v %v", code, ok, err)
+		}
+		var state, got, protocol string
+		if err := s.readDB.QueryRow("SELECT state,last_code,hex(protocol_reference) FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&state, &got, &protocol); err != nil {
+			t.Fatal(err)
+		}
+		if state != "awaiting_phone" || got != code || protocol != "" {
+			t.Fatalf("diagnostic changed admission: %s %s %s", state, got, protocol)
+		}
+	}
+	if parent != ownerVoiceParentSnapshot(t, s, intent.Source.Version.MessageID) || initial != ownerVoiceInitialSnapshot(t, s, intent.MediaID) {
+		t.Fatal("diagnostic changed parent or original completion")
+	}
+	if ok, err := port.AcceptOwnerVoiceDescriptor(ctx, reply); err != nil || !ok {
+		t.Fatalf("later valid reply: %v %v", ok, err)
+	}
+	var state, code string
+	if err := s.readDB.QueryRow("SELECT state,last_code FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&state, &code); err != nil {
+		t.Fatal(err)
+	}
+	if state != "ready" || code != "" {
+		t.Fatal("accepted reply retained rejection diagnostic", state, code)
+	}
+}
+
+func TestOwnerVoiceReplyDiagnosticRejectsStaleOrUnknownAuthority(t *testing.T) {
+	for _, scenario := range []string{"unknown", "expired", "policy", "source", "ready", "failed", "cancelled", "complete", "invalid_code"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, clock, _, port, scope, intent, reply, _ := ownerVoiceFixture(t)
+			ctx := context.Background()
+			diagnostics := ownerVoiceDiagnosticPort(t, s)
+			request, source, code := reply.RequestID, intent.Source, "voice_reply_invalid_envelope"
+			switch scenario {
+			case "unknown":
+				request = "unknown-request"
+			case "expired":
+				clock.Add(int64(6 * time.Minute / time.Millisecond))
+			case "policy":
+				if _, err := s.SetPolicy(ctx, ArchivePolicy{DateMode: DateAllAvailable, ChatMode: ChatsAll}, scope.PolicyGeneration); err != nil {
+					t.Fatal(err)
+				}
+			case "source":
+				source.Version.Revision++
+			case "ready":
+				if ok, err := port.AcceptOwnerVoiceDescriptor(ctx, reply); err != nil || !ok {
+					t.Fatal("fixture accept", err)
+				}
+			case "failed", "cancelled", "complete":
+				if _, err := s.writeDB.Exec("UPDATE owner_voice_redownload_intents SET state=?,last_code='media_unavailable' WHERE id=?", scenario, intent.ID); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid_code":
+				code = "private payload must never persist"
+			}
+			var before string
+			if err := s.readDB.QueryRow("SELECT last_code FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			if ok, _ := diagnostics.RecordOwnerVoiceReplyDiagnostic(ctx, request, source, code); ok {
+				t.Fatal("diagnostic accepted stale or unknown authority")
+			}
+			var after string
+			if err := s.readDB.QueryRow("SELECT last_code FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&after); err != nil {
+				t.Fatal(err)
+			}
+			if after != before {
+				t.Fatal("diagnostic changed unavailable/final request", before, after)
+			}
+		})
+	}
+}
+
+func TestOwnerVoiceReplyDiagnosticSurvivesExpiryWithExistingStatusCode(t *testing.T) {
+	s, clock, _, port, scope, intent, reply, _ := ownerVoiceFixture(t)
+	ctx := context.Background()
+	if ok, err := ownerVoiceDiagnosticPort(t, s).RecordOwnerVoiceReplyDiagnostic(ctx, reply.RequestID, intent.Source, "voice_reply_original_mismatch"); err != nil || !ok {
+		t.Fatal("diagnostic missing", err)
+	}
+	clock.Add(int64(6 * time.Minute / time.Millisecond))
+	status, err := port.OwnerVoiceRecoveryStatus(ctx, scope)
+	if err != nil || status.Failed != 1 || status.Code != "media_deadline_exceeded" {
+		t.Fatalf("expiry status changed: %+v %v", status, err)
+	}
+	var state, code string
+	if err := s.readDB.QueryRow("SELECT state,last_code FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&state, &code); err != nil {
+		t.Fatal(err)
+	}
+	if state != "expired" || code != "voice_reply_original_mismatch" {
+		t.Fatal("expiry erased reply evidence", state, code)
+	}
+	if ok, err := port.AcceptOwnerVoiceDescriptor(ctx, reply); err != nil || ok {
+		t.Fatal("diagnostic renewed expired authority", ok, err)
+	}
+}
+
+func TestOwnerVoiceReplyDiagnosticRejectsDeadlineCrossedBeforeCommit(t *testing.T) {
+	s, clock, _, _, _, intent, reply, _ := ownerVoiceFixture(t)
+	ctx := context.Background()
+	err := s.extensionTransaction(ctx, intent.Source.Account, func(tx *sql.Tx) error {
+		ok, err := s.ownerVoiceReplyDiagnostic(ctx, tx, reply.RequestID, intent.Source, "voice_reply_invalid_envelope")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			t.Fatal("diagnostic was not initially eligible")
+		}
+		clock.Add(int64(6 * time.Minute / time.Millisecond))
+		return nil
+	})
+	if err == nil {
+		t.Fatal("diagnostic committed after the request deadline")
+	}
+	var code string
+	if err := s.readDB.QueryRow("SELECT last_code FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&code); err != nil {
+		t.Fatal(err)
+	}
+	if code != "" {
+		t.Fatal("expired diagnostic transaction was not rolled back", code)
+	}
+}
+
+func TestOwnerVoiceReplyDiagnosticCancelledCallLeavesEvidenceUnchanged(t *testing.T) {
+	s, _, _, _, _, intent, reply, _ := ownerVoiceFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if ok, err := ownerVoiceDiagnosticPort(t, s).RecordOwnerVoiceReplyDiagnostic(ctx, reply.RequestID, intent.Source, "voice_reply_invalid_envelope"); ok || !errors.Is(err, context.Canceled) {
+		t.Fatal("cancelled diagnostic call lost its cancellation", ok, err)
+	}
+	var code string
+	if err := s.readDB.QueryRow("SELECT last_code FROM owner_voice_redownload_intents WHERE id=?", intent.ID).Scan(&code); err != nil {
+		t.Fatal(err)
+	}
+	if code != "" {
+		t.Fatal("cancelled diagnostic call changed evidence", code)
 	}
 }

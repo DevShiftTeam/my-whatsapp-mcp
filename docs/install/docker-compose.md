@@ -4,7 +4,7 @@ description: Start the source-built keyword-search preview with private persiste
 ---
 # Docker Compose
 
-You need **Git**, Docker Engine **28+**, Compose **2.20.2+**, and a POSIX shell. Docker builds the app from source; you do not need Go, Node.js, or Python on the host. There is no published container image yet. Full installation and real WhatsApp import tests for this setup are still pending; see [compatibility](../compatibility.md).
+You need **Git**, Docker Engine **28+**, Compose **2.20.2+**, and a POSIX shell. Docker builds the app from source; you do not need Go, Node.js, or Python on the host. There is no published container image yet. Public CI for commit `401c4ba` passed synthetic native Linux ARM64 and AMD64 container checks ([workflow run](https://github.com/DevShiftTeam/my-whatsapp-mcp/actions/runs/38373960272)). Real WhatsApp import, live-provider, and end-user AI-client tests are still pending; see [compatibility](../compatibility.md).
 
 ## Start and log in
 
@@ -13,14 +13,17 @@ Clone the public repository, then build and start the service:
 ```sh
 git clone https://github.com/DevShiftTeam/my-whatsapp-mcp.git
 cd my-whatsapp-mcp
+export WA_INDEXER_SOURCE_REVISION=$(git rev-parse HEAD)
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
 docker compose ps
 docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
 ```
 
+The exported revision is recorded in the image label. Build from an unmodified checkout so that the label matches the code you run, and export the variable again in any new shell before a rebuild.
+
 Open the returned private link on this computer. It expires in **30 seconds**; repeat the owner-link command whenever you need a fresh login. The normal browser address is `http://127.0.0.1:8123`. Login is separate from pairing WhatsApp. The service becomes ready before pairing, history synchronization or model setup. Routine logs contain no owner capability.
 
-The source build downloads its pinned build dependencies and compiles inside Docker. Subsequent application startup performs no installation, compilation or model download. Keep the source checkout accessible only to people you trust to operate this archive. Use the source-build command above; a release image is not available to pull.
+The source build downloads its pinned build dependencies, including the Cloudflare helper from GitHub, and compiles inside Docker. Subsequent application startup performs no installation, compilation or model download. Keep the source checkout accessible only to people you trust to operate this archive. Use the source-build command above; a release image is not available to pull.
 
 ## Choose another host port
 
@@ -52,4 +55,4 @@ For another device or a hosted client, review [remote access](../remote/index.md
 
 ## Current limits
 
-This setup is in preview. Linux ARM64 and AMD64 installation, actual AI-client calls, and live-provider connections still need full testing. WhatsApp history may be incomplete; check the received messages and date range after pairing.
+This setup is in preview. Synthetic native checks passed on Linux ARM64 and AMD64 for the source build. Real WhatsApp import, actual AI-client calls, live-provider connections, and restore still need testing. WhatsApp history may be incomplete; check the received messages and date range after pairing. Maintainers can find the synthetic check prerequisites in the [Docker tooling notes](https://github.com/DevShiftTeam/my-whatsapp-mcp/blob/main/scripts/docker/README.md).

@@ -19,11 +19,11 @@ The local app creates its owner login link; this is separate from WhatsApp pairi
 
 ## Choose chats and dates before pairing
 
-1. Open **Archive settings**. Choose **Last 30 days**, **Last 90 days**, **A date I choose**, or **All available history**. The start date is inclusive.
-2. Select **All chats** or **Only chats I select**, then **Save choices**. Selective mode with no selected chats saves no message bodies. Discovery can retain chat metadata before selection.
-3. Open **Manage connection → Show linking code**.
+1. Open **Set up your archive** (later, **Chats and dates**). Choose **Last 30 days**, **Last 90 days**, **A date I choose**, or **All available history**. The start date is inclusive.
+2. Select **All chats** or **Only chats I select**, then **Save choices**. On first run the button reads **Link WhatsApp to discover chats**. Selective mode with no selected chats saves no message bodies. Discovery can retain chat metadata before selection.
+3. Use **Link WhatsApp** in the WhatsApp connection card, then choose **Show linking code**.
 4. On your phone open **WhatsApp → Linked devices → Link a device**, then scan the QR code. Use an account you own or have permission to archive. Request a new code if it expires.
-5. Watch **WhatsApp**, **History received**, and **Keyword search**. After allowed messages arrive, [search](everyday/search.md) for a known received phrase and open its context.
+5. Watch **WhatsApp connection**, **Saved messages**, and **Keyword search** in the status panel. After allowed messages arrive, [search](everyday/search.md) for a known received phrase and open its context.
 
 ## Check observed coverage
 

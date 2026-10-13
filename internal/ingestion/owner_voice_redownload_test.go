@@ -20,6 +20,10 @@ type ownerVoiceTestStore struct {
 	registered        bool
 	consumed          bool
 	accepted          int
+	diagnostic        string
+	diagnosticErr     error
+	restrictionErr    error
+	acceptErr         error
 	restrictions      int
 	restrictionExpiry time.Time
 	restrictionView   bool
@@ -43,12 +47,18 @@ func (s *ownerVoiceTestStore) LookupOwnerVoiceRequest(_ context.Context, id stri
 	return s.intent, s.registered && id == s.intent.RequestID, nil
 }
 func (s *ownerVoiceTestStore) RecordOwnerVoiceRestriction(_ context.Context, _ string, _ archive.SourceKey, expiry time.Time, view bool) error {
+	if s.restrictionErr != nil {
+		return s.restrictionErr
+	}
 	s.restrictionExpiry = expiry
 	s.restrictionView = view
 	s.restrictions++
 	return nil
 }
 func (s *ownerVoiceTestStore) AcceptOwnerVoiceDescriptor(_ context.Context, q archive.OwnerVoiceDescriptorReply) (bool, error) {
+	if s.acceptErr != nil {
+		return false, s.acceptErr
+	}
 	if s.consumed || q.Key != s.intent.Key || q.RequestID != s.intent.RequestID {
 		return false, nil
 	}
@@ -319,6 +329,128 @@ func TestOwnerVoiceKnownEditPreservesRestrictionWithoutPositiveBody(t *testing.T
 			}
 			if s.accepted != 0 || len(s.events) != 1 || s.events[0].Kind != archive.EventEditInvalidation || s.events[0].Key != key || s.events[0].Body != "" || len(s.events[0].Media) != 0 || r.Status().Received != 0 {
 				t.Fatal("known edit gained positive body or descriptor authority")
+			}
+		})
+	}
+}
+
+func (s *ownerVoiceTestStore) RecordOwnerVoiceReplyDiagnostic(_ context.Context, request string, source archive.SourceRef, code string) (bool, error) {
+	if s.diagnosticErr != nil {
+		return false, s.diagnosticErr
+	}
+	if request != s.intent.RequestID || source != s.intent.Source || s.consumed {
+		return false, nil
+	}
+	s.diagnostic = code
+	return true, nil
+}
+
+func TestOwnerVoiceReplyDiagnosticsClassifyKnownRejectionsOnly(t *testing.T) {
+	cases := map[string]string{
+		"missing_sdk_source":       "voice_reply_invalid_envelope",
+		"envelope_disagrees":       "voice_reply_invalid_envelope",
+		"wrong_key":                "voice_reply_key_mismatch",
+		"wrong_timestamp":          "voice_reply_original_mismatch",
+		"wrong_revision":           "voice_reply_original_mismatch",
+		"no_audio":                 "voice_reply_no_audio",
+		"unknown_request":          "",
+		"missing_request":          "",
+		"oversized_request":        "",
+		"diagnostic_write_failure": "",
+	}
+	for scenario, want := range cases {
+		t.Run(scenario, func(t *testing.T) {
+			r, base, _, _ := voiceRedeliveryFixture(t)
+			item := base.items[0]
+			sent := item.OriginalSentAt.Truncate(time.Second)
+			s := &ownerVoiceTestStore{voiceRedeliveryStore: base, registered: true, intent: archive.OwnerVoiceIntent{ID: "intent", RequestID: "known-request", Key: item.Key, Source: item.Source, OriginalSentAt: sent, SourceRevision: sent.UnixMilli()}}
+			r.store = s
+			web := historyRecord(item.Key.Message, "").Message
+			web.Key.RemoteJID = proto.String(item.Key.Chat)
+			web.Key.FromMe = proto.Bool(true)
+			web.MessageTimestamp = proto.Uint64(uint64(sent.Unix()))
+			web.Message = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{DirectPath: proto.String("/synthetic/voice"), MediaKey: make([]byte, 32), FileSHA256: make([]byte, 32), FileEncSHA256: make([]byte, 32), FileLength: proto.Uint64(100), Mimetype: proto.String("audio/ogg")}}
+			switch scenario {
+			case "wrong_key":
+				web.Key.ID = proto.String("different")
+			case "wrong_timestamp":
+				web.MessageTimestamp = proto.Uint64(uint64(sent.Add(time.Second).Unix()))
+			case "wrong_revision":
+				s.intent.SourceRevision++
+			case "no_audio":
+				web.Message = &waE2E.Message{Conversation: proto.String("synthetic body cannot be admitted")}
+			case "diagnostic_write_failure":
+				s.diagnosticErr = errors.New("synthetic diagnostic unavailable")
+			}
+			event, err := r.client.ParseWebMessage(types.EmptyJID, web)
+			if err != nil {
+				t.Fatal(err)
+			}
+			event.UnavailableRequestID = s.intent.RequestID
+			switch scenario {
+			case "missing_sdk_source", "diagnostic_write_failure":
+				event.SourceWebMsg = nil
+			case "envelope_disagrees":
+				event.Info.ID = "different-envelope"
+			case "unknown_request":
+				event.UnavailableRequestID = "unknown-request"
+			case "missing_request":
+				event.UnavailableRequestID = ""
+			case "oversized_request":
+				event.UnavailableRequestID = fmt.Sprintf("%0129d", 0)
+			}
+			handled, err := r.ownerVoiceDescriptorReply(context.Background(), event)
+			if (scenario == "unknown_request" || scenario == "missing_request") == handled {
+				t.Fatal("known request consumption changed", handled)
+			}
+			if s.diagnostic != want {
+				t.Fatalf("known rejection diagnostic: got %q want %q", s.diagnostic, want)
+			}
+			if scenario == "diagnostic_write_failure" && !errors.Is(err, archive.ErrInvalidEvent) {
+				t.Fatal("diagnostic failure replaced original rejection", err)
+			}
+			if s.accepted != 0 || len(s.events) != 0 || r.Status().Received != 0 {
+				t.Fatal("diagnostic admitted source body or descriptor")
+			}
+		})
+	}
+}
+
+func TestOwnerVoiceReplyDiagnosticsDoNotBlamePhoneForStorageFailure(t *testing.T) {
+	for _, stage := range []string{"restriction", "admission"} {
+		t.Run(stage, func(t *testing.T) {
+			r, base, _, _ := voiceRedeliveryFixture(t)
+			item := base.items[0]
+			sent := item.OriginalSentAt.Truncate(time.Second)
+			failure := errors.New("synthetic storage unavailable")
+			s := &ownerVoiceTestStore{voiceRedeliveryStore: base, registered: true, intent: archive.OwnerVoiceIntent{ID: "intent", RequestID: "known-request", Key: item.Key, Source: item.Source, OriginalSentAt: sent, SourceRevision: sent.UnixMilli()}}
+			r.store = s
+			web := historyRecord(item.Key.Message, "").Message
+			web.Key.RemoteJID = proto.String(item.Key.Chat)
+			web.Key.FromMe = proto.Bool(true)
+			web.MessageTimestamp = proto.Uint64(uint64(sent.Unix()))
+			audio := &waE2E.AudioMessage{DirectPath: proto.String("/synthetic/voice"), MediaKey: make([]byte, 32), FileSHA256: make([]byte, 32), FileEncSHA256: make([]byte, 32), FileLength: proto.Uint64(100), Mimetype: proto.String("audio/ogg")}
+			web.Message = &waE2E.Message{AudioMessage: audio}
+			if stage == "restriction" {
+				audio.ViewOnce = proto.Bool(true)
+				s.restrictionErr = failure
+			} else {
+				s.acceptErr = failure
+			}
+			event, err := r.client.ParseWebMessage(types.EmptyJID, web)
+			if err != nil {
+				t.Fatal(err)
+			}
+			event.UnavailableRequestID = s.intent.RequestID
+			handled, err := r.ownerVoiceDescriptorReply(context.Background(), event)
+			if !handled || !errors.Is(err, failure) {
+				t.Fatal("storage failure lost its original result", handled, err)
+			}
+			if s.diagnostic != "" {
+				t.Fatalf("storage failure mislabeled as a phone reply: %q", s.diagnostic)
+			}
+			if s.accepted != 0 || len(s.events) != 0 || r.Status().Received != 0 {
+				t.Fatal("failed diagnostic processing admitted source content")
 			}
 		})
 	}

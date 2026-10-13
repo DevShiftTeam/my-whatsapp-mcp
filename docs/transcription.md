@@ -147,6 +147,8 @@ The owner API also accepts `POST /api/voice/retry` with `{"chat_id":"returned-ch
 
 Phone requests also check the saved WhatsApp identity and message direction against the archive. If the identities disagree, the request is skipped. A successful request acknowledgement still does not establish that the recording arrived.
 
+A timed-out request does not prove that the recording is missing from your phone. The phone may not have replied, or its reply may have failed the recording's verification checks. A still-pending request can keep a private reason code for its last rejected reply; the code is cleared on acceptance and is not shown in status or MCP. Expired requests, changed sources and local processing failures may leave no reply code, so an absent code does not prove that no reply arrived. Verification and permissions are not bypassed. Do not reset your archive or replace your AI connection just to retry a recording.
+
 For read-only AI access, see [MCP setup](mcp.md). For native image and semantic previews, see [native models](native-models.md).
 
 ## Optional Docker service

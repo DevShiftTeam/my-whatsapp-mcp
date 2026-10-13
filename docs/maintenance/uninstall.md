@@ -49,6 +49,6 @@ If any command fails, stop and investigate instead of forcing deletion. Do not r
 
 For a development executable, log out in WhatsApp's **Linked devices** if retiring the session, stop the app gracefully, and remove only its intended executable, client configuration and service/autostart registration. There is no packaged desktop installer yet.
 
-Native owner-interface deletion is separately available through **Archive settings → Delete all local data**, typing `DELETE LOCAL DATA`. It removes the local archive/session/models/client material, not WhatsApp messages. Do not use deletion to repair history or reconciliation warnings.
+Native owner-interface deletion is separately available through **Chats and dates → Delete all local data**, typing `DELETE LOCAL DATA`. It removes the local archive/session/models/client material, not WhatsApp messages. Do not use deletion to repair history or reconciliation warnings.
 
 Revoke app credentials, stop provider forwarding, and remove the exact tunnel/domain/route in the provider account separately; see [remote access](../remote/index.md). Removing a client configuration alone does not revoke its server grant. Deleting active data does not erase backups or results already sent to AI services; encrypted storage and your operating system's disposal process govern residual copies.

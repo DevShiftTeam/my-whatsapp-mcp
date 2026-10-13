@@ -34,9 +34,10 @@ Semantic and hybrid search, image OCR, and image descriptions are **experimental
 
 ## Docker Compose and managed remote access
 
-Docker Compose keeps your archive in a persistent private volume. Optional remote access connects AI clients or opens a password-protected browser interface on your phone. This setup is in preview: Linux container checks have passed on ARM64 and AMD64, but there is no published container image and real-provider and AI-client tests remain pending. Build the image from source:
+Docker Compose keeps your archive in a persistent private volume. Optional remote access connects AI clients or opens a password-protected browser interface on your phone. This setup is in preview. Public CI for commit `401c4ba` passed synthetic native Linux container checks on ARM64 and AMD64 ([workflow run](https://github.com/DevShiftTeam/my-whatsapp-mcp/actions/runs/38373960272)). There is still no published container image, and real-account, live-provider, end-user AI-client, and physical-phone tests remain pending. Build the image from source in the checkout:
 
 ```sh
+export WA_INDEXER_SOURCE_REVISION=$(git rev-parse HEAD)
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
 docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data
 ```

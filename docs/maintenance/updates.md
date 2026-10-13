@@ -11,6 +11,7 @@ A versioned downloadable app/container release remains planned. The [source-buil
 Review the selected source and migration notes, then use the same checkout, Compose project, `.env` and storage settings:
 
 ```sh
+export WA_INDEXER_SOURCE_REVISION=$(git rev-parse HEAD)
 docker compose -f compose.yaml -f compose.build.yaml up -d --build
 docker compose ps
 docker compose exec wa-indexer wa-indexer owner-link --data-dir /var/lib/wa-indexer/data

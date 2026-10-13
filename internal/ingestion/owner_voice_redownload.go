@@ -2,6 +2,7 @@ package ingestion
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
@@ -12,7 +13,7 @@ import (
 
 // Known IDs are consumed even after expiry or completion. They never obtain
 // delivered-history or rebuild authority over the archived parent body.
-func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.Message) (bool, error) {
+func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.Message) (handled bool, resultErr error) {
 	if event == nil || event.UnavailableRequestID == "" {
 		return false, nil
 	}
@@ -32,6 +33,16 @@ func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.M
 	if !known {
 		return false, nil
 	}
+	// Diagnostic persistence is best effort and cannot replace the admission
+	// result, skip negative controls, or grant body/descriptor authority.
+	diagnostic := "voice_reply_invalid_envelope"
+	defer func() {
+		// Operational failures are not evidence that the phone reply is bad.
+		// Preserve their original error without writing a reply-specific reason.
+		if diagnostic != "" && (resultErr == nil || errors.Is(resultErr, archive.ErrInvalidEvent)) {
+			_, _ = store.RecordOwnerVoiceReplyDiagnostic(bounded, event.UnavailableRequestID, intent.Source, diagnostic)
+		}
+	}()
 	if event.SourceWebMsg == nil || !recordWithinLimit(event) || validateMessageStructure(event) != nil {
 		return true, archive.ErrInvalidEvent
 	}
@@ -51,8 +62,10 @@ func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.M
 	}
 	if parsed.Message == nil {
 		if key != intent.Key {
+			diagnostic = "voice_reply_key_mismatch"
 			return true, archive.ErrInvalidEvent
 		}
+		diagnostic = "voice_reply_bodyless"
 		return true, r.projectBodylessHistory(bounded, parsed.Info.Chat, event.SourceWebMsg)
 	}
 	if isMutation(parsed) || isMutation(event) {
@@ -61,8 +74,10 @@ func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.M
 			return true, err
 		}
 		if negative.Key != intent.Key {
+			diagnostic = "voice_reply_key_mismatch"
 			return true, archive.ErrInvalidEvent
 		}
+		diagnostic = "voice_reply_mutation"
 		if negative.Kind != archive.EventDelete {
 			if err = r.sourceExpiry(bounded, &negative, parsed); err != nil {
 				return true, err
@@ -79,7 +94,12 @@ func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.M
 		_, err = r.apply(bounded, negative)
 		return true, err
 	}
-	if key != intent.Key || !parsed.Info.Timestamp.Equal(intent.OriginalSentAt) || parsed.Info.Timestamp.UnixMilli() != intent.SourceRevision {
+	if key != intent.Key {
+		diagnostic = "voice_reply_key_mismatch"
+		return true, archive.ErrInvalidEvent
+	}
+	if !parsed.Info.Timestamp.Equal(intent.OriginalSentAt) || parsed.Info.Timestamp.UnixMilli() != intent.SourceRevision {
+		diagnostic = "voice_reply_original_mismatch"
 		return true, archive.ErrInvalidEvent
 	}
 	e := archive.SourceEvent{Key: key, Kind: archive.EventOriginal, OriginalSentAt: parsed.Info.Timestamp, OriginalDateKnown: !parsed.Info.Timestamp.IsZero(), SourceRevision: parsed.Info.Timestamp.UnixMilli()}
@@ -92,9 +112,15 @@ func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.M
 			return true, err
 		}
 	}
-	if viewOnce || parsed.Message.GetAudioMessage() == nil {
+	if viewOnce {
+		diagnostic = "voice_reply_restricted"
 		return true, nil
 	}
+	if parsed.Message.GetAudioMessage() == nil {
+		diagnostic = "voice_reply_no_audio"
+		return true, nil
+	}
+	diagnostic = "voice_reply_invalid_descriptor"
 	pending, err := r.projectBody(bounded, &e, parsed.Message)
 	defer wipePending(pending)
 	if err != nil {
@@ -103,8 +129,10 @@ func (r *Runtime) ownerVoiceDescriptorReply(ctx context.Context, event *events.M
 	if len(e.Media) != 1 || e.Media[0].Kind != string(archive.MessageVoice) || e.Media[0].ViewOnce || len(e.Media[0].ProtocolReference) == 0 {
 		return true, nil
 	}
+	diagnostic = "voice_reply_not_accepted"
 	accepted, err := store.AcceptOwnerVoiceDescriptor(bounded, archive.OwnerVoiceDescriptorReply{RequestID: event.UnavailableRequestID, Key: key, OriginalSentAt: e.OriginalSentAt, SourceRevision: e.SourceRevision, ExpiresAt: e.ExpiresAt, Media: e.Media[0]})
 	if accepted && err == nil {
+		diagnostic = ""
 		r.WakeOriginalDownloads()
 	}
 	return true, err

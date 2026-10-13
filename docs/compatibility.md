@@ -11,7 +11,7 @@ My WhatsApp is available as source code. Docker and managed remote access are in
 | Option | Current support |
 | --- | --- |
 | [Local app](install/desktop.md) | Build from source on macOS ARM64. No signed installer or clean-machine installation test yet. |
-| [Docker Compose](install/docker-compose.md) or [Docker](install/docker.md) | Build the image from source. Linux ARM64 and AMD64 are configured, but full installation tests for the current version are still pending. |
+| [Docker Compose](install/docker-compose.md) or [Docker](install/docker.md) | Build the image from source. Public CI for commit `401c4ba` passed synthetic native Linux ARM64 and AMD64 container checks ([workflow run](https://github.com/DevShiftTeam/my-whatsapp-mcp/actions/runs/38373960272)). No published image; real-account, live-provider, and end-user client tests are pending. |
 | Native Windows | Not supported. |
 | Other native platforms | No packaged installation or confirmed desktop support. |
 | Documentation website | Hosted on GitHub Pages. The archive runs on your own machine. |
@@ -40,6 +40,6 @@ My WhatsApp is available as source code. Docker and managed remote access are in
 | [Composio](clients/composio.md) | Uses the experimental Custom MCP API. Registration and authenticated tool calls still need testing in an actual Composio project. |
 | OAuth | Not supplied by the remote setup. Use a supported bearer-token connection. |
 
-The setup instructions have been reviewed. Complete installation, real-account import and restore, live-provider connections, and actual AI-client calls remain untested for these setup options. Tests using sample data cannot establish WhatsApp delivery, complete history, or recognition quality.
+The setup instructions have been reviewed. The synthetic native Docker checks cover the source build, the acceptance flows, and normal serve behavior: offline startup without a helper process, remote access off by default, and same-volume recreation. They do not use real WhatsApp accounts, live providers, end-user AI clients, or physical phones. Real-account import and restore, live-provider connections, and actual AI-client calls remain untested for these setup options. Tests using sample data cannot establish WhatsApp delivery, complete history, or recognition quality. The Docker timings and sizes have no matched performance baseline, so they are not performance claims.
 
 After connecting, [check access](clients/remote-access.md#check-your-connection) with a harmless query and confirm that excluded chats stay hidden. Keep new connections read-only until you need [sending](clients/outbound-messaging.md).
