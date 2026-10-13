@@ -197,11 +197,11 @@
     if (value?.Snapshot?.UnknownHistoryGap === true || value?.unknown_history_gap === true) {
       unknownHistoryGapObserved = true;
       const notice = $("unknown-history-notice");
-      notice.textContent = "Partial history: unsupported records may leave edits, deletions, or retention changes unreflected. Current phone state is unknown. Known controls and current permissions remain enforced.";
+      notice.textContent = "Partial history: unsupported records may leave edits, deletions, or retention changes unreflected. Current phone state is unknown. Supported controls and current permissions remain enforced.";
       notice.hidden = false;
     } else if (!unknownHistoryGapObserved && (value?.Snapshot?.DeliveredHistorySnapshot === true || value?.delivered_history_snapshot === true)) {
       const notice = $("unknown-history-notice");
-      notice.textContent = "Delivered history snapshot: imported messages reflect the history returned by WhatsApp. Current phone state is unknown; older messages or later edits, deletions and retention changes may be missing. Known controls and current permissions remain enforced.";
+      notice.textContent = "Delivered history snapshot: imported messages reflect the history returned by WhatsApp. Current phone state is unknown; older messages or later edits, deletions and retention changes may be missing. Supported controls and current permissions remain enforced.";
       notice.hidden = false;
     }
     return value;

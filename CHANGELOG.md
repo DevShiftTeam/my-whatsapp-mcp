@@ -4,6 +4,8 @@
 
 ### Added
 
+- In explicit partial-history mode, record unsupported noncontent metadata, notices and control shapes as uncertainty while retaining supported source controls and current permissions. Keep readable Archive, Stats and MCP data available with persistent partial-history warnings; genuine source-safety failures remain visible.
+
 - Add explicit rebuilt-profile delivered-history import with bounded page and body budgets, durable startup selection, preserved client/session authority and negative controls, and honest partial-snapshot labels. Individually correlated recovery remains the default; no full-history guarantee is implied.
 
 - Show earlier-history import activity in Archive and Stats, with accepted copies separate from readable Live messages, explicit waiting and paused states, and reduced-motion support. Progress does not imply a complete import or reliable finish time.

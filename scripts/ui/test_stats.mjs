@@ -132,7 +132,7 @@ function harness(clock = null) {
     setInterval:callback => { const id=nextTimer++; intervals.set(id,callback); return id; },clearInterval:id => intervals.delete(id),
   };
   const fetch = (path,options={}) => new Promise((resolve,reject) => { requests.push({path,options,resolve:(value,status=200) => resolve({ok:status>=200&&status<300,status,json:async()=>value}),resolveJSON:json => resolve({ok:true,status:200,json}),reject}); });
-  const expose = `  globalThis.__test = {requestAPI:api,openSettings,savePolicy,refreshStatus,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
+  const expose = `  globalThis.__test = {requestAPI:api,openSettings,savePolicy,refreshStatus,refreshConnections,refreshStats,resetStats,selectWorkspaceView,changeStatsFilters,statsFilter,invalidateStats,renderStats,renderStatsChart,renderStatsStatus,renderStatsProgress,renderStatsRhythm,renderStatsBreakdown,changeStatsBreakdown,setStatsChartMode,expireAuth,startPolling,stopPolling,
     state:()=>({activeView,statsSnapshot,statsVersion,statsController,statsReloadQueued,authExpired,authEpoch,statsDimension,statsPage,statsPageSize,statsSort,statsChartMode}),
     setStatus:value=>{status=value;},setSetup:value=>{setup=value;},setChats:value=>{chats=value;},setView:value=>{activeView=value;}};\n})();`;
   const ClockDate = clock ? class extends Date { static now() { return clock.now; } } : Date;
@@ -157,6 +157,34 @@ async function statusPoll(h,next) {
   assert.equal(h.requests.at(-1).path,'/api/status','progress uses the existing owner status request');
   h.requests.at(-1).resolve(next); await polling;
 }
+
+await check('partial uncertainty keeps readable Stats and saved AI cards available without claiming unsupported controls are enforced',async()=>{
+  const h=harness();await statusPoll(h,recoveryStatus({}, {Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:false}));
+  const warning=h.nodes.get('unknown-history-notice');
+  assert.match(warning.textContent,/supported controls.*current permissions.*enforced/i);
+  assert.doesNotMatch(warning.textContent,/all known|known controls.*enforced/i);
+  const stats=h.api.refreshStats();h.requests.at(-1).resolve({...snapshot(),unknown_history_gap:true});await stats;
+  assert.equal(h.nodes.get('stats-message-count').textContent,'6');
+  assert.equal(h.nodes.get('search-content').hidden,false);
+  h.nodes.get('clients-dialog').open=true;
+  const clients=h.api.refreshConnections();assert.equal(h.requests.at(-1).path,'/api/connections');
+  h.requests.at(-1).resolve({local_state:'ready',remote_state:'ready',recovery_state:'ready',local_recovery_state:'ready',remote_recovery_state:'ready',items:[{id:'synthetic-existing-client',client:'codex_desktop',label:'Synthetic preserved AI client',mode:'remote',revision:3,state:'ready',expires_at:'2027-01-01T00:00:00Z',scope:{all_chats:true,chat_count:0,chats:[]},send_permission:{mode:'none',revision:1,chats:[]}}]});await clients;
+  assert.match(h.nodes.get('client-list').textContent,/Synthetic preserved AI client.*Grant ready/i);
+  assert.equal(h.nodes.get('clients-feedback').textContent,'');
+  assert.ok(h.requests.every(request=>!request.options.method||request.options.method==='GET'||request.path==='/api/stats'),'rendering partial state does not mutate connection or import choices');
+});
+await check('partial uncertainty never masks a source reconciliation fence or endpoint failure',async()=>{
+  const h=harness();await statusPoll(h,recoveryStatus({}, {Snapshot:{UnknownHistoryGap:true},ReconciliationRequired:true,Connection:'reconciliation_required'}));
+  assert.equal(h.nodes.get('search-content').hidden,true);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+  const before=h.requests.length;await h.api.refreshStats();assert.equal(h.requests.length,before,'unsafe Stats cannot start a read');
+  assert.match(h.nodes.get('stats-feedback').textContent,/unavailable.*requires checks/i);
+  h.nodes.get('clients-dialog').open=true;const clients=h.api.refreshConnections();h.requests.at(-1).resolve({code:'client_connections_unavailable'},503);await clients;
+  assert.equal(h.nodes.get('client-list').textContent,'');assert.match(h.nodes.get('clients-feedback').textContent,/AI connections are unavailable/i);
+  const failed=h.api.refreshStatus();h.requests.at(-1).resolve({code:'not_found'},404);await failed;
+  assert.match(h.nodes.get('status-notice').textContent,/did not finish/i);
+  assert.equal(h.document.getElementById('history-import-spinner').hidden,true);
+});
 
 function deliveredStatus(progress={},statusOverrides={}) {
   return recoveryStatus({strategy:'delivered-history',strategy_epoch:5,delivered_accepted:2500,delivered_limit:10000,readable_messages:2300,delivered_oldest:'2026-02-03T04:05:06Z',page_attempts:20,page_state:'waiting_phone',discovery_spent:64,...progress},{Snapshot:{UnknownHistoryGap:false,DeliveredHistorySnapshot:true},...statusOverrides});

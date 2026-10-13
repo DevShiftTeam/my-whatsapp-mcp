@@ -24,13 +24,31 @@ func AcceptedPartialHistoryDiagnosticAllowed(diagnostic ClassifiedHistoryDiagnos
 	return diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 229, StubPresent: true, StubKnown: false, Presence: 155})
 }
 
-// AcceptedPartialHistoryEvidenceAllowed binds each owner-accepted stop to its
-// reviewed producer. Known177 is an unresolved semantic gap, not a benign notice.
-func AcceptedPartialHistoryEvidenceAllowed(diagnostic ClassifiedHistoryDiagnostic, buildSHA string) bool {
+type acceptedHistoryCategory uint8
+
+const (
+	acceptedHistoryInvalid acceptedHistoryCategory = iota
+	acceptedHistoryUndeclared
+	acceptedHistoryUnresolvedShape
+)
+
+func acceptedPartialHistoryCategory(diagnostic ClassifiedHistoryDiagnostic, buildSHA string) acceptedHistoryCategory {
 	if AcceptedPartialHistoryDiagnosticAllowed(diagnostic) && AcceptedPartialHistoryProducerSupported(buildSHA) {
-		return true
+		return acceptedHistoryUndeclared
 	}
-	return buildSHA == "30954642f78a33171d4ba1de7ae987af0b42d159" && diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 177, StubPresent: true, StubKnown: true, Presence: 411})
+	if buildSHA == "30954642f78a33171d4ba1de7ae987af0b42d159" && diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_body_missing", RawStub: 177, StubPresent: true, StubKnown: true, Presence: 411}) {
+		return acceptedHistoryUnresolvedShape
+	}
+	if buildSHA == "4588d5015b8548ab6a57a734a9a95dd433e63c4c" && diagnostic == (ClassifiedHistoryDiagnostic{Event: "history_failure", Stage: "record_safety_metadata", RawStub: 229, StubPresent: true, StubKnown: false, Presence: 155}) {
+		return acceptedHistoryUnresolvedShape
+	}
+	return acceptedHistoryInvalid
+}
+
+// Exact reviewed stops require owner acceptance; unresolved shape is never
+// certified as harmless or counted as an undeclared raw-code observation.
+func AcceptedPartialHistoryEvidenceAllowed(diagnostic ClassifiedHistoryDiagnostic, buildSHA string) bool {
+	return acceptedPartialHistoryCategory(diagnostic, buildSHA) != acceptedHistoryInvalid
 }
 
 // ClassifiedHistoryDiagnosticFor retains the original diagnostic constructors.
@@ -77,7 +95,7 @@ type ClassifiedHistoryDiagnostic struct {
 	Presence    uint64 `json:"presence"`
 }
 
-// Metadata reads admit only exact reviewed schemas 14 through 18. Writable
+// Metadata reads admit only exact reviewed schemas 14 through 19. Writable
 // original-cache recovery still requires the latest complete migration history.
 func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int, error) {
 	if err := validateOriginalCacheMigrationHistory(ctx, tx, false); err != nil {
@@ -87,7 +105,7 @@ func validateCompatibleSnapshotMigrations(ctx context.Context, tx *sql.Tx) (int,
 	if err := tx.QueryRowContext(ctx, "SELECT max(version) FROM schema_migrations").Scan(&version); err != nil {
 		return 0, fixedSQLError(err)
 	}
-	if version != 14 && version != 15 && version != 16 && version != 17 && version != 18 {
+	if version != 14 && version != 15 && version != 16 && version != 17 && version != 18 && version != 19 {
 		return 0, ErrSchemaChanged
 	}
 	return version, nil

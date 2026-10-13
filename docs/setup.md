@@ -64,7 +64,7 @@ Open **Chats and dates** and choose what to keep:
 
 Click **Save choices**. Watch the saved-message count as readable messages arrive. These choices remain in effect after restarts.
 
-Reviewed roster, administration and display notices without message bodies are handled without stopping import. They do not create message content or change local permissions; unknown or unsafe records still require source-safety checks.
+Reviewed roster, administration and display notices without message bodies are handled without stopping import. They do not create message content or change local permissions. Unsupported records follow the selected history policy below; source-safety checks remain active.
 
 ## 5. Verify your import
 
@@ -76,7 +76,7 @@ Stop the app with Ctrl+C, start it again with `./bin/wa-indexer serve`, and repe
 
 Rebuilt profiles default to `serve --rebuild-history-policy selected-original`. This strategy admits older message bodies only through individually correlated recovery requests. A trusted operator can instead explicitly select `--rebuild-history-policy delivered-history` at startup to import validated history pages delivered through the linked session. Keep the same profile, linked-device session, client grants and existing launch arguments.
 
-Delivered history is a **partial snapshot**, without individual request proof or a guarantee of current phone state. Known deletions, edits, expiry, view-once restrictions and current chat/date permissions still apply. This setting is independent of the unknown-history policy below; it does not make malformed or unsupported control records acceptable.
+Delivered history is a **partial snapshot**, without individual request proof or a guarantee of current phone state. Supported deletions, edits, expiry and view-once restrictions, plus current chat/date permissions, still apply. This setting is independent of the unknown-history policy below; it does not bypass source-safety checks.
 
 The selection is recorded before connection and cannot change through a browser, MCP call or attachment to an existing process. Restart with the explicit delivered-history flag after selecting it; omitting the flag must not silently change a stored selection. Explicitly switching back to selected-original retains the partial-snapshot warning and prior accounting.
 
@@ -86,9 +86,9 @@ Paging starts from the newest usable anchor for each selected chat and requests 
 
 `serve --unknown-history-policy strict` is the default. A trusted operator may explicitly choose `--unknown-history-policy partial` on the existing `serve` launch. Keep the current data directory, linked-device session, AI-client configuration and other launch arguments. Changing this option requires stopping and restarting the app; there is no browser or MCP toggle.
 
-Partial mode continues only for tightly validated, undeclared history notices without message bodies in eligible conversation contexts. It does not create content, relax known deletion or retention controls, or change current chat/date policy and client permissions. Other unsafe records remain refused.
+Partial mode processes supported source controls before handling unsupported noncontent metadata, notices or control shapes. It records unsupported effects as history gaps so readable messages can continue importing and remain available to Archive, Stats and MCP. Supported deletion, edit, expiry and view-once controls, current chat/date policy and client permissions remain enforced. Skipped noncontent data does not generate message text, and genuine source-safety failures still stop protected reads.
 
-Choosing partial mode accepts that unsupported edits, deletions or retention changes may be unreflected. When an unknown gap is encountered, the owner UI and archive reads, including MCP, carry a persistent account-wide warning: history is partial and current phone state is unknown. Restarting, switching back to strict or upgrading the recovery destination does not clear an existing warning. This does not establish complete history.
+Choosing partial mode accepts that unsupported metadata, edits, deletions or retention changes may be unreflected. When a gap is encountered, the owner UI and archive reads, including MCP, carry a persistent account-wide warning: history is partial and current phone state is unknown. This warning does not mean every event defined by the WhatsApp SDK is supported. Restarting, switching back to strict or upgrading the recovery destination does not clear an existing warning. This does not establish complete history.
 
 ## Everyday use
 

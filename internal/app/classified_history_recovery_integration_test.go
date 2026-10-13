@@ -67,7 +67,7 @@ func classifiedIntegrationProfile(t *testing.T, legacy bool) classifiedIntegrati
 		if start < 0 {
 			t.Fatal("missing legacy audit schema")
 		}
-		if _, err = db.Exec("DROP TABLE rebuild_history_frontiers; DROP TABLE rebuild_history_pages; DROP TABLE rebuild_history_bodies; DROP TABLE rebuild_history_selection_audit; DROP TABLE rebuild_history_selection; DROP TABLE unknown_history_codes; DROP TABLE unknown_history_coverage; DROP TABLE snapshot_recovery_audit;" + string(raw[start:]) + "; DELETE FROM schema_migrations WHERE version>=15"); err != nil {
+		if _, err = db.Exec("DROP TABLE history_uncertainty_reasons; DROP TABLE history_uncertainty_coverage; DROP TABLE rebuild_history_frontiers; DROP TABLE rebuild_history_pages; DROP TABLE rebuild_history_bodies; DROP TABLE rebuild_history_selection_audit; DROP TABLE rebuild_history_selection; DROP TABLE unknown_history_codes; DROP TABLE unknown_history_coverage; DROP TABLE snapshot_recovery_audit;" + string(raw[start:]) + "; DELETE FROM schema_migrations WHERE version>=15"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -344,7 +344,7 @@ func TestClassifiedHistoryProfileRecoveryRetriesAfterBindingAndMigration(t *test
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if version != 18 || audits != 0 {
+	if version != 19 || audits != 0 {
 		t.Fatal("interruption was not between migration and recovery prepare", version, audits)
 	}
 	if _, err := os.Stat(classifiedHistoryBindingPath(f.paths, e.Witness.EvidenceSHA256)); err != nil {

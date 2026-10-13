@@ -192,6 +192,8 @@ func (s *Store) writerLoop() {
 				v, e = s.applyEvent(c.ctx, x.event, x.expected)
 			case aliasCommand:
 				e = s.applyAlias(c.ctx, x.alias)
+			case historyUncertaintyCommand:
+				e = s.recordHistoryUncertainty(c.ctx, x)
 			case unknownHistoryGapCommand:
 				e = s.recordUnknownHistoryGap(c.ctx, x.account, x.rawStub)
 			case syncCommand:

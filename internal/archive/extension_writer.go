@@ -52,7 +52,7 @@ func commandSourceSensitive(payload any, control bool) bool {
 		return p.policy != nil
 	}
 	switch payload.(type) {
-	case drainCommand, expiryCommand:
+	case drainCommand, expiryCommand, historyUncertaintyCommand:
 		return false
 	}
 	if _, ok := payload.(eventCommand); ok {

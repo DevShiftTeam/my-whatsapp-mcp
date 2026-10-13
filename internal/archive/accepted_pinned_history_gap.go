@@ -42,7 +42,7 @@ func acceptedPinnedHistoryGaps(ctx context.Context, q sqlQuerier, account string
 		if e != nil || digest != expectedDigest || current != w.RecoveryEpoch+1 {
 			return 0, 0, ErrReconciliationRequired
 		}
-		if w.Diagnostic.RawStub == 177 {
+		if acceptedPartialHistoryCategory(w.Diagnostic, w.RuntimeBuildSHA) == acceptedHistoryUnresolvedShape {
 			count++
 			epoch = current
 		}
@@ -55,7 +55,7 @@ func recordAcceptedPartialHistoryGap(ctx context.Context, tx *sql.Tx, a snapshot
 	if err != nil {
 		return err
 	}
-	if w.Diagnostic.RawStub == 229 {
+	if acceptedPartialHistoryCategory(w.Diagnostic, w.RuntimeBuildSHA) == acceptedHistoryUndeclared {
 		return recordUnknownHistoryGapTx(ctx, tx, a.account, 229, s.now())
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO sync_gaps(account,chat,code) VALUES(?,'',?)", a.account, ownerAcceptedHistoryGapCode); err != nil {
@@ -69,7 +69,7 @@ func requireAcceptedPartialWitnessGap(ctx context.Context, q sqlQuerier, account
 	if _, _, err := canonicalAcceptedPartialHistoryWitness(w); err != nil {
 		return err
 	}
-	if w.Diagnostic.RawStub == 229 {
+	if acceptedPartialHistoryCategory(w.Diagnostic, w.RuntimeBuildSHA) == acceptedHistoryUndeclared {
 		return requireAcceptedPartialHistoryGap(ctx, q, account)
 	}
 	var present bool

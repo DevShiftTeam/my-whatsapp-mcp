@@ -47,6 +47,7 @@ func (r *Runtime) historyFrom(ctx context.Context, event *events.Message) error 
 	if notification == nil {
 		return archive.ErrInvalidEvent
 	}
+	ctx = r.captureHistoryObservation(ctx)
 	delivered, err := r.captureDeliveredHistory(ctx)
 	if err != nil {
 		return err
@@ -138,12 +139,13 @@ func (r *Runtime) historyFailureObserved(err error, first bool) {
 // Never format a provider error: it can contain message bodies, identities, or
 // signed download URLs. Diagnostics use closed codes and bounded protocol scalars.
 type historyStageError struct {
-	stage, stub string
-	stubType    int32
-	rawStub     int32
-	stubPresent bool
-	presence    uint32
-	cause       error
+	stage, stub  string
+	stubType     int32
+	rawStub      int32
+	stubPresent  bool
+	presence     uint32
+	diagnosticV2 *historyDiagnosticV2
+	cause        error
 }
 
 func (e *historyStageError) Error() string { return e.stage }
@@ -270,18 +272,25 @@ func historyFailureDiagnostic(err error) []byte {
 		presence = observed.presence & ((1 << 20) - 1)
 	}
 	// Fixed strings, booleans and at most 32-bit numbers keep this first-failure
-	// record below 1 KiB without truncation or formatting the underlying error.
+	// legacy record below 1 KiB. Optional v2 has at most eight containers and
+	// four unknown tags each, bounded to 4 KiB without any provider values.
 	encoded, _ := json.Marshal(struct {
-		Event       string `json:"event"`
-		Stage       string `json:"stage"`
-		Stub        string `json:"stub"`
-		StubType    int32  `json:"stub_type"`
-		RawStub     int32  `json:"raw_stub"`
-		StubPresent bool   `json:"stub_present"`
-		StubKnown   bool   `json:"stub_known"`
-		Presence    uint32 `json:"presence"`
+		Event        string               `json:"event"`
+		Stage        string               `json:"stage"`
+		Stub         string               `json:"stub"`
+		StubType     int32                `json:"stub_type"`
+		RawStub      int32                `json:"raw_stub"`
+		StubPresent  bool                 `json:"stub_present"`
+		StubKnown    bool                 `json:"stub_known"`
+		Presence     uint32               `json:"presence"`
+		DiagnosticV2 *historyDiagnosticV2 `json:"v2,omitempty"`
 	}{Event: "history_failure", Stage: stage, Stub: stub, StubType: stubType,
-		RawStub: rawStub, StubPresent: stubPresent, StubKnown: stubKnown, Presence: presence})
+		RawStub: rawStub, StubPresent: stubPresent, StubKnown: stubKnown, Presence: presence, DiagnosticV2: func() *historyDiagnosticV2 {
+			if observed != nil {
+				return observed.diagnosticV2
+			}
+			return nil
+		}()})
 	return append(encoded, '\n')
 }
 
@@ -322,6 +331,7 @@ func (r *Runtime) projectHistory(ctx context.Context, raw []byte) error {
 	return r.projectHistoryWithDelivered(ctx, raw, nil)
 }
 func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, delivered *deliveredHistoryChunk) (err error) {
+	ctx = r.captureHistoryObservation(ctx)
 	first := !r.Status().ReconciliationRequired
 	defer func() {
 		if err != nil {
@@ -337,6 +347,15 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 	if int64(len(raw)) > decodedMax {
 		return historyStage(errLimitExceeded, "decode", "no_stub")
 	}
+	partialContext := r.config.UnknownHistoryPolicy == UnknownHistoryPartial
+	var envelopeAnalysis *historyAnalysis
+	if partialContext {
+		analysis, scanErr := analyzeHistoryWire(ctx, raw, envelopeHistoryDescriptor())
+		envelopeAnalysis = &analysis
+		if scanErr != nil {
+			return historyAnalysisError(scanErr, analysis, nil)
+		}
+	}
 	syncType := -1
 	err = walkWire(raw, func(number protowire.Number, typ protowire.Type, _ []byte, v uint64) error {
 		if err := ctx.Err(); err != nil {
@@ -351,11 +370,19 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 		return nil
 	})
 	if err != nil {
-		return historyStage(err, "sync_header", "no_stub")
+		return prependHistoryDiagnostic(historyStage(err, "sync_header", "no_stub"), envelopeAnalysis)
 	}
 	if syncType < 0 {
-		return historyStage(errHistoryCorrupt, "sync_header", "no_stub")
+		return prependHistoryDiagnostic(historyStage(errHistoryCorrupt, "sync_header", "no_stub"), envelopeAnalysis)
 	}
+	if envelopeAnalysis != nil {
+		if reason := envelopeAnalysis.reason(); reason != "" {
+			if gapErr := r.recordHistoryUncertainty(ctx, reason); gapErr != nil {
+				return historyAnalysisError(gapErr, *envelopeAnalysis, nil)
+			}
+		}
+	}
+
 	err = walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -366,6 +393,15 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 		if typ != protowire.BytesType || len(value) > 1024 {
 			return errHistoryCorrupt
 		}
+		if partialContext {
+			mapping, scanErr := analyzeHistoryWire(ctx, value, (&waHistorySync.PhoneNumberToLIDMapping{}).ProtoReflect().Descriptor())
+			if scanErr != nil {
+				return historyAnalysisError(scanErr, mapping, nil)
+			}
+			if mapping.reason() != "" {
+				return nil
+			} // parent uncertainty already committed; this mapping grants no identity
+		}
 		var m waHistorySync.PhoneNumberToLIDMapping
 		if err := (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(value, &m); err != nil {
 			return errHistoryCorrupt
@@ -375,7 +411,6 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 	if err != nil {
 		return historyStage(err, "mapping", "no_stub")
 	}
-	partialContext := r.config.UnknownHistoryPolicy == UnknownHistoryPartial && partialHistoryWire(ctx, raw, partialHistoryEnvelope)
 	err = walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -386,7 +421,7 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 		if typ != protowire.BytesType {
 			return errHistoryCorrupt
 		}
-		return r.projectConversationDelivered(ctx, value, partialContext, delivered)
+		return prependHistoryDiagnostic(r.projectConversationDelivered(ctx, value, partialContext, delivered), envelopeAnalysis)
 	})
 	if err != nil {
 		return historyStage(err, "record_decode", "no_stub")
@@ -403,8 +438,21 @@ func (r *Runtime) projectConversation(ctx context.Context, raw []byte) error {
 func (r *Runtime) projectConversationContext(ctx context.Context, raw []byte, partialContext bool) error {
 	return r.projectConversationDelivered(ctx, raw, partialContext, nil)
 }
-func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, partialContext bool, delivered *deliveredHistoryChunk) error {
-	partialContext = partialContext && partialHistoryWire(ctx, raw, partialHistoryConversation)
+func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, partialContext bool, delivered *deliveredHistoryChunk) (result error) {
+	var conversationAnalysis *historyAnalysis
+	defer func() { result = prependHistoryDiagnostic(result, conversationAnalysis) }()
+	if partialContext {
+		analysis, err := analyzeHistoryWire(ctx, raw, conversationHistoryDescriptor())
+		conversationAnalysis = &analysis
+		if err != nil {
+			return historyAnalysisError(err, analysis, nil)
+		}
+		if reason := analysis.reason(); reason != "" {
+			if err := r.recordHistoryUncertainty(ctx, reason); err != nil {
+				return historyAnalysisError(err, analysis, nil)
+			}
+		}
+	}
 	var chat, name, displayName string
 	if err := walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
 		if err := ctx.Err(); err != nil {
@@ -459,18 +507,30 @@ func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, 
 		if len(value) > recordMax {
 			return historyStage(errLimitExceeded, "record_decode", "no_stub")
 		}
+		var recordAnalysis historyAnalysis
+		if partialContext {
+			var scanErr error
+			recordAnalysis, scanErr = analyzeHistoryWire(ctx, value, recordHistoryDescriptor())
+			if scanErr != nil {
+				return historyAnalysisError(scanErr, recordAnalysis, nil)
+			}
+		}
 		var wrapper waHistorySync.HistorySyncMsg
 		if err := (proto.UnmarshalOptions{RecursionLimit: 32}).Unmarshal(value, &wrapper); err != nil {
-			return historyStage(errHistoryCorrupt, "record_decode", "no_stub")
+			failure := historyStage(errHistoryCorrupt, "record_decode", "no_stub")
+			if partialContext {
+				return historyAnalysisError(failure, recordAnalysis, nil)
+			}
+			return failure
 		}
 		if wrapper.GetMessage() == nil {
 			return historyBodyMissing(wrapper.GetMessage())
 		}
+		if partialContext && wrapper.GetMessage().GetMessage() == nil {
+			return historyAnalysisError(r.projectPartialHistoryRecord(ctx, jid, wrapper.GetMessage(), recordAnalysis), recordAnalysis, wrapper.GetMessage())
+		}
 		if r.config.UnknownHistoryPolicy == UnknownHistoryPartial && undeclaredHistoryStub(wrapper.GetMessage()) {
-			if !partialContext || !partialHistoryWire(ctx, value, partialHistoryRecord) {
-				return historyBodylessFailure(wrapper.GetMessage(), "record_safety_metadata")
-			}
-			return r.projectUnknownHistoryGap(ctx, jid, wrapper.GetMessage())
+			return historyBodylessFailure(wrapper.GetMessage(), "record_safety_metadata")
 		}
 		// ParseWebMessage accepts a supplied chat over a claimed key. Verify both.
 		if claimed := wrapper.GetMessage().GetKey().GetRemoteJID(); claimed != "" {

@@ -13,13 +13,13 @@ import (
 	"testing"
 )
 
-func TestPartialHistorySchemaCompatibilityExact14Through18(t *testing.T) {
+func TestPartialHistorySchemaCompatibilityExact14Through19(t *testing.T) {
 	latest := testArchive(t)
 	var version int
-	if err := latest.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 18 {
+	if err := latest.readDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 19 {
 		t.Fatal("partial uncertainty migration missing", version, err)
 	}
-	for _, version := range []int{14, 15, 16, 17, 18} {
+	for _, version := range []int{14, 15, 16, 17, 18, 19} {
 		for _, variant := range []rebuildSourceVariant{rebuildSourceOrdinary, rebuildSourceLegacy, rebuildSourceContinuation} {
 			t.Run(fmt.Sprintf("%d_%d", version, variant), func(t *testing.T) {
 				dir := classifiedVersionFixture(t, version, variant)
@@ -32,6 +32,14 @@ func TestPartialHistorySchemaCompatibilityExact14Through18(t *testing.T) {
 				if err != nil {
 					t.Fatal("exact readonly version rejected", err)
 				}
+				var snapshot ReadSnapshot
+				if err = unknownHistoryGapSnapshot(context.Background(), s.readDB, "account", &snapshot); err != nil || snapshot.UnknownHistoryGap || snapshot.CoverageEpoch != 0 {
+					t.Fatal("legacy/current empty uncertainty projection", snapshot, err)
+				}
+				diagnostics, diagnosticErr := s.HistoryUncertaintyDiagnostics(context.Background(), "account")
+				if diagnosticErr != nil || diagnostics.Epoch != 0 || len(diagnostics.Reasons) != 0 {
+					t.Fatal("legacy/current empty uncertainty diagnostics", diagnostics, diagnosticErr)
+				}
 				if err = s.Close(); err != nil {
 					t.Fatal(err)
 				}
@@ -39,7 +47,7 @@ func TestPartialHistorySchemaCompatibilityExact14Through18(t *testing.T) {
 				if err != nil || before != after {
 					t.Fatal("readonly source changed", err)
 				}
-				if version < 18 && validateOriginalCacheRecoverySchema(context.Background(), path) == nil {
+				if version < 19 && validateOriginalCacheRecoverySchema(context.Background(), path) == nil {
 					t.Fatal("current writable recovery accepted old schema")
 				}
 			})

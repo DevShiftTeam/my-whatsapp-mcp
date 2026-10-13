@@ -263,7 +263,7 @@ func readClassifiedHistoryEvidenceMode(cfg ClassifiedHistoryRecoveryConfig, acce
 		if !w.Diagnostic.StubKnown {
 			expectedStubType = -1
 		}
-		if strictClassifiedJSON(line, &diagnostic) != nil || diagnostic.Event != "history_failure" || diagnostic.Stage != "record_body_missing" || diagnostic.Stub != "other_stub" || diagnostic.StubType != expectedStubType || diagnostic.RawStub != w.Diagnostic.RawStub || diagnostic.StubPresent != w.Diagnostic.StubPresent || diagnostic.StubKnown != w.Diagnostic.StubKnown || diagnostic.Presence != w.Diagnostic.Presence {
+		if strictClassifiedJSON(line, &diagnostic) != nil || diagnostic.Event != "history_failure" || diagnostic.Stage != w.Diagnostic.Stage || diagnostic.Stub != "other_stub" || diagnostic.StubType != expectedStubType || diagnostic.RawStub != w.Diagnostic.RawStub || diagnostic.StubPresent != w.Diagnostic.StubPresent || diagnostic.StubKnown != w.Diagnostic.StubKnown || diagnostic.Presence != w.Diagnostic.Presence {
 			return e, ErrClassifiedHistoryRecovery
 		}
 		count++

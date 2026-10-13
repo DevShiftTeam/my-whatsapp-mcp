@@ -193,7 +193,7 @@ func TestAcceptedPartialHistoryPinnedRecoveryPreservesDeliveredEvidence(t *testi
 	}
 	testPinnedHistoricalTicket(t, s, receipt.RecoveryEpoch)
 	var version int
-	if err := s.writeDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 18 {
+	if err := s.writeDB.QueryRow("SELECT max(version) FROM schema_migrations").Scan(&version); err != nil || version != 19 {
 		t.Fatal("unexpected migration", version, err)
 	}
 }

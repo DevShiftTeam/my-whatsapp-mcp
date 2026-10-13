@@ -28,6 +28,15 @@ func classifyRebuildSourceSchema(ctx context.Context, src, dst *sql.Tx) (rebuild
 	if err != nil {
 		return 0, err
 	}
+	if version < 19 {
+		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_uncertainty_schema"); err != nil {
+			return 0, err
+		}
+		defer dst.ExecContext(ctx, "ROLLBACK TO pre_uncertainty_schema; RELEASE pre_uncertainty_schema")
+		if _, err = dst.ExecContext(ctx, "DROP TABLE history_uncertainty_reasons; DROP TABLE history_uncertainty_coverage;"); err != nil {
+			return 0, err
+		}
+	}
 	if version < 18 {
 		if _, err = dst.ExecContext(ctx, "SAVEPOINT pre_delivered_schema"); err != nil {
 			return 0, err

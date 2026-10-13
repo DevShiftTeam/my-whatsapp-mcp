@@ -20,18 +20,18 @@ const syntheticUnknownStub = int32(987654)
 
 type unknownHistoryStore struct {
 	*recordingStore
-	gaps   []int32
+	gaps   []archive.HistoryUncertaintyReason
 	gapErr error
 }
 
-func (s *unknownHistoryStore) RecordUnknownHistoryGap(_ context.Context, account string, raw int32) error {
+func (s *unknownHistoryStore) RecordHistoryUncertainty(_ context.Context, account string, reason archive.HistoryUncertaintyReason, _ archive.ObservationID) error {
 	if account != "100@s.whatsapp.net" {
 		return archive.ErrInvalidEvent
 	}
 	if s.gapErr != nil {
 		return s.gapErr
 	}
-	s.gaps = append(s.gaps, raw)
+	s.gaps = append(s.gaps, reason)
 	s.order = append(s.order, "unknown_gap")
 	return nil
 }
@@ -86,7 +86,7 @@ func TestUnknownHistoryPartialCommitsGapBeforeBodyAndControls(t *testing.T) {
 	if err := r.projectHistory(context.Background(), unknownHistoryWire(t, unknownHistoryChunk(unknownHistoryRecord(), body, revoke, edit))); err != nil {
 		t.Fatalf("partial history stopped valid suffix: %v", err)
 	}
-	if r.Status().ReconciliationRequired || len(s.gaps) != 1 || s.gaps[0] != syntheticUnknownStub || len(s.order) == 0 || s.order[0] != "unknown_gap" {
+	if r.Status().ReconciliationRequired || len(s.gaps) != 1 || s.gaps[0] != archive.HistoryUncertaintyUnsupportedControl || len(s.order) == 0 || s.order[0] != "unknown_gap" {
 		t.Fatal("gap was not committed before suffix")
 	}
 	kinds := map[archive.SourceEventKind]bool{}
@@ -120,7 +120,7 @@ func TestUnknownHistoryPartialGapFailureFences(t *testing.T) {
 		}
 	}
 }
-func TestUnknownHistoryPartialRejectsUnsafeRecordAndContext(t *testing.T) {
+func TestUnknownHistoryPartialSeparatesUnsupportedMetadataFromBodyCorruption(t *testing.T) {
 	cases := []struct {
 		name   string
 		mutate func(*waHistorySync.HistorySync)
@@ -187,26 +187,37 @@ func TestUnknownHistoryPartialRejectsUnsafeRecordAndContext(t *testing.T) {
 			r, s := unknownHistoryFixture(UnknownHistoryPartial)
 			chunk := unknownHistoryChunk(unknownHistoryRecord(), bodylessHistoryRecord("300@g.us", "blocked-tail", "mustnotadmitreceipt"))
 			tc.mutate(chunk)
-			if err := r.projectHistory(context.Background(), unknownHistoryWire(t, chunk)); err == nil || !r.Status().ReconciliationRequired {
-				t.Fatal("unsafe unknown record escaped fence")
+			err := r.projectHistory(context.Background(), unknownHistoryWire(t, chunk))
+			hard := tc.name == "body" || tc.name == "missing_key"
+			if hard {
+				if err == nil || !r.Status().ReconciliationRequired || len(s.events) != 0 || len(s.gaps) != 0 {
+					t.Fatal("malformed body/required wrapper escaped strict fence")
+				}
+			} else {
+				if err != nil || r.Status().ReconciliationRequired || len(s.gaps) == 0 || len(s.events) != 1 {
+					t.Fatalf("unsupported noncontent failed uncertainty-only handling: %v", err)
+				}
+				if s.events[0].Key.Message != "blocked-tail" {
+					t.Fatal("unsupported metadata created a source")
+				}
 			}
-			if len(s.events) != 0 || len(s.gaps) != 0 || len(s.aliases) != 0 {
-				t.Fatal("unsafe record admitted authority or gap")
+			if len(s.aliases) != 0 {
+				t.Fatal("unsupported metadata manufactured alias")
 			}
 		})
 	}
 }
-func TestUnknownHistoryPartialDoesNotWaiveKnownControlsOrMalformedSuffix(t *testing.T) {
+func TestUnknownHistoryPartialUnsupportedKindsDoNotWaiveMalformedSuffix(t *testing.T) {
 	for _, value := range []int32{0, -1, 3, 37, 43, 72, 149, 186, 203, 208, 213, 216, 220, 221, 248, 250} {
 		t.Run(waWeb.WebMessageInfo_StubType(value).String(), func(t *testing.T) {
 			r, s := unknownHistoryFixture(UnknownHistoryPartial)
 			m := unknownHistoryRecord()
 			m.Message.MessageStubType = waWeb.WebMessageInfo_StubType(value).Enum()
-			if err := r.projectHistory(context.Background(), unknownHistoryWire(t, unknownHistoryChunk(m))); err == nil || !r.Status().ReconciliationRequired {
-				t.Fatal("known or nonpositive enum waived")
+			if err := r.projectHistory(context.Background(), unknownHistoryWire(t, unknownHistoryChunk(m))); err != nil || r.Status().ReconciliationRequired {
+				t.Fatalf("unimplemented noncontent should record generic uncertainty: %v", err)
 			}
-			if len(s.gaps) != 0 {
-				t.Fatal("known control downgraded to unknown gap")
+			if len(s.gaps) != 1 || len(s.events) != 0 {
+				t.Fatal("unsupported kind granted authority or lost uncertainty")
 			}
 		})
 	}
@@ -298,6 +309,11 @@ func TestUnknownHistoryPartialDurableSuffixAndNoNoticeSource(t *testing.T) {
 	r := durableRuntime(t, store)
 	r.config.UnknownHistoryPolicy = UnknownHistoryPartial
 	ctx := context.Background()
+	var observationErr error
+	r.observation, observationErr = store.BeginObservation(ctx, durableAccount)
+	if observationErr != nil {
+		t.Fatal(observationErr)
+	}
 	original := bodylessHistoryRecord("300@g.us", "durable-target", "unknownoldreceipt")
 	if err := r.projectHistory(ctx, bodylessHistoryWire(t, "300@g.us", original)); err != nil {
 		t.Fatal(err)
@@ -333,7 +349,7 @@ func TestUnknownHistoryPartialDurableSuffixAndNoNoticeSource(t *testing.T) {
 	durableAssertAbsent(t, dir, "unknown-source-canary")
 }
 
-func TestUnknownHistoryPartialRejectsNormalizedWireClaims(t *testing.T) {
+func TestUnknownHistoryPartialRejectsNormalizedActionableControlClaims(t *testing.T) {
 	for _, location := range []string{"conversation", "remote", "key_actor", "web_actor"} {
 		for _, form := range []string{"device_zero", "device", "device_overflow", "agent_overflow", "extra_at", "leading_space", "internal_space", "control"} {
 			t.Run(location+"/"+form, func(t *testing.T) {
@@ -361,7 +377,7 @@ func TestUnknownHistoryPartialRejectsNormalizedWireClaims(t *testing.T) {
 					claim = user + "\n@" + server
 				}
 				r, s := unknownHistoryFixture(UnknownHistoryPartial)
-				chunk := unknownHistoryChunk(unknownHistoryRecord())
+				chunk := unknownHistoryChunk(bodylessHistoryStub("300@g.us", "known-delete", waWeb.WebMessageInfo_REVOKE))
 				m := chunk.Conversations[0].Messages[0].Message
 				switch location {
 				case "conversation":
@@ -395,13 +411,13 @@ func (s *canonicalUnknownHistoryStore) Canonical(_ context.Context, _ string, id
 	return id, nil
 }
 
-func TestUnknownHistoryPartialRejectsIncomingOwnActor(t *testing.T) {
+func TestUnknownHistoryPartialRejectsIncomingOwnControlActor(t *testing.T) {
 	for _, claim := range []string{"100@s.whatsapp.net", "900@lid"} {
 		for _, location := range []string{"key", "web", "both"} {
 			t.Run(claim+"/"+location, func(t *testing.T) {
 				r, s := unknownHistoryFixture(UnknownHistoryPartial)
 				r.store = &canonicalUnknownHistoryStore{s}
-				m := unknownHistoryRecord()
+				m := bodylessHistoryStub("300@g.us", "known-delete", waWeb.WebMessageInfo_REVOKE)
 				if location == "key" || location == "both" {
 					m.Message.Key.Participant = proto.String(claim)
 				}
