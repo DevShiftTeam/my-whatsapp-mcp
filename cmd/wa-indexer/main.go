@@ -247,7 +247,7 @@ func serve(ctx context.Context, opts options, stdout, stderr io.Writer) (result 
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	shutdown := newServeShutdown(serveShutdownBudget)
+	shutdown := newServeShutdown(serveShutdownDuration(opts.container))
 	defer shutdown.close()
 	stopWatch := context.AfterFunc(serveCtx, func() { shutdown.begin() })
 	defer stopWatch()

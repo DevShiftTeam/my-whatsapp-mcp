@@ -100,6 +100,8 @@ To transcribe voice notes, open **Models and media → Set up Hebrew transcripti
 
 Start the app with `./bin/wa-indexer serve`. It reuses the saved linked-device session when available. Ctrl+C stops the app; saved messages remain on disk.
 
+Native shutdown allows up to 45 seconds for HTTP requests, accepted source work and workers to drain under one shared deadline. If using your own native process supervisor, allow at least 60 seconds before forced termination; a longer supervisor timeout does not extend the app's deadline or guarantee a clean stop. Explicit container serving keeps its existing eight-second budget within the image's ten-second stop window. Interrupted or failed drains still require the eligible offline recovery procedure below, never automatic recovery.
+
 To reopen the owner window while the app is already running, use a second terminal in the source directory:
 
 ```sh

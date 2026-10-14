@@ -94,6 +94,31 @@ func TestServeBudgetStartsOnceAtStopIntent(t *testing.T) {
 	}
 }
 
+func TestServeShutdownBudgetPreservesContainerAndAllowsNativeDrain(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		container bool
+		want      time.Duration
+	}{
+		{"native", false, 45 * time.Second},
+		{"container", true, 8 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serveShutdownDuration(tc.container); got != tc.want {
+				t.Fatalf("shutdown budget = %s, want %s", got, tc.want)
+			}
+			budget := newServeShutdown(serveShutdownDuration(tc.container))
+			defer budget.close()
+			started := time.Now()
+			ctx := budget.begin()
+			deadline, ok := ctx.Deadline()
+			if !ok || deadline.Before(started.Add(tc.want)) || budget.begin() != ctx {
+				t.Fatal("selected shutdown budget was shortened or replaced")
+			}
+		})
+	}
+}
+
 type blockedServeCleanup struct {
 	release chan struct{}
 	entered chan struct{}

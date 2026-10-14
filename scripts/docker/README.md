@@ -24,6 +24,8 @@ BuildKit exports **one attested OCI archive**. `oci.mjs` checks descriptor sizes
 
 The workflows test images without publishing them. They have no registry login or package-write permission. Confirm both architecture jobs pass for the intended commit before describing an image as tested.
 
+Publisher-helper pulls report fixed failure codes for unavailable manifests, denied access, rate limiting, network/TLS failures or an unclassified pull failure. Classification examines only a bounded stderr tail and never prints registry output, credential values or private paths. These diagnostic hints do not establish registry availability or authorize replacing a digest: retain the pinned helper and version check until any replacement has been independently reviewed. Pull failures stop loading before acceptance; they do not qualify the built image.
+
 Run `node --test scripts/docker/tests/*.test.mjs` for the focused policy/graph tests. Run `node scripts/docker/tests/helper-cleanup.integration.mjs` explicitly with a separate Docker configuration without registry credentials to prove a timed-out helper is actually removed. `node scripts/docker/local-copy-proof.mjs PATH_TO_ATTESTED_OCI_ARCHIVE` performs a local-only native import/registry/copy-back proof. It creates exact randomly named containers, one internal network and one staging volume and removes them in `finally`; it never contacts an external registry for publication. Supply a private canonical `TMPDIR` for retained proof files. The local staging volume avoids Docker Desktop bind-share metadata/write behavior; native Linux CI uses private directories. These local checks do not test hosted runners, actual AI clients, remote providers, models, or real WhatsApp history.
 
 ## Read/send contract

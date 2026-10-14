@@ -207,7 +207,7 @@ type ownerInterfaceBinding struct {
 // first exit cancels the others, and their independent shutdowns join before
 // composition may close the archive or release the instance lease.
 func serveOwnerInterfaces(ctx context.Context, bindings []ownerInterfaceBinding) error {
-	budget := newServeShutdown(serveShutdownBudget)
+	budget := newServeShutdown(serveShutdownDuration(false))
 	defer budget.close()
 	return serveOwnerInterfacesWithShutdown(ctx, bindings, budget.begin)
 }

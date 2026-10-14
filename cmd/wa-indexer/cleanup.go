@@ -27,9 +27,20 @@ func drainApplication(owner applicationCleanup) error {
 	}
 }
 
-// Serve reserves two seconds inside the delivery image's ten-second stop
-// envelope. One deadline covers native HTTP, provider/helper and archive joins.
+// Container serving reserves two seconds inside the delivery image's ten-second
+// stop envelope. Native serving is not constrained by that image envelope and
+// allows more time for accepted source work, including bounded history downloads.
+// Either mode uses one deadline for HTTP, provider/helper and archive joins;
+// exceeding it remains an unsafe outcome, not permission to restart or recover.
 const serveShutdownBudget = 8 * time.Second
+const nativeServeShutdownBudget = 45 * time.Second
+
+func serveShutdownDuration(container bool) time.Duration {
+	if container {
+		return serveShutdownBudget
+	}
+	return nativeServeShutdownBudget
+}
 
 var errServeShutdown = errors.New("serve_shutdown_incomplete")
 

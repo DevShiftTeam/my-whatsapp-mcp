@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Report Docker publisher-helper pull failures with bounded, fixed diagnostic codes instead of discarding every registry failure into one generic command error. Keep the pinned image and version check unchanged; diagnostics never print registry stderr or refresh a pin automatically.
+- Allow native serving up to 45 seconds for one shared graceful shutdown, instead of applying Docker's shorter stop window. Explicit container serving keeps its eight-second budget; interrupted or failed drains remain fail-closed and never recover automatically.
 - Add bounded, body-free ingestion latency measurements and a read-only native owner diagnostic for queue pressure and processing phases. Normal scoped MCP status does not expose these global counters.
 - Give eligible fresh plaintext a bounded FIFO path alongside history processing, using shared memory/admission limits and prerequisite-safe reservation exchanges. Validated positive-only history can be overtaken; unprepared or sensitive history, new identity mappings and overlapping message IDs retain their ordering and source-safety checks.
 
