@@ -108,6 +108,20 @@ To reopen the owner window while the app is already running, use a second termin
 
 Use the same `--data-dir` argument if you originally chose a custom directory. An expired owner window can be reopened this way without scanning a new QR code.
 
+## Inspect message-ingestion latency
+
+The local owner API provides a read-only `GET /api/ingestion/status` diagnostic. Use the current local owner session and its `X-CSRF-Token` capability. It accepts no query parameters or request body. Remote admin sessions and MCP credentials cannot use this native diagnostic; keep the local owner listener out of tunnels.
+
+The response reports bounded queue counts and bytes, pending fresh text, the oldest pending live-event age, history preparation, and aggregate phase timings. It contains no messages, chat identifiers, credentials or private paths. Offline, demo and read-only historical modes do not provide active ingestion diagnostics. `keyword.pending = 0` in normal index status does **not** mean that the ingestion queue is empty: messages may still be waiting before their archive transaction begins.
+
+Eligible fresh text can pass validated positive-only history work using a separate bounded worker. History that is still downloading or being verified, records containing sensitive or unsupported effects, and overlapping message IDs retain their original ordering. Those cases, network delivery, source-safety pauses or a busy database can still delay a message. The change does not reset the archive, request a full resync or replace client credentials.
+
+Already established PN/LID identity mappings are checked before their text uses the priority path. Messages requiring a new or conflicting mapping keep their original source ordering; the fast path cannot grant identity or message authority.
+
+`queued_count` includes queued and in-flight source work; `waiting_count` is the separate callback-capacity ledger. `live_pending` and its oldest-age value describe admitted live work, not callbacks still waiting for capacity.
+
+Compare `admission_wait`, `queue_wait`, `source_commit` and `callback_to_commit` for the live lane. Admission includes callback validation and capacity waiting. Queue time includes preparation or ordering barriers. Source commit includes waiting for the writer, not just SQLite execution. The last phase measures successful text application from the SDK callback, not from a phone's timestamp. History download, decode and preparation have separate timings. Percentiles are approximate fixed-histogram values accumulated in the running process; they are not a guarantee of phone-to-search delivery time. The diagnostic itself changes no archive choices or processing settings.
+
 ## Check Stats
 
 The app opens on **Stats**. Stats and Archive show **All saved messages** within your current archive choices. Archive opens a recent-message list without requiring a search; clearing the search returns to that list. When captured history is configured, eligible messages missing from the current archive appear with a **Captured** date and **Read-only** label. Current copies take precedence, and current permissions and known message restrictions still apply. Captured rows cannot be used for sending, current reply targets, original downloads or processing jobs. Settings, AI connections and import progress always describe the current archive. Saved history may be partial and does not establish your phone's current state. See the [Stats guide](stats.md) for filters, visible-only refresh, UTC activity, and the difference between saved-data counts and global processing status.
@@ -246,6 +260,7 @@ Managed remote-provider setup and reconnection are disabled. Existing explicit m
 | --- | --- |
 | No chats yet | Check the phone's linked-device state, then use **Refresh discovered chats**. If no message bodies are selected, choose chats after discovery. |
 | Connected, but search is empty | Confirm the chat is included, the message falls in the date range, and the saved-message count increased. Test with a new distinctive message. |
+| Fresh text arrives slowly | Check the local [ingestion diagnostic](#inspect-message-ingestion-latency) to distinguish capacity/queue waits from history preparation and source commits. A ready keyword index alone does not establish that incoming work has drained. |
 | Owner session ended | Run `serve --open-existing` while the app is running. If it has stopped, run `serve`. |
 | Port already in use | Reopen the existing app. If another program owns the port, stop it or choose a different literal loopback port with `--listen 127.0.0.1:64166`. |
 | `unsafe_data_path` | Use the original data directory or a fresh empty local directory. Check ownership, private permissions, and symlinks; do not loosen permissions to bypass the check. |

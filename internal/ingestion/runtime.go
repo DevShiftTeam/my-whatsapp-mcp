@@ -29,9 +29,11 @@ type connection interface {
 	GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelItem, error)
 }
 type queuedEvent struct {
-	event              any
-	bytes              int64
-	run, recoveryEpoch uint64
+	event                  any
+	bytes                  int64
+	run, recoveryEpoch     uint64
+	receivedAt, admittedAt time.Time
+	ticket                 *sourceTicket
 }
 
 // The coverage gap retains no SDK message metadata or undecrypted payload.
@@ -55,6 +57,7 @@ type Runtime struct {
 	op                        sync.Mutex
 	mu                        sync.Mutex
 	status                    Status
+	latency                   latencyMetrics
 	account                   string
 	closed                    bool
 	quiesced                  bool
@@ -74,6 +77,11 @@ type Runtime struct {
 	runCtx                    context.Context
 	cancel                    context.CancelFunc
 	queue                     chan queuedEvent
+	liveQueue                 chan queuedEvent
+	liveWorkerDone            chan struct{}
+	sourceTickets             map[uint64]*sourceTicket // Runtime.mu; includes bounded waiting callbacks
+	sourceSequence            uint64
+	sourceChanged             chan struct{}
 	queueBytes                int64
 	admissions                int
 	waitingBytes              int64 // Runtime.mu; separately bounded retained callback payloads
@@ -590,7 +598,13 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 			return archive.ErrSourceUnavailable
 		}
 	}
+	r.mu.Lock()
 	r.queue = make(chan queuedEvent, r.config.BodyQueueCount)
+	r.liveQueue = make(chan queuedEvent, r.config.BodyQueueCount)
+	r.liveWorkerDone = make(chan struct{})
+	r.sourceTickets = make(map[uint64]*sourceTicket)
+	r.sourceSequence = 0
+	r.sourceChanged = make(chan struct{})
 	r.workerDone = make(chan struct{})
 	r.qrDone = make(chan struct{})
 	r.queueBytes = 0
@@ -603,7 +617,6 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 	r.deliveryStopDone = nil
 	r.connectDone = nil
 	r.socketStopDone = nil
-	r.mu.Lock()
 	r.quiesced = false
 	r.qrEnded = false
 	r.pairingHandoff = handoff
@@ -623,6 +636,7 @@ func (r *Runtime) startConnection(ctx context.Context, pair bool, connectPhase s
 		}
 	})
 	go r.work()
+	go r.workLive()
 	go r.watchQR(qr, handoff)
 	r.startOptional()
 	r.mu.Lock()
@@ -901,6 +915,7 @@ func (r *Runtime) stop(ctx context.Context) error {
 	if r.queue != nil {
 		if !r.queueClosed {
 			close(r.queue)
+			close(r.liveQueue)
 			r.queueClosed = true
 		}
 		select {
@@ -910,7 +925,15 @@ func (r *Runtime) stop(ctx context.Context) error {
 			r.startSocketStop()
 			return ctx.Err()
 		}
+		select {
+		case <-r.liveWorkerDone:
+		case <-ctx.Done():
+			r.failClosedAt("stop_source", "reconciliation_required", ctx.Err())
+			r.startSocketStop()
+			return ctx.Err()
+		}
 		r.queue = nil
+		r.liveQueue = nil
 	}
 	// Accepted history may need the socket for media metadata. Cancel its run
 	// only after the source worker drains, then interrupt and join an empty or
@@ -1016,6 +1039,7 @@ func (r *Runtime) deliver(event any) {
 }
 
 func (r *Runtime) deliverRun(event any, run uint64) {
+	receivedAt := time.Now()
 	r.deliveryMu.Lock()
 	if !r.accepting {
 		r.deliveryMu.Unlock()
@@ -1140,23 +1164,23 @@ func (r *Runtime) deliverRun(event any, run uint64) {
 	if m, ok := event.(*events.Message); ok {
 		size += retainedBytes(m)
 	}
-	r.admit(event, size, stopping, run, recoveryEpoch)
+	r.admit(event, size, stopping, run, recoveryEpoch, receivedAt)
 }
-
-type itemBytes int64
 
 // Keep temporary bursts in their existing SDK callbacks rather than dropping
 // history envelopes, which may contain deletions after readable message bodies.
 // Queued/in-flight and waiting payloads each have the configured count/byte
 // bound. These ledgers do not bound memory retained elsewhere by the SDK.
-func (r *Runtime) admit(event any, size int64, stopping <-chan struct{}, run, recoveryEpoch uint64) {
+func (r *Runtime) admit(event any, size int64, stopping <-chan struct{}, run, recoveryEpoch uint64, receivedAt time.Time) {
 	if size > r.config.BodyQueueBytes {
 		r.rejectAdmission()
 		return
 	}
 	var timer *time.Timer
-	var deadline time.Time
-	waiting, interrupted := false, false
+	var ticket *sourceTicket
+	aliasChecked := false
+	queued := false
+	interrupted := false
 	var runDone <-chan struct{}
 	if r.runCtx != nil {
 		runDone = r.runCtx.Done()
@@ -1165,11 +1189,8 @@ func (r *Runtime) admit(event any, size int64, stopping <-chan struct{}, run, re
 		if timer != nil {
 			timer.Stop()
 		}
-		if waiting {
-			r.mu.Lock()
-			r.waitingAdmissions--
-			r.waitingBytes -= size
-			r.mu.Unlock()
+		if !queued {
+			r.finishSourceTicket(ticket)
 		}
 	}()
 	for {
@@ -1178,26 +1199,66 @@ func (r *Runtime) admit(event any, size int64, stopping <-chan struct{}, run, re
 			r.mu.Unlock()
 			return
 		}
-		if waiting && !time.Now().Before(deadline) {
+		if ticket != nil && !ticket.deadline.IsZero() && (ticket.waiting || r.earlierUnqueuedLocked(ticket)) && !time.Now().Before(ticket.deadline) {
 			r.mu.Unlock()
 			r.rejectAdmission()
 			return
 		}
-		if r.admissions < r.config.BodyQueueCount && size <= r.config.BodyQueueBytes-r.queueBytes {
-			if waiting {
-				r.waitingAdmissions--
-				r.waitingBytes -= size
-				waiting = false
+		if ticket == nil {
+			if r.sourceSequence == ^uint64(0) {
+				r.mu.Unlock()
+				r.rejectAdmission()
+				return
 			}
-			r.queueBytes += size
-			r.admissions++
-			r.mu.Unlock()
+			r.sourceSequence++
+			ticket = &sourceTicket{sequence: r.sourceSequence, live: r.realtimePlaintext(event), history: historyNotification(event), receivedAt: receivedAt, bytes: size}
+			if message, ok := event.(*events.Message); ok {
+				ticket.messageID = message.Info.ID
+			}
+			if r.sourceTickets == nil {
+				r.sourceTickets = make(map[uint64]*sourceTicket)
+			}
+			if !r.admissionRoomLocked(ticket) && (r.waitingAdmissions >= r.config.BodyQueueCount || size > r.config.BodyQueueBytes-r.waitingBytes) {
+				r.mu.Unlock()
+				r.rejectAdmission()
+				return
+			}
+			r.sourceTickets[ticket.sequence] = ticket
+			r.scheduleChangedLocked()
+		}
+		if !ticket.admitted && r.admissionRoomLocked(ticket) {
+			r.reserveAdmissionLocked(ticket)
+		}
+		if ticket.admitted && !r.earlierUnqueuedLocked(ticket) {
+			if !aliasChecked && r.realtimeTextShape(event) && hasAlternateIDs(event.(*events.Message)) {
+				aliasChecked = true
+				// This callback's unqueued ticket gates later callbacks while the
+				// read-only probe runs. Its payload is already charged in-flight.
+				r.mu.Unlock()
+				known := r.committedRealtimeAliases(r.runCtx, event.(*events.Message))
+				r.mu.Lock()
+				ticket.live = known
+				if r.status.ReconciliationRequired {
+					r.mu.Unlock()
+					return
+				}
+			}
+			queue := r.queue
+			if ticket.live {
+				queue = r.liveQueue
+			}
 			// Admission includes the in-flight item, so the buffered queue has
 			// room. A violated internal invariant must still stop the archive.
 			select {
-			case r.queue <- queuedEvent{event: event, bytes: size, run: run, recoveryEpoch: recoveryEpoch}:
+			case queue <- queuedEvent{event: event, bytes: size, run: run, recoveryEpoch: recoveryEpoch, ticket: ticket, receivedAt: receivedAt, admittedAt: time.Now()}:
+				queued = true
+				ticket.queued = true
+				r.reserveWaitingLocked()
+				r.scheduleChangedLocked()
+				r.latency.record(ticket.latencyLane(), latencyAdmission, time.Since(receivedAt))
+				r.mu.Unlock()
 			default:
-				r.release(itemBytes(size))
+				r.mu.Unlock()
 				r.rejectAdmission()
 			}
 			return
@@ -1209,7 +1270,7 @@ func (r *Runtime) admit(event any, size int64, stopping <-chan struct{}, run, re
 			r.rejectAdmission()
 			return
 		}
-		if !waiting {
+		if !ticket.waiting && !ticket.admitted {
 			if r.waitingAdmissions >= r.config.BodyQueueCount || size > r.config.BodyQueueBytes-r.waitingBytes {
 				r.mu.Unlock()
 				r.rejectAdmission()
@@ -1217,12 +1278,14 @@ func (r *Runtime) admit(event any, size int64, stopping <-chan struct{}, run, re
 			}
 			r.waitingAdmissions++
 			r.waitingBytes += size
-			waiting = true
+			ticket.waiting = true
+		}
+		if timer == nil {
 			timeout := r.admissionTimeout
 			if timeout <= 0 {
 				timeout = 30 * time.Second
 			}
-			deadline = time.Now().Add(timeout)
+			ticket.deadline = time.Now().Add(timeout)
 			timer = time.NewTimer(timeout)
 		}
 		if r.admissionChanged == nil {
@@ -1254,23 +1317,14 @@ func (r *Runtime) rejectAdmission() {
 }
 
 func (r *Runtime) wakeAdmissionLocked() {
-	if r.waitingAdmissions != 0 && r.admissionChanged != nil {
+	// Reserved callbacks are no longer charged to waiting, but may still be
+	// asleep on this notification until they enqueue their admitted payload.
+	if r.admissionChanged != nil {
 		close(r.admissionChanged)
 		r.admissionChanged = make(chan struct{})
 	}
 }
 
-func (r *Runtime) release(bytes itemBytes) {
-	r.mu.Lock()
-	r.queueBytes -= int64(bytes)
-	r.admissions--
-	idle := r.admissions == 0
-	r.wakeAdmissionLocked()
-	r.mu.Unlock()
-	if idle {
-		r.WakeOriginalDownloads()
-	}
-}
 func (r *Runtime) work() {
 	defer close(r.workerDone)
 	for item := range r.queue {
@@ -1278,7 +1332,30 @@ func (r *Runtime) work() {
 	}
 }
 func (r *Runtime) consume(item queuedEvent) {
-	defer r.release(itemBytes(item.bytes))
+	defer r.completeSourceItem(item)
+	turn := r.awaitSourceTurn(item.ticket)
+	if turn && item.ticket != nil && item.ticket.live {
+		if e, ok := item.event.(*events.Message); ok && hasAlternateIDs(e) && !r.committedRealtimeAliases(r.runCtx, e) {
+			// A stale/missed optimization cannot install aliases while earlier
+			// source work is active. Retain this same ticket and wait its complete
+			// original prefix; later source items already wait for this live owner.
+			turn = r.awaitSourceOrder(item.ticket, true)
+		}
+	}
+	lane := item.ticket.latencyLane()
+	if !item.admittedAt.IsZero() {
+		r.latency.record(lane, latencyQueue, time.Since(item.admittedAt))
+	}
+	if !turn {
+		return
+	}
+	ctx := r.runCtx
+	if item.ticket != nil {
+		ctx = context.WithValue(ctx, sourceTicketContextKey{}, item.ticket)
+	}
+	ctx = context.WithValue(ctx, sourceLatencyContextKey{}, sourceLatencyTrace{lane: lane, receivedAt: item.receivedAt})
+	projectionStarted := time.Now()
+	defer func() { r.latency.record(lane, latencyProjection, time.Since(projectionStarted)) }()
 	r.mu.Lock()
 	unsafe := r.status.ReconciliationRequired
 	r.mu.Unlock()
@@ -1289,7 +1366,7 @@ func (r *Runtime) consume(item queuedEvent) {
 	stage := "source_message"
 	switch e := item.event.(type) {
 	case *events.Message:
-		err = r.messageWithMediaOutcome(r.runCtx, e)
+		err = r.messageWithMediaOutcome(ctx, e)
 	case unreadableMessageGap:
 		stage = "unreadable_account"
 		err = r.ensureAccount(r.runCtx)
@@ -1453,6 +1530,7 @@ func (r *Runtime) failClosedAt(stage, code string, err error, diagnosticCodes ..
 		r.status.Codes = append(r.status.Codes, code)
 	}
 	r.wakeAdmissionLocked()
+	r.scheduleChangedLocked()
 	r.mu.Unlock()
 	r.cancelActive()
 	if r.cancel != nil {

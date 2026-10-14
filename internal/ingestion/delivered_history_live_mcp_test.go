@@ -303,7 +303,27 @@ func TestDeliveredHistoryLiveControlAndScopedMCPDuringApply(t *testing.T) {
 
 	live := liveMessage("seam-live", query+" livereceipt")
 	live.Info.Timestamp = time.Unix(2000, 0)
-	r.deliver(live) // admitted while history is held; bodies share one worker
+	r.deliver(live) // independent fresh plaintext may pass prepared positive history
+	// This is a real scoped-read visibility bound, not permission to release the
+	// held historical apply. The buffered target response still has its own fence.
+	liveDeadline := time.Now().Add(time.Second)
+	liveVisible := false
+	for time.Now().Before(liveDeadline) {
+		var page struct {
+			Hits []struct{} `json:"hits"`
+		}
+		deliveredLiveOutput(t, deliveredLiveRPC(ctx, handler, token, "search_messages", map[string]any{"query": "livereceipt"}), &page)
+		if len(page.Hits) == 1 {
+			liveVisible = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !liveVisible || r.Status().HistoryChunks != 0 {
+		t.Fatal("fresh scoped body did not become readable while history stayed held")
+	}
+	assertSearch(targetText, query+" livereceipt")
+	assertStatus(2)
 	deletion := &events.DeleteForMe{ChatJID: types.NewJID("200", types.DefaultUserServer), SenderJID: types.NewJID("200", types.DefaultUserServer), MessageID: "seam-target", Timestamp: time.Unix(2100, 0)}
 	r.deliver(deletion)
 	if status := r.Status(); status.Controls != 1 || status.ReconciliationRequired || status.Dropped != 0 || status.HistoryChunks != 0 {
@@ -321,8 +341,8 @@ func TestDeliveredHistoryLiveControlAndScopedMCPDuringApply(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("invalidated MCP delivery did not finish")
 	}
-	assertSearch()
-	assertStatus(0)
+	assertSearch(query + " livereceipt")
+	assertStatus(1)
 
 	unblockApply()
 	if err = r.Disconnect(ctx); err != nil { // joins history suffix and queued live body

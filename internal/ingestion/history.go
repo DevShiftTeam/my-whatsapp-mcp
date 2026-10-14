@@ -81,7 +81,9 @@ func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.
 		r.activeMu.Lock()
 		r.activeCancel = cancel
 		r.activeMu.Unlock()
+		downloadStarted := time.Now()
 		err = r.downloadAttachment(downloadCtx, notification, staged)
+		r.latency.record(latencyHistory, latencyDownload, time.Since(downloadStarted))
 		cancel()
 		r.activeMu.Lock()
 		r.activeCancel = nil
@@ -98,7 +100,9 @@ func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.
 		}
 		reader = staged
 	}
+	decodeStarted := time.Now()
 	raw, err := decodeHistory(ctx, reader, compressedMax, decodedMax)
+	r.latency.record(latencyHistory, latencyDecode, time.Since(decodeStarted))
 	if err != nil {
 		err = historyStage(err, "decode", "no_stub")
 		r.historyFailure(err)
@@ -331,6 +335,13 @@ func (r *Runtime) projectHistory(ctx context.Context, raw []byte) error {
 	return r.projectHistoryWithDelivered(ctx, raw, nil)
 }
 func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, delivered *deliveredHistoryChunk) (err error) {
+	preparationStarted := time.Now()
+	preparationRecorded := false
+	defer func() {
+		if !preparationRecorded {
+			r.latency.record(latencyHistory, latencyPreparation, time.Since(preparationStarted))
+		}
+	}()
 	ctx = r.captureHistoryObservation(ctx)
 	first := !r.Status().ReconciliationRequired
 	defer func() {
@@ -410,6 +421,12 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 	})
 	if err != nil {
 		return historyStage(err, "mapping", "no_stub")
+	}
+	err = r.prepareHistoryOvertaking(ctx, raw)
+	r.latency.record(latencyHistory, latencyPreparation, time.Since(preparationStarted))
+	preparationRecorded = true
+	if err != nil {
+		return err
 	}
 	err = walkWire(raw, func(number protowire.Number, typ protowire.Type, value []byte, _ uint64) error {
 		if err := ctx.Err(); err != nil {

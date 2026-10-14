@@ -344,6 +344,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 }
 
 var routeMethods = map[string]string{
+	"/api/ingestion/status":     http.MethodGet,
 	"/api/transcription/status": http.MethodGet,
 
 	"/api/recovery":         http.MethodGet,
@@ -592,7 +593,7 @@ func uniqueJSONValue(decoder *json.Decoder, depth int) bool {
 }
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
-	if !historicalSnapshotTime(s.app).IsZero() && !historicalSnapshotRead(r.Method, r.URL.Path) {
+	if !historicalSnapshotTime(s.app).IsZero() && !historicalSnapshotRead(r.Method, r.URL.Path) && !(r.Method == http.MethodGet && r.URL.Path == "/api/ingestion/status") {
 		fail(w, http.StatusForbidden, "historical_snapshot_read_only")
 		return
 	}
@@ -603,6 +604,8 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, csrf string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	switch r.URL.Path {
+	case "/api/ingestion/status":
+		s.ingestionStatus(w, r, ctx)
 	case "/api/transcription/status":
 		s.transcriptionStatus(w, r, ctx)
 	case "/api/recovery", "/api/recovery/control":
@@ -960,6 +963,7 @@ func fail(w http.ResponseWriter, status int, code string) {
 }
 
 var publicMessages = map[string]string{
+	"ingestion_status_unavailable":     "Ingestion status is unavailable. Try again shortly.",
 	"transcription_status_unavailable": "Transcription status is unavailable. Try again shortly.",
 	"transcription_status_busy":        "A transcription status check is already running or was just requested. Wait briefly and try again.",
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add bounded, body-free ingestion latency measurements and a read-only native owner diagnostic for queue pressure and processing phases. Normal scoped MCP status does not expose these global counters.
+- Give eligible fresh plaintext a bounded FIFO path alongside history processing, using shared memory/admission limits and prerequisite-safe reservation exchanges. Validated positive-only history can be overtaken; unprepared or sensitive history, new identity mappings and overlapping message IDs retain their ordering and source-safety checks.
+
 - Add optional Hebrew transcription guidance to local browser first-run and Models and media, with copyable terminal steps and a bounded check of the running voice worker. The browser does not install software or restart the archive, and remote, demo and historical views do not offer native setup.
 - Refuse transcription installation paths incompatible with the shared private configuration before provisioning; spaces and Hebrew paths remain supported.
 

@@ -184,7 +184,7 @@ func (s *Server) remoteAccess(w http.ResponseWriter, r *http.Request, ctx contex
 // Provider state and password operations require explicit native owner authority.
 func nativeOnlyRoute(path string) bool {
 	switch path {
-	case "/api/transcription/status", "/api/remote/password", "/api/remote/status", "/api/remote/configure", "/api/remote/disable", "/api/remote/remove", "/api/remote/sign-in":
+	case "/api/ingestion/status", "/api/transcription/status", "/api/remote/password", "/api/remote/status", "/api/remote/configure", "/api/remote/disable", "/api/remote/remove", "/api/remote/sign-in":
 		return true
 	}
 	return false

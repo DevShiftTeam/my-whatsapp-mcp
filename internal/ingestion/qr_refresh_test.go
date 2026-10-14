@@ -68,8 +68,13 @@ func unlinkedRefreshRuntime(t *testing.T) (*Runtime, *refreshConnection, chan QR
 
 func waitQRWorker(t *testing.T, r *Runtime) {
 	t.Helper()
+	// A successful pairing can install the next run concurrently. Capture the
+	// owned completion channel using the same lock as run initialization.
+	r.mu.Lock()
+	done := r.qrDone
+	r.mu.Unlock()
 	select {
-	case <-r.qrDone:
+	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("owned QR worker did not finish")
 	}

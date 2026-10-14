@@ -482,9 +482,17 @@ func (r *Runtime) messageWithDeliveredAdmission(ctx context.Context, event *even
 	if !utf8.ValidString(e.Body) || !utf8.ValidString(e.Caption) {
 		return archive.ErrInvalidEvent
 	}
+	commitStarted := time.Now()
 	result, err := r.apply(ctx, e)
+	trace, traced := ctx.Value(sourceLatencyContextKey{}).(sourceLatencyTrace)
+	if traced {
+		r.latency.record(trace.lane, latencyCommit, time.Since(commitStarted))
+	}
 	if err != nil {
 		return err
+	}
+	if traced && !trace.receivedAt.IsZero() && e.Kind == archive.EventOriginal && e.BodyKind == archive.MessageText && e.Body != "" && result.Outcome == archive.OutcomeApplied {
+		r.latency.record(trace.lane, latencySearchReady, time.Since(trace.receivedAt))
 	}
 	r.mu.Lock()
 	r.status.Received++
