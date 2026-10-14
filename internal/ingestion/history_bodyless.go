@@ -11,6 +11,12 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+// The unknown-target fallback requires an atomic writer-side check. Connectors
+// without this capability cannot substitute a separate read and guard write.
+type unknownHistoryDeletionRecorder interface {
+	RecordUnresolvedDeletionIfUnknown(context.Context, string, string, string) error
+}
+
 // A linked phone can supply authenticated history metadata without a body.
 // Understood stubs do not authorize a fabricated original message.
 func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, web *waWeb.WebMessageInfo) error {
@@ -44,13 +50,28 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 	if kind == waWeb.WebMessageInfo_ADMIN_REVOKE {
 		return r.projectBodylessAdminRevoke(ctx, chat, canonicalChat, web)
 	}
+	if kind == waWeb.WebMessageInfo_REVOKE {
+		if claim := web.GetOriginalSelfAuthorUserJIDString(); claim != "" {
+			self, err := r.historyUserClaim(ctx, claim)
+			own, ownErr := r.canonical(ctx, r.SourceAccount())
+			if err != nil || ownErr != nil || !web.GetKey().GetFromMe() || self != own {
+				return historyStage(errHistoryCorrupt, "record_structure", "revoke")
+			}
+		}
+	}
 	keyParticipant, webParticipant := web.GetKey().GetParticipant(), web.GetParticipant()
 	var author string
 	for _, claim := range []string{keyParticipant, webParticipant} {
 		if claim == "" {
 			continue
 		}
-		canonical, err := r.canonical(ctx, claim)
+		var canonical string
+		var err error
+		if kind == waWeb.WebMessageInfo_REVOKE {
+			canonical, err = r.historyUserClaim(ctx, claim)
+		} else {
+			canonical, err = r.canonical(ctx, claim)
+		}
 		if err != nil || (author != "" && author != canonical) {
 			return historyStage(errHistoryCorrupt, "record_structure", historyStubClass(web))
 		}
@@ -73,6 +94,29 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 	}
 	var info types.MessageInfo
 	if chat.Server == types.GroupServer && !web.GetKey().GetFromMe() && author == "" {
+		if kind == waWeb.WebMessageInfo_REVOKE && len(targets) == 0 {
+			// Authenticated group history can retain a revoke before its original
+			// author is known. Withhold this exact chat/message across every author
+			// instead of inventing identity or stopping unrelated history. Recheck
+			// the unknown-target condition inside the writer's guard transaction.
+			recorder, ok := r.store.(unknownHistoryDeletionRecorder)
+			if !ok {
+				return historyStage(archive.ErrArchiveUnavailable, "record_projection", "revoke")
+			}
+			if err := recorder.RecordUnresolvedDeletionIfUnknown(ctx, r.SourceAccount(), canonicalChat, web.GetKey().GetID()); err != nil {
+				return historyStage(err, "record_projection", "revoke")
+			}
+			r.mu.Lock()
+			found := false
+			for _, code := range r.status.Codes {
+				found = found || code == "unresolved_deletion"
+			}
+			if !found {
+				r.status.Codes = append(r.status.Codes, "unresolved_deletion")
+			}
+			r.mu.Unlock()
+			return nil
+		}
 		// A unique retained target can establish the original author. The actor
 		// who performed a group deletion cannot establish that author's identity.
 		if len(targets) != 1 || targets[0].Key.FromMe {

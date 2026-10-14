@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Handle authenticated incoming group-history deletions that arrive without a known original author by durably withholding the exact message across authors and retaining a chat-scoped gap, rather than stopping unrelated import. Recheck unknown targets atomically; invalid claims, conflicting targets and failed guard writes remain strict, and existing safety pauses are not cleared.
 - Keep accepted history downloads independent of the media-cancellation slot, so received privacy controls do not cancel first-link history and falsely pause the archive. Controls remain immediate, download deadlines remain bounded, and genuine source failures still fail closed.
 - Add explicit basic macOS ARM64 app-candidate packaging with the existing logo and license notices, without requiring optional AI runtimes or models. A local-only candidate can omit the tunnel helper explicitly; including it retains its pin and macOS compatibility checks. Preserve native-AI bundle rules and external archive paths; candidates remain unsigned and unqualified for public distribution until the separate runtime and release checks pass.
 - Report Docker publisher-helper pull failures with bounded, fixed diagnostic codes instead of discarding every registry failure into one generic command error. Keep the pinned image and version check unchanged; diagnostics never print registry stderr or refresh a pin automatically.

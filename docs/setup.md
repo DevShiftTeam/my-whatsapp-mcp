@@ -72,6 +72,8 @@ Click **Save choices**. Watch the saved-message count as readable messages arriv
 
 Reviewed roster, administration and display notices without message bodies are handled without stopping import. They do not create message content or change local permissions. Unsupported records follow the selected history policy below; source-safety checks remain active.
 
+An authenticated group-history deletion can arrive before its original author is known, especially during first-run discovery. The app permanently withholds that exact group/message ID across authors and reports an `unresolved_deletion` gap for the affected chat, while unrelated messages remain readable. It does not invent a sender or original date. Invalid claims, conflicting known targets or failure to save the deletion guard still stop import. Upgrading does not clear an existing archive-safety pause.
+
 ## 5. Verify your import
 
 Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmless, distinctive message from your phone, such as `archivecheck2026 שלום`. Open **Archive**, search for `archivecheck2026`, and open the result to inspect its conversation context.

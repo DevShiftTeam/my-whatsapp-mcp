@@ -209,7 +209,7 @@ func (s *Store) writerLoop() {
 			case clearChatCommand:
 				e = s.clearChat(c.ctx, x.account, x.chat, x.cutoff)
 			case unresolvedDeletionCommand:
-				e = s.recordUnresolvedDeletion(c.ctx, x.account, x.chat, x.message)
+				e = s.recordUnresolvedDeletion(c.ctx, x.account, x.chat, x.message, x.requireUnknown)
 			case mediaCommand:
 				e = s.updateMedia(c.ctx, x.key, x.version, x.availability)
 			case expiryCommand:

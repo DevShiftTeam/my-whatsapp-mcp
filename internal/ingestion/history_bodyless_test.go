@@ -553,7 +553,7 @@ func TestHistoryBodylessUnsafeMetadataAndAmbiguousControlsRemainStrict(t *testin
 		{"keep_metadata", waWeb.WebMessageInfo_GROUP_CREATE, func(m *waWeb.WebMessageInfo) { m.KeepInChat = &waWeb.KeepInChat{} }},
 		{"encryption_notice_with_keep_metadata", waWeb.WebMessageInfo_E2E_ENCRYPTED_NOW, func(m *waWeb.WebMessageInfo) { m.KeepInChat = &waWeb.KeepInChat{} }},
 		{"future_metadata", waWeb.WebMessageInfo_GROUP_CREATE, func(m *waWeb.WebMessageInfo) { m.FutureproofData = []byte{1} }},
-		{"missing_group_sender", waWeb.WebMessageInfo_REVOKE, func(m *waWeb.WebMessageInfo) { m.Participant = nil }},
+		{"missing_group_sender_without_durable_guard_capability", waWeb.WebMessageInfo_REVOKE, func(m *waWeb.WebMessageInfo) { m.Participant = nil }},
 		{"invalid_group_sender", waWeb.WebMessageInfo_REVOKE, func(m *waWeb.WebMessageInfo) { m.Participant = proto.String("@s.whatsapp.net") }},
 		{"mismatched_participants", waWeb.WebMessageInfo_REVOKE, func(m *waWeb.WebMessageInfo) { m.Key.Participant = proto.String("999@s.whatsapp.net") }},
 		{"benign_mismatched_participants", waWeb.WebMessageInfo_GROUP_CREATE, func(m *waWeb.WebMessageInfo) { m.Key.Participant = proto.String("999@s.whatsapp.net") }},

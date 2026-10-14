@@ -8,16 +8,29 @@ import (
 
 type unresolvedDeletionCommand struct {
 	account, chat, message string
+	requireUnknown         bool
 }
 
 // RecordUnresolvedDeletion retains an authoritative group deletion whose
 // original author is unavailable. It withholds every matching message ID in
 // that group without inventing a sender, direction, revision, or date.
 func (s *Store) RecordUnresolvedDeletion(ctx context.Context, account, chat, message string) error {
+	return s.submitUnresolvedDeletion(ctx, account, chat, message, false)
+}
+
+// RecordUnresolvedDeletionIfUnknown records a group deletion only when no
+// durable mutation target is known. The check and negative-only guard share
+// the serialized writer transaction. An exact existing guard is idempotent;
+// otherwise a known target returns ErrSourceUnavailable without changing it.
+func (s *Store) RecordUnresolvedDeletionIfUnknown(ctx context.Context, account, chat, message string) error {
+	return s.submitUnresolvedDeletion(ctx, account, chat, message, true)
+}
+
+func (s *Store) submitUnresolvedDeletion(ctx context.Context, account, chat, message string, requireUnknown bool) error {
 	if !validString(account, 512) || !validUnresolvedDeletionChat(chat) || !validString(message, 256) {
 		return ErrInvalidEvent
 	}
-	_, err := s.submit(ctx, unresolvedDeletionCommand{account, chat, message}, account, true, int64(len(account)+len(chat)+len(message)))
+	_, err := s.submit(ctx, unresolvedDeletionCommand{account: account, chat: chat, message: message, requireUnknown: requireUnknown}, account, true, int64(len(account)+len(chat)+len(message)))
 	return err
 }
 
@@ -31,7 +44,7 @@ func hasUnresolvedDeletion(ctx context.Context, q sqlQuerier, account, chat, mes
 	return guarded, err
 }
 
-func (s *Store) recordUnresolvedDeletion(ctx context.Context, account, chat, message string) error {
+func (s *Store) recordUnresolvedDeletion(ctx context.Context, account, chat, message string, requireUnknown bool) error {
 	if _, err := s.readSafety(account); err != nil {
 		return err
 	}
@@ -56,6 +69,32 @@ func (s *Store) recordUnresolvedDeletion(ctx context.Context, account, chat, mes
 		}
 		if !validUnresolvedDeletionChat(chat) {
 			return ErrInvalidEvent
+		}
+		if requireUnknown {
+			guarded, err := hasUnresolvedDeletion(ctx, tx, account, chat, message)
+			if err != nil {
+				return err
+			}
+			if guarded {
+				// Replay only this exact canonical key. Do not widen an existing
+				// guard or scrub a target learned after it was established.
+				return nil
+			}
+			// Match MutationTargets' durable metadata sources, without filtering
+			// state, sender or direction or using a separate read-pool lookup.
+			query := "SELECT EXISTS(SELECT 1 FROM messages WHERE account=? AND source_chat=? AND source_message=? UNION ALL SELECT 1 FROM source_tombstones WHERE account=? AND chat=? AND message=? UNION ALL SELECT 1 FROM source_anchors WHERE account=? AND chat=? AND message=?"
+			args := []any{account, chat, message, account, chat, message, account, chat, message}
+			if s.rebuild != nil {
+				query += " UNION ALL SELECT 1 FROM rebuild_guards g WHERE account=? AND COALESCE((SELECT canonical FROM identity_aliases WHERE account=g.account AND alias=g.chat),g.chat)=? AND message=?"
+				args = append(args, account, chat, message)
+			}
+			var known bool
+			if err = tx.QueryRowContext(ctx, query+")", args...).Scan(&known); err != nil {
+				return err
+			}
+			if known {
+				return ErrSourceUnavailable
+			}
 		}
 		guard, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO unresolved_deletions(account,chat,message) VALUES(?,?,?)", account, chat, message)
 		if err != nil {

@@ -60,6 +60,8 @@ Expiry maintenance yields between records when a priority privacy control is que
 
 `session/session.sqlite` is the separate SDK-owned linked-device store. Its schema belongs to whatsmeow rather than the archive migrations. Ordinary private files, original media, model installations, and client configuration have separate directories under the data root.
 
+Bodyless ordinary group revocations from authenticated own-device history may lack both author claims and any retained mutation target. Only that incoming, unknown-target case uses the negative-only unresolved-deletion guard. `RecordUnresolvedDeletionIfUnknown` rechecks all durable target states inside the serialized writer transaction before saving the exact canonical account/chat/message guard and scoped coverage gap. Later originals and edits from any author remain withheld, without fabricated identity, dates or discovery anchors. Connectors without this atomic capability, explicit invalid claims, ambiguous targets and persistence failures retain strict failure behavior. Known-author and administrative revocations keep their existing paths.
+
 Keyword search uses FTS5 with scope-local scoring and shared Hebrew normalization. Original logical-order text is preserved. Semantic retrieval uses authorized vector-distance scans; it does not use an ANN or HNSW index.
 
 ## Ingestion timing diagnostics
