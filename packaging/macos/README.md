@@ -6,25 +6,27 @@ The package scripts assemble and inspect already-built Darwin ARM64 inputs. They
 
 ## Basic unsigned candidate
 
-Use the explicit `basic` profile for a text-first candidate without bundled inference runtimes, workers or models. It includes the already-built Go application and embedded browser UI, the pinned Cloudflared helper for optional remote access, the existing logo, LICENSE, third-party notices and helper notices. This does not remove optional voice setup or change the native-AI profiles.
+Use the explicit `basic` profile for a text-first candidate without bundled inference runtimes, workers or models. The core contains the already-built Go application and embedded browser UI, the existing logo, LICENSE and third-party notices. `--without-cloudflared` makes a local-only macOS 14+ ARM64 candidate: local archive, browser onboarding and local stdio MCP remain available; managed Cloudflare tunneling is unavailable. This does not remove optional voice setup or change the native-AI profiles.
 
-Prepare an existing owner-only directory (mode `0700`) outside the checkout. Supply an **already audited** application, its exact SHA-256, the full source commit recorded for that application, and an already extracted Cloudflared executable matching `packaging/cloudflared-manifest.json`:
+Prepare an existing owner-only directory (mode `0700`) outside the checkout. Supply an **already audited** application, its exact SHA-256, the full source commit recorded for that application, and an explicit helper choice:
 
 ```sh
 ./scripts/package/build-basic-macos.sh \
   --application /absolute/path/to/audited/wa-indexer \
   --application-sha256 APPLICATION_SHA256 \
   --source-revision FULL_40_CHARACTER_SOURCE_COMMIT \
-  --cloudflared /absolute/path/to/pinned/cloudflared \
+  --without-cloudflared \
   --output "/absolute/private/packages/My WhatsApp.new.app"
 ./scripts/package/verify.sh "/absolute/private/packages/My WhatsApp.new.app"
 ```
 
-Alternatively supply `--cloudflared-asset /absolute/path/to/cloudflared-darwin-arm64.tgz` instead of `--cloudflared`. Exactly one is required. Both modes check the pinned executable size and SHA-256; archive mode also verifies the archive pin and safely extracts its sole executable. An arbitrary system-installed helper is not a substitute.
+Exactly one of `--without-cloudflared`, `--cloudflared /absolute/path/to/pinned/cloudflared`, or `--cloudflared-asset /absolute/path/to/cloudflared-darwin-arm64.tgz` is required. Helper inclusion checks the pinned executable size and SHA-256 and bundles its manifest and notices; archive mode also verifies the archive pin and safely extracts its sole executable. An arbitrary system-installed helper is not a substitute.
 
-The helper never builds Go, downloads an asset, probes a native executable or opens an archive. It records the supplied source commit; the operator must independently establish that the audited executable came from it. Source inputs are not modified. Symlinks, shared writable paths, a wrong application hash, unpinned helper bytes, unsafe output permissions and existing outputs are refused. Temporary staging is private and removed after packaging. Set `WA_INDEXER_PACKAGE_PYTHON` to an absolute Python path if the system Python is unsuitable.
+**The currently pinned Darwin ARM64 Cloudflared executable requires macOS 15.0.** It is correctly refused by this bundle's unchanged macOS 14 deployment gate, even on a newer host. Use `--without-cloudflared` for the core candidate. Bundled tunneling requires a compatible pinned helper and separate qualification; do not patch Mach-O headers, silently omit a requested helper or claim tunneled access is ready. Remote-access controls remain visible, but the absent helper is unavailable at runtime.
 
-The candidate manifest is `Contents/candidate-manifest.json`, **not** the native-AI `Contents/release-manifest.json`. Every included file has a declared role, size and SHA-256. The command prints the candidate manifest's SHA-256 for an external audit record. `bundle_ready: true` only permits static assembly; `release_ready` remains `false` and `runtime_qualification` remains `NOT_RUN`. No signing, notarization, clean-machine or distribution-license qualification is implied.
+The packaging command never builds Go, downloads an asset, probes a native executable or opens an archive. No-helper mode does not read helper pins or stage helper files. It records the supplied source commit; the operator must independently establish that the audited executable came from it. Source inputs are not modified. Symlinks, shared writable paths, a wrong application hash, unpinned requested-helper bytes, unsafe output permissions and existing outputs are refused. Temporary staging is private and removed after packaging. Set `WA_INDEXER_PACKAGE_PYTHON` to an absolute Python path if the system Python is unsuitable.
+
+The candidate manifest is `Contents/candidate-manifest.json`, **not** the native-AI `Contents/release-manifest.json`. New candidates explicitly record `remote_helper: "none"` or `"pinned"`; pinned selection also requires the pinned `remote_helper_version`, helper artifacts and helper license notice. `"none"` rejects helper artifacts, helper notices and helper-required roles. Older BASIC manifests without this field retain the pinned-helper requirement, never a silent no-helper fallback. Every included file has a declared role, size and SHA-256. The command prints the candidate manifest's SHA-256 for an external audit record. `bundle_ready: true` only permits static assembly; `release_ready` remains `false` and `runtime_qualification` remains `NOT_RUN`. No signing, notarization, clean-machine or distribution-license qualification is implied.
 
 The unchanged Info.plist launches `Contents/MacOS/wa-indexer` directly. Its no-argument behavior starts the local app and opens the authenticated owner window in the default browser; it does not launch Terminal. A second launch uses the existing same-profile owner handshake rather than starting another WhatsApp session. Archive, SDK, models and client settings stay outside the bundle in the existing default `WA Indexer` data directory. This is not a tray app and does not add a desktop framework. The logo is preserved as a resource; no new Dock icon is generated.
 

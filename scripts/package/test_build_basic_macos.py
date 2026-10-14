@@ -64,6 +64,8 @@ class BuildBasicMacOSTests(unittest.TestCase):
             self.assertEqual(manifest["runtime_qualification"], "NOT_RUN")
             self.assertEqual(manifest["source_revision"], "a" * 40)
             self.assertEqual(manifest["ui"], "embedded_in_application")
+            self.assertEqual(manifest["remote_helper"], "pinned")
+            self.assertEqual(manifest["remote_helper_version"], verify_cloudflared.VERSION)
             self.assertEqual((output / "Contents/MacOS/wa-indexer").read_bytes(), app.read_bytes())
             self.assertEqual(stat.S_IMODE(app.stat().st_mode), stat.S_IMODE(original.st_mode))
             self.assertEqual(app.stat().st_mtime_ns, original.st_mtime_ns)
@@ -119,7 +121,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
         result = subprocess.run(["/bin/sh", str(shell), "--help"], capture_output=True, text=True,
                                 env={"LC_ALL": "C", "WA_INDEXER_PACKAGE_PYTHON": sys.executable})
         self.assertEqual(result.returncode, 0)
-        for flag in ("--application", "--application-sha256", "--source-revision", "--cloudflared-asset", "--cloudflared", "--output"):
+        for flag in ("--application", "--application-sha256", "--source-revision", "--cloudflared-asset", "--cloudflared", "--without-cloudflared", "--output"):
             self.assertIn(flag, result.stdout)
         result = subprocess.run(["/bin/sh", str(shell), "--help"], capture_output=True, text=True,
                                 env={"LC_ALL": "C", "WA_INDEXER_PACKAGE_PYTHON": "python3"})
@@ -173,7 +175,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
             captured = io.StringIO()
             with mock.patch.object(sys, "argv", args), mock.patch.object(builder, "build", return_value=output) as build, contextlib.redirect_stdout(captured):
                 builder.main()
-            build.assert_called_once_with(root / "app", "a" * 64, "b" * 40, None, output, cloudflared=root / "helper")
+            build.assert_called_once_with(root / "app", "a" * 64, "b" * 40, None, output, cloudflared=root / "helper", without_cloudflared=False)
             self.assertIn("runtime_qualification=NOT_RUN", captured.getvalue())
             self.assertIn("candidate_manifest_sha256=" + hashlib.sha256(manifest_bytes).hexdigest(), captured.getvalue())
             self.assertNotIn(str(root), captured.getvalue())
@@ -181,6 +183,54 @@ class BuildBasicMacOSTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as refusal:
                     builder.main()
             self.assertNotIn(str(root), str(refusal.exception))
+
+    def test_without_helper_builds_local_candidate_without_reading_or_executing_helper(self):
+        builder = self.builder()
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            app, unused_asset, unused_pins, digest = self.fixture(root)
+            original = app.stat()
+            output = root / "Local Only.new.app"
+            with mock.patch.object(verify_cloudflared, "load_manifest", side_effect=AssertionError("helper pins forbidden")), mock.patch.object(
+                    verify_cloudflared, "install", side_effect=AssertionError("helper install forbidden")), mock.patch.object(
+                    verify_cloudflared, "acquire", side_effect=AssertionError("network forbidden")), mock.patch.object(
+                    verify_cloudflared, "probe", side_effect=AssertionError("native execution forbidden")), mock.patch.object(
+                    builder.assembler.subprocess, "run", fixtures.ASRRoleAdmissionTests().tool):
+                builder.build(app, digest, "a" * 40, None, output, without_cloudflared=True)
+                builder.verifier.verify(str(output))
+            manifest = json.loads((output / "Contents/candidate-manifest.json").read_bytes())
+            self.assertEqual(manifest["remote_helper"], "none")
+            self.assertEqual(set(manifest["required_roles"]), {"application", "license", "third_party_notices", "logo"})
+            self.assertIs(manifest["release_ready"], False)
+            self.assertEqual(manifest["runtime_qualification"], "NOT_RUN")
+            self.assertFalse((output / "Contents/MacOS/cloudflared").exists())
+            self.assertFalse((output / "Contents/Resources/notices/cloudflared").exists())
+            self.assertEqual(app.stat().st_mode, original.st_mode)
+            self.assertEqual(app.stat().st_mtime_ns, original.st_mtime_ns)
+            self.assertEqual(list(root.glob(".basic-package-*")), [])
+
+    def test_without_helper_conflicts_with_either_input_and_cli_requires_one_choice(self):
+        builder = self.builder()
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            app, asset, unused_pins, digest = self.fixture(root)
+            output = root / "Refused.new.app"
+            for args, kwargs in (((app, digest, "a" * 40, asset, output), {"without_cloudflared": True}),
+                                 ((app, digest, "a" * 40, None, output), {"without_cloudflared": True, "cloudflared": app})):
+                with self.assertRaises(ValueError):
+                    builder.build(*args, **kwargs)
+            common = ["builder", "--application", str(app), "--application-sha256", digest,
+                      "--source-revision", "a" * 40, "--output", str(output)]
+            for flags in ([], ["--without-cloudflared", "--cloudflared", str(app)], ["--without-cloudflared", "--cloudflared-asset", str(asset)]):
+                with mock.patch.object(sys, "argv", common + flags), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as refusal:
+                        builder.main()
+                    self.assertEqual(refusal.exception.code, 2)
+            with mock.patch.object(sys, "argv", common + ["--without-cloudflared"]), mock.patch.object(
+                    builder, "build", side_effect=ValueError("synthetic")) as build:
+                with self.assertRaises(SystemExit):
+                    builder.main()
+                build.assert_called_once_with(app, digest, "a" * 40, None, output, cloudflared=None, without_cloudflared=True)
 
 
 if __name__ == "__main__":

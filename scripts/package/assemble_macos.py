@@ -24,6 +24,7 @@ BASIC_PATHS = {"application": "Contents/MacOS/wa-indexer", "cloudflared": "Conte
                "license": "Contents/Resources/LICENSE", "logo": "Contents/Resources/logo.png",
                "cloudflared_manifest": "Contents/Resources/notices/cloudflared/manifest.json"}
 BASIC_ROLES = set(BASIC_PATHS) | {"third_party_notices"}
+BASIC_CORE_ROLES = BASIC_ROLES - {"cloudflared", "cloudflared_manifest"}
 
 
 def fail():
@@ -88,21 +89,34 @@ def required_roles(manifest):
     if not isinstance(explicit, list) or any(not isinstance(role, str) or not role for role in explicit):
         fail()
     if profile == "basic":
+        remote_helper = manifest.get("remote_helper", "pinned")
+        if remote_helper not in ("none", "pinned"):
+            fail()
+        required = BASIC_CORE_ROLES if remote_helper == "none" else BASIC_ROLES
         if (manifest.get("kind") != "unsigned_local_basic_candidate" or manifest.get("release_ready") is not False
                 or manifest.get("selected_encoder_profile") is not None or manifest.get("ai_profiles", []) != []
-                or not set(explicit).issubset(BASIC_ROLES)):
+                or not set(explicit).issubset(required)):
             fail()
-        pins = verify_cloudflared.load_manifest(REPOSITORY / "packaging/cloudflared-manifest.json")
-        pin = next(a for a in pins["assets"] if a["platform"] == "darwin/arm64")
+        if remote_helper == "none":
+            if manifest.get("remote_helper_version") is not None:
+                fail()
+        else:
+            # Older BASIC manifests always required the pinned helper. Missing
+            # selection must never become permission to silently strip it.
+            legacy_version = verify_cloudflared.VERSION if "remote_helper" not in manifest else None
+            if manifest.get("remote_helper_version", legacy_version) != verify_cloudflared.VERSION:
+                fail()
+            pins = verify_cloudflared.load_manifest(REPOSITORY / "packaging/cloudflared-manifest.json")
+            pin = next(a for a in pins["assets"] if a["platform"] == "darwin/arm64")
         seen = set()
         for artifact in manifest["artifacts"]:
             role = artifact.get("role")
             path = artifact.get("relative_path")
-            if role not in BASIC_ROLES:
+            if role not in required:
                 fail()
             if role == "third_party_notices":
                 if (not isinstance(path, str) or (path != "Contents/Resources/THIRD_PARTY_NOTICES"
-                        and not path.startswith("Contents/Resources/notices/cloudflared/"))):
+                        and (remote_helper == "none" or not path.startswith("Contents/Resources/notices/cloudflared/")))):
                     fail()
             elif path != BASIC_PATHS[role] or role in seen:
                 fail()
@@ -116,7 +130,10 @@ def required_roles(manifest):
         if not any(a.get("role") == "third_party_notices" and a.get("relative_path") == "Contents/Resources/THIRD_PARTY_NOTICES"
                    for a in manifest["artifacts"]):
             fail()
-        return BASIC_ROLES
+        if remote_helper == "pinned" and not any(a.get("role") == "third_party_notices"
+                and a.get("relative_path") == "Contents/Resources/notices/cloudflared/LICENSE" for a in manifest["artifacts"]):
+            fail()
+        return required
     required = {"application", "native_runtime", "license", "third_party_notices"}
     required.update(explicit)
     selected = manifest.get("selected_encoder_profile")

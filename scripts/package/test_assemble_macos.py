@@ -295,7 +295,8 @@ class BasicProfileTests(unittest.TestCase):
                    ("license", "Contents/Resources/LICENSE", False),
                    ("third_party_notices", "Contents/Resources/THIRD_PARTY_NOTICES", False),
                    ("logo", "Contents/Resources/logo.png", False),
-                   ("cloudflared_manifest", "Contents/Resources/notices/cloudflared/manifest.json", False)]
+                   ("cloudflared_manifest", "Contents/Resources/notices/cloudflared/manifest.json", False),
+                   ("third_party_notices", "Contents/Resources/notices/cloudflared/LICENSE", False)]
         artifacts = []
         for index, (role, destination, native) in enumerate(entries):
             body = valid_macho() if native else b"SYNTHETIC BASIC PACKAGE FIXTURE"
@@ -343,6 +344,79 @@ class BasicProfileTests(unittest.TestCase):
                 self.assertFalse((bundle / "Contents/release-manifest.json").exists())
                 self.assertFalse((bundle / "Contents/Frameworks").exists())
                 self.assertEqual(stat.S_IMODE(bundle.stat().st_mode), 0o700)
+
+    def test_explicit_no_helper_basic_accepts_without_reading_helper_pins(self):
+        for boundary in ("assembly", "verification"):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                manifest = self.fixture(root)
+                manifest["remote_helper"] = "none"
+                manifest["artifacts"] = [a for a in manifest["artifacts"] if a["role"] not in ("cloudflared", "cloudflared_manifest")
+                                         and not a["relative_path"].startswith("Contents/Resources/notices/cloudflared/")]
+                with mock.patch.object(verify_cloudflared, "load_manifest", side_effect=AssertionError("helper pins must not be read")), mock.patch.object(
+                        assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                    bundle = self.boundary(root, manifest, boundary)
+                self.assertFalse((bundle / "Contents/MacOS/cloudflared").exists())
+                self.assertFalse((bundle / "Contents/Resources/notices/cloudflared").exists())
+                self.assertEqual(stat.S_IMODE((bundle / "Contents/MacOS/wa-indexer").stat().st_mode), 0o500)
+
+    def test_remote_helper_selection_cannot_lie_or_silently_strip_pinned_inventory(self):
+        faults = ("none_with_helper", "none_with_notice", "none_requires_helper", "none_with_version",
+                  "unknown", "missing_pinned_helper", "missing_legacy_helper", "missing_pinned_version", "wrong_version", "missing_helper_notice")
+        for fault in faults:
+            for boundary in ("assembly", "verification"):
+                with self.subTest(fault=fault, boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                    root = pathlib.Path(temp)
+                    manifest = self.fixture(root)
+                    pins = self.pins(manifest)
+                    manifest["remote_helper"] = "pinned"
+                    manifest["remote_helper_version"] = verify_cloudflared.VERSION
+                    if fault.startswith("none_"):
+                        manifest["remote_helper"] = "none"
+                        del manifest["remote_helper_version"]
+                        if fault != "none_with_helper":
+                            manifest["artifacts"] = [a for a in manifest["artifacts"] if a["role"] not in ("cloudflared", "cloudflared_manifest")
+                                                     and not a["relative_path"].startswith("Contents/Resources/notices/cloudflared/")]
+                        if fault == "none_with_notice":
+                            manifest["artifacts"].append({**manifest["artifacts"][0], "role": "third_party_notices", "macho": False,
+                                                          "executable": False, "relative_path": "Contents/Resources/notices/cloudflared/LICENSE"})
+                        elif fault == "none_requires_helper":
+                            manifest["required_roles"] = ["cloudflared"]
+                        elif fault == "none_with_version":
+                            manifest["remote_helper_version"] = verify_cloudflared.VERSION
+                    elif fault == "unknown":
+                        manifest["remote_helper"] = "automatic"
+                    elif fault in ("missing_pinned_helper", "missing_legacy_helper"):
+                        manifest["artifacts"] = [a for a in manifest["artifacts"] if a["role"] != "cloudflared"]
+                        if fault == "missing_legacy_helper":
+                            del manifest["remote_helper"]
+                            del manifest["remote_helper_version"]
+                    elif fault == "missing_pinned_version":
+                        del manifest["remote_helper_version"]
+                    elif fault == "wrong_version":
+                        manifest["remote_helper_version"] = "latest"
+                    else:
+                        manifest["artifacts"] = [a for a in manifest["artifacts"]
+                                                 if a["relative_path"] != "Contents/Resources/notices/cloudflared/LICENSE"]
+                    with mock.patch.object(verify_cloudflared, "load_manifest", return_value=pins), mock.patch.object(
+                            assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                        with self.assertRaises(ValueError):
+                            self.boundary(root, manifest, boundary)
+
+    def test_correctly_pinned_helper_with_minimum_15_still_refuses_both_boundaries(self):
+        for boundary in ("assembly", "verification"):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                manifest = self.fixture(root)
+                helper = manifest["artifacts"][1]
+                body = valid_macho()[:-12] + struct.pack("<3I", 0x000F0000, 0x000F0200, 0)
+                (root / helper["input_path"]).chmod(0o700)
+                (root / helper["input_path"]).write_bytes(body)
+                helper["sha256"] = hashlib.sha256(body).hexdigest()
+                with mock.patch.object(verify_cloudflared, "load_manifest", return_value=self.pins(manifest)), mock.patch.object(
+                        assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                    with self.assertRaises(ValueError):
+                        self.boundary(root, manifest, boundary)
 
     def test_omitted_and_native_ai_profiles_still_require_native_runtime(self):
         for profile in (None, "native-ai"):
