@@ -15,6 +15,15 @@ import struct
 import subprocess
 import sys
 import ctypes
+import verify_cloudflared
+
+
+REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
+RESERVED_PATHS = {"contents/info.plist", "contents/release-manifest.json", "contents/candidate-manifest.json"}
+BASIC_PATHS = {"application": "Contents/MacOS/wa-indexer", "cloudflared": "Contents/MacOS/cloudflared",
+               "license": "Contents/Resources/LICENSE", "logo": "Contents/Resources/logo.png",
+               "cloudflared_manifest": "Contents/Resources/notices/cloudflared/manifest.json"}
+BASIC_ROLES = set(BASIC_PATHS) | {"third_party_notices"}
 
 
 def fail():
@@ -74,10 +83,41 @@ def private_parents(bundle, destination):
 
 def required_roles(manifest):
     """Speech uses the application holder; encoder mappings need their worker."""
-    required = {"application", "native_runtime", "license", "third_party_notices"}
+    profile = bundle_profile(manifest)
     explicit = manifest.get("required_roles", [])
     if not isinstance(explicit, list) or any(not isinstance(role, str) or not role for role in explicit):
         fail()
+    if profile == "basic":
+        if (manifest.get("kind") != "unsigned_local_basic_candidate" or manifest.get("release_ready") is not False
+                or manifest.get("selected_encoder_profile") is not None or manifest.get("ai_profiles", []) != []
+                or not set(explicit).issubset(BASIC_ROLES)):
+            fail()
+        pins = verify_cloudflared.load_manifest(REPOSITORY / "packaging/cloudflared-manifest.json")
+        pin = next(a for a in pins["assets"] if a["platform"] == "darwin/arm64")
+        seen = set()
+        for artifact in manifest["artifacts"]:
+            role = artifact.get("role")
+            path = artifact.get("relative_path")
+            if role not in BASIC_ROLES:
+                fail()
+            if role == "third_party_notices":
+                if (not isinstance(path, str) or (path != "Contents/Resources/THIRD_PARTY_NOTICES"
+                        and not path.startswith("Contents/Resources/notices/cloudflared/"))):
+                    fail()
+            elif path != BASIC_PATHS[role] or role in seen:
+                fail()
+            seen.add(role)
+            native = role in ("application", "cloudflared")
+            if artifact.get("macho") is not native or artifact.get("executable") is not native:
+                fail()
+            if role == "cloudflared" and (artifact.get("size_bytes") != pin["executable_size"]
+                    or artifact.get("sha256") != pin["executable_sha256"]):
+                fail()
+        if not any(a.get("role") == "third_party_notices" and a.get("relative_path") == "Contents/Resources/THIRD_PARTY_NOTICES"
+                   for a in manifest["artifacts"]):
+            fail()
+        return BASIC_ROLES
+    required = {"application", "native_runtime", "license", "third_party_notices"}
     required.update(explicit)
     selected = manifest.get("selected_encoder_profile")
     if selected is not None and not isinstance(selected, str):
@@ -99,6 +139,17 @@ def required_roles(manifest):
     if encoder:
         required.add("native_worker")
     return required
+
+
+def bundle_profile(manifest):
+    profile = manifest.get("bundle_profile", "native-ai")
+    if profile not in ("basic", "native-ai"):
+        fail()
+    return profile
+
+
+def manifest_destination(manifest):
+    return "Contents/candidate-manifest.json" if bundle_profile(manifest) == "basic" else "Contents/release-manifest.json"
 
 
 def relative(value):
@@ -292,39 +343,59 @@ def native_dependencies(native, bundle, native_paths):
 
 
 def assemble(manifest_path, input_root, output):
-    with open(manifest_path, "rb") as manifest_file:
+    fd = os.open(manifest_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as manifest_file:
+        manifest_info = os.fstat(fd)
+        if not stat.S_ISREG(manifest_info.st_mode) or manifest_info.st_nlink != 1 or manifest_info.st_size > 65536:
+            fail()
         manifest_bytes = manifest_file.read(65537)
-    if len(manifest_bytes) > 65536:
-        fail()
-    manifest = json.loads(manifest_bytes)
+        after = os.fstat(fd)
+        if (len(manifest_bytes) != manifest_info.st_size or (manifest_info.st_dev, manifest_info.st_ino,
+                manifest_info.st_size, manifest_info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)):
+            fail()
+        manifest = json.loads(manifest_bytes, object_pairs_hook=verify_cloudflared.unique_object)
+        if bundle_profile(manifest) == "basic" and (manifest_info.st_uid != os.getuid()
+                or stat.S_IMODE(manifest_info.st_mode) != 0o600 or not directory_has_no_acl(fd)):
+            fail()
     if manifest.get("schema_version") != 1 or manifest.get("platform") != "darwin-arm64" or manifest.get("bundle_ready") is not True:
         fail()
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, list) or not artifacts:
         fail()
+    required = required_roles(manifest)
+    basic = bundle_profile(manifest) == "basic"
     root = pathlib.Path(input_root)
     target = pathlib.Path(output)
     if not root.is_absolute() or root.is_symlink() or not root.is_dir() or target.exists() or target.is_symlink() or not target.is_absolute() or target.suffix != ".app":
         fail()
+    if basic:
+        private_directory(root)
+        private_directory(target.parent)
     verified = []
     roles = set()
     destinations = set()
-    reserved = {"contents/info.plist", "contents/release-manifest.json"}
+    folded_destinations = set()
     for a in artifacts:
         src = root.joinpath(*relative(a["input_path"]).parts)
         dst = relative(a["relative_path"])
-        if str(dst).casefold() in reserved or str(dst) in destinations or dst.parts[0] != "Contents":
+        if str(dst).casefold() in RESERVED_PATHS or str(dst).casefold() in folded_destinations or dst.parts[0] != "Contents":
             fail()
         destinations.add(str(dst))
+        folded_destinations.add(str(dst).casefold())
         cursor = root
         for part in src.relative_to(root).parts:
             cursor = cursor / part
             if cursor.is_symlink():
                 fail()
+            if basic and cursor != src:
+                private_directory(cursor)
         fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
         with os.fdopen(fd, "rb") as source:
             before = os.fstat(source.fileno())
             if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size != a["size_bytes"]:
+                fail()
+            if basic and (before.st_uid != os.getuid() or stat.S_IMODE(before.st_mode) not in (
+                    (0o500, 0o700) if a["executable"] else (0o400, 0o600)) or not directory_has_no_acl(source.fileno())):
                 fail()
             digest = audited_digest(source, a["size_bytes"], macho=a.get("macho"))
             after = os.fstat(source.fileno())
@@ -334,7 +405,7 @@ def assemble(manifest_path, input_root, output):
             fail()
         roles.add(a["role"])
         verified.append((src, dst, a, (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)))
-    if not required_roles(manifest).issubset(roles) or "Contents/MacOS/wa-indexer" not in destinations:
+    if not required.issubset(roles) or "Contents/MacOS/wa-indexer" not in destinations:
         fail()
     plist = pathlib.Path(__file__).resolve().parents[2] / "packaging/macos/Info.plist"
     plist_bytes = plist.read_bytes()
@@ -369,8 +440,9 @@ def assemble(manifest_path, input_root, output):
         native_paths = {target.joinpath(*dst.parts).resolve() for _, dst, a, _ in verified if a.get("macho")}
         for native in native_paths:
             native_dependencies(native, target, native_paths)
-        (target / "Contents/release-manifest.json").write_bytes(manifest_bytes)
-        (target / "Contents/release-manifest.json").chmod(0o400)
+        saved_manifest = target / manifest_destination(manifest)
+        saved_manifest.write_bytes(manifest_bytes)
+        saved_manifest.chmod(0o400)
     except Exception:
         # Only this newly created output is owned by this invocation.
         shutil.rmtree(target)

@@ -57,6 +57,8 @@ cd my-whatsapp-mcp
 
 The app opens a private owner window at `http://127.0.0.1:64165`. Keep the terminal running. Follow the [setup guide](docs/setup.md) to discover chats, choose what to archive, and verify an import. The executable remains `wa-indexer` for existing installations.
 
+Contributor tooling can assemble a [basic macOS ARM64 `.app` candidate](packaging/macos/README.md#basic-unsigned-candidate) without optional AI runtimes. Candidates remain unsigned; there is no signed, notarized public app download yet. Optional models and Hebrew voice setup keep their separate requirements.
+
 Want to look around first? Run `./bin/wa-indexer demo` instead. It uses synthetic Hebrew and English conversations in a separate archive and never connects to WhatsApp. Stop it with Ctrl+C before starting your own archive.
 
 ## Search the words you remember

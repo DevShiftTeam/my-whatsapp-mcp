@@ -20,7 +20,11 @@ def verify(bundle_path):
         assembler.fail()
     assembler.private_directory(bundle)
     assembler.private_directory(bundle / "Contents")
-    manifest_path = bundle / "Contents/release-manifest.json"
+    manifests = [bundle / name for name in ("Contents/release-manifest.json", "Contents/candidate-manifest.json")
+                 if (bundle / name).exists() or (bundle / name).is_symlink()]
+    if len(manifests) != 1:
+        assembler.fail()
+    manifest_path = manifests[0]
     fd = os.open(manifest_path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as source:
         info = os.fstat(source.fileno())
@@ -30,17 +34,29 @@ def verify(bundle_path):
         after = os.fstat(source.fileno())
         if len(data) != info.st_size or (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
             assembler.fail()
-        manifest = json.loads(data)
+        manifest = json.loads(data, object_pairs_hook=assembler.verify_cloudflared.unique_object)
+        basic = assembler.bundle_profile(manifest) == "basic"
+        if basic and not assembler.directory_has_no_acl(source.fileno()):
+            assembler.fail()
     if manifest.get("schema_version") != 1 or manifest.get("platform") != "darwin-arm64" or manifest.get("bundle_ready") is not True:
         assembler.fail()
+    if manifest_path != bundle / assembler.manifest_destination(manifest):
+        assembler.fail()
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        assembler.fail()
+    required = assembler.required_roles(manifest)
     roles = set()
     machos = []
     declared = set()
-    for artifact in manifest["artifacts"]:
+    folded_declared = set()
+    for artifact in artifacts:
         relative = assembler.relative(artifact["relative_path"])
-        if relative.parts[0] != "Contents" or str(relative) in declared:
+        if (relative.parts[0] != "Contents" or str(relative).casefold() in folded_declared
+                or str(relative).casefold() in assembler.RESERVED_PATHS):
             assembler.fail()
         declared.add(str(relative))
+        folded_declared.add(str(relative).casefold())
         cursor = bundle
         for part in relative.parts:
             cursor = cursor / part
@@ -54,6 +70,8 @@ def verify(bundle_path):
             expected_mode = 0o500 if artifact.get("executable") else 0o400
             if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != expected_mode or info.st_size != artifact["size_bytes"]:
                 assembler.fail()
+            if basic and not assembler.directory_has_no_acl(source.fileno()):
+                assembler.fail()
             if assembler.audited_digest(source, artifact["size_bytes"], macho=artifact.get("macho")) != artifact["sha256"]:
                 assembler.fail()
             after = os.fstat(source.fileno())
@@ -64,13 +82,15 @@ def verify(bundle_path):
             assembler.fail()
         if artifact.get("macho"):
             machos.append(cursor)
-    if not assembler.required_roles(manifest).issubset(roles) or "Contents/MacOS/wa-indexer" not in declared:
+    if not required.issubset(roles) or "Contents/MacOS/wa-indexer" not in declared:
         assembler.fail()
     plist = bundle / "Contents/Info.plist"
     fd = os.open(plist, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, "rb") as source:
         info = os.fstat(source.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o400 or info.st_size > 65536:
+            assembler.fail()
+        if basic and not assembler.directory_has_no_acl(source.fileno()):
             assembler.fail()
         data = source.read(65537)
         if len(data) != info.st_size:
@@ -82,6 +102,14 @@ def verify(bundle_path):
     native_paths = {path.resolve() for path in machos}
     for native in machos:
         assembler.native_dependencies(native, bundle, native_paths)
+    if assembler.bundle_profile(manifest) == "basic":
+        expected = declared | {"Contents/Info.plist", assembler.manifest_destination(manifest)}
+        directories = {str(parent) for name in expected for parent in pathlib.PurePosixPath(name).parents
+                       if str(parent) != "."}
+        for entry in bundle.rglob("*"):
+            name = str(entry.relative_to(bundle))
+            if entry.is_symlink() or name not in (directories if entry.is_dir() else expected):
+                assembler.fail()
     return bundle
 
 

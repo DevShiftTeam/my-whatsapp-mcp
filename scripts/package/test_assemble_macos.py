@@ -12,6 +12,7 @@ import shutil
 import os
 import stat
 import unittest
+import verify_cloudflared
 
 spec = importlib.util.spec_from_file_location("assembler", pathlib.Path(__file__).with_name("assemble_macos.py"))
 assembler = importlib.util.module_from_spec(spec)
@@ -284,6 +285,219 @@ class ASRRoleAdmissionTests(unittest.TestCase):
                 with mock.patch.object(verifier.assembler.subprocess, "run", self.tool):
                     with self.assertRaisesRegex(ValueError, "^bundle_input_not_audited$"):
                         verifier.verify(str(bundle))
+
+
+class BasicProfileTests(unittest.TestCase):
+    """Synthetic candidate inventories, not runtime or distribution evidence."""
+    def fixture(self, root, profile="basic"):
+        entries = [("application", "Contents/MacOS/wa-indexer", True),
+                   ("cloudflared", "Contents/MacOS/cloudflared", True),
+                   ("license", "Contents/Resources/LICENSE", False),
+                   ("third_party_notices", "Contents/Resources/THIRD_PARTY_NOTICES", False),
+                   ("logo", "Contents/Resources/logo.png", False),
+                   ("cloudflared_manifest", "Contents/Resources/notices/cloudflared/manifest.json", False)]
+        artifacts = []
+        for index, (role, destination, native) in enumerate(entries):
+            body = valid_macho() if native else b"SYNTHETIC BASIC PACKAGE FIXTURE"
+            name = "input-" + str(index)
+            source = root / name
+            source.write_bytes(body)
+            source.chmod(0o500 if native else 0o400)
+            artifacts.append({"role": role, "input_path": name, "relative_path": destination,
+                              "macho": native, "executable": native, "size_bytes": len(body),
+                              "sha256": hashlib.sha256(body).hexdigest()})
+        manifest = {"schema_version": 1, "platform": "darwin-arm64", "bundle_ready": True,
+                    "kind": "unsigned_local_basic_candidate", "bundle_profile": profile,
+                    "release_ready": False, "runtime_qualification": "NOT_RUN",
+                    "selected_encoder_profile": None, "ai_profiles": [], "required_roles": [],
+                    "artifacts": artifacts}
+        return manifest
+
+    def pins(self, manifest):
+        helper = next(a for a in manifest["artifacts"] if a["role"] == "cloudflared")
+        return {"assets": [{"platform": "darwin/arm64", "executable_size": helper["size_bytes"],
+                            "executable_sha256": helper["sha256"]}]}
+
+    def boundary(self, root, manifest, boundary):
+        if boundary == "assembly":
+            path = root / "candidate.json"
+            path.write_text(json.dumps(manifest))
+            path.chmod(0o600)
+            bundle = root / "Synthetic Basic.app"
+            assembler.assemble(str(path), str(root), str(bundle))
+            return bundle
+        bundle = ASRRoleAdmissionTests().saved_bundle(root, manifest)
+        if manifest.get("bundle_profile") == "basic":
+            (bundle / "Contents/release-manifest.json").rename(bundle / "Contents/candidate-manifest.json")
+        return verifier.verify(str(bundle))
+
+    def test_basic_accepts_without_native_ai_and_uses_separate_candidate_manifest(self):
+        for boundary in ("assembly", "verification"):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                manifest = self.fixture(root)
+                with mock.patch.object(verify_cloudflared, "load_manifest", return_value=self.pins(manifest)), mock.patch.object(
+                        assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                    bundle = self.boundary(root, manifest, boundary)
+                self.assertTrue((bundle / "Contents/candidate-manifest.json").is_file())
+                self.assertFalse((bundle / "Contents/release-manifest.json").exists())
+                self.assertFalse((bundle / "Contents/Frameworks").exists())
+                self.assertEqual(stat.S_IMODE(bundle.stat().st_mode), 0o700)
+
+    def test_omitted_and_native_ai_profiles_still_require_native_runtime(self):
+        for profile in (None, "native-ai"):
+            for boundary in ("assembly", "verification"):
+                with self.subTest(profile=profile, boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                    root = pathlib.Path(temp)
+                    manifest = self.fixture(root, profile)
+                    if profile is None:
+                        del manifest["bundle_profile"]
+                    with self.assertRaises(ValueError):
+                        self.boundary(root, manifest, boundary)
+
+    def test_explicit_native_ai_preserves_existing_speech_profile_admission(self):
+        for boundary in ("assembly", "verification"):
+            with self.subTest(boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                manifest = ASRRoleAdmissionTests().fixture(root)
+                old_required = assembler.required_roles(manifest)
+                manifest["bundle_profile"] = "native-ai"
+                self.assertEqual(assembler.required_roles(manifest), old_required)
+                with mock.patch.object(assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                    bundle = self.boundary(root, manifest, boundary)
+                self.assertTrue((bundle / "Contents/release-manifest.json").is_file())
+
+    def test_unknown_bundle_profile_refuses_otherwise_valid_native_inventory(self):
+        for profile in ("basik", "BASIC", None, 1):
+            for boundary in ("assembly", "verification"):
+                with self.subTest(profile=profile, boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                    root = pathlib.Path(temp)
+                    manifest = ASRRoleAdmissionTests().fixture(root)
+                    manifest["bundle_profile"] = profile
+                    with mock.patch.object(assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                        with self.assertRaises(ValueError):
+                            self.boundary(root, manifest, boundary)
+
+    def test_basic_rejects_ai_selection_unknown_roles_and_release_claims(self):
+        faults = ("selected_encoder", "ai_profiles", "native_runtime", "native_worker", "encoder_profile",
+                  "model", "unknown_role", "required_ai", "release_ready", "wrong_kind", "missing_helper", "missing_notices")
+        for fault in faults:
+            for boundary in ("assembly", "verification"):
+                with self.subTest(fault=fault, boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                    root = pathlib.Path(temp)
+                    manifest = self.fixture(root)
+                    pins = self.pins(manifest)
+                    if fault == "selected_encoder":
+                        manifest["selected_encoder_profile"] = "selected"
+                    elif fault == "ai_profiles":
+                        manifest["ai_profiles"] = [{"kind": "speech"}]
+                    elif fault == "required_ai":
+                        manifest["required_roles"] = ["native_runtime"]
+                    elif fault == "release_ready":
+                        manifest["release_ready"] = True
+                    elif fault == "wrong_kind":
+                        manifest["kind"] = "release"
+                    elif fault == "missing_helper":
+                        manifest["artifacts"] = [a for a in manifest["artifacts"] if a["role"] != "cloudflared"]
+                    elif fault == "missing_notices":
+                        manifest["artifacts"][3]["relative_path"] = "Contents/Resources/notices/cloudflared/only-one-notice"
+                    else:
+                        manifest["artifacts"].append({**manifest["artifacts"][0], "role": fault,
+                                                      "relative_path": "Contents/Resources/extra"})
+                    with mock.patch.object(verify_cloudflared, "load_manifest", return_value=pins), mock.patch.object(
+                            assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                        with self.assertRaises(ValueError):
+                            self.boundary(root, manifest, boundary)
+
+    def test_basic_rejects_file_and_manifest_acl_or_nonprivate_manifest(self):
+        for fault in ("artifact_acl", "manifest_acl", "manifest_mode"):
+            for boundary in ("assembly", "verification"):
+                with self.subTest(fault=fault, boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                    root = pathlib.Path(temp)
+                    manifest = self.fixture(root)
+                    if boundary == "assembly":
+                        path = root / "candidate.json"
+                        path.write_text(json.dumps(manifest))
+                        path.chmod(0o600)
+                        module = assembler
+                        call = lambda: assembler.assemble(str(path), str(root), str(root / "Refused.app"))
+                    else:
+                        bundle = ASRRoleAdmissionTests().saved_bundle(root, manifest)
+                        path = bundle / "Contents/candidate-manifest.json"
+                        (bundle / "Contents/release-manifest.json").rename(path)
+                        module = verifier.assembler
+                        call = lambda: verifier.verify(str(bundle))
+                    if fault == "manifest_mode":
+                        path.chmod(0o644)
+                    no_acl = module.directory_has_no_acl
+                    inode = path.stat().st_ino
+                    def acl(fd):
+                        info = os.fstat(fd)
+                        denied = info.st_ino == inode if fault == "manifest_acl" else info.st_ino != inode
+                        return False if stat.S_ISREG(info.st_mode) and denied else no_acl(fd)
+                    with mock.patch.object(verify_cloudflared, "load_manifest", return_value=self.pins(manifest)), mock.patch.object(
+                            module, "directory_has_no_acl", side_effect=acl if fault != "manifest_mode" else no_acl):
+                        with self.assertRaises(ValueError):
+                            call()
+
+    def test_basic_keeps_hash_macho_owner_private_and_helper_pin_checks(self):
+        for fault in ("hash", "macho", "deployment", "helper_pin", "private_file", "owner"):
+            for boundary in ("assembly", "verification"):
+                with self.subTest(fault=fault, boundary=boundary), tempfile.TemporaryDirectory() as temp:
+                    root = pathlib.Path(temp)
+                    manifest = self.fixture(root)
+                    app = manifest["artifacts"][0]
+                    pins = self.pins(manifest)
+                    if fault == "hash":
+                        app["sha256"] = "0" * 64
+                    elif fault == "macho":
+                        app["macho"] = False
+                    elif fault == "deployment":
+                        body = valid_macho()[:-12] + struct.pack("<3I", 0x000F0000, 0x001B0000, 0)
+                        (root / app["input_path"]).chmod(0o700)
+                        (root / app["input_path"]).write_bytes(body)
+                        app["sha256"] = hashlib.sha256(body).hexdigest()
+                    elif fault == "helper_pin":
+                        pins["assets"][0]["executable_sha256"] = "0" * 64
+                    elif fault == "private_file":
+                        (root / app["input_path"]).chmod(0o755)
+                    with mock.patch.object(verify_cloudflared, "load_manifest", return_value=pins), mock.patch.object(
+                            assembler.subprocess, "run", ASRRoleAdmissionTests().tool), mock.patch.object(
+                            assembler.os, "getuid", return_value=os.getuid() + 1 if fault == "owner" else os.getuid()):
+                        if fault == "private_file" and boundary == "verification":
+                            bundle = ASRRoleAdmissionTests().saved_bundle(root, manifest)
+                            (bundle / "Contents/release-manifest.json").rename(bundle / "Contents/candidate-manifest.json")
+                            (bundle / app["relative_path"]).chmod(0o755)
+                            with self.assertRaises(ValueError):
+                                verifier.verify(str(bundle))
+                        else:
+                            with self.assertRaises(ValueError):
+                                self.boundary(root, manifest, boundary)
+
+    def test_candidate_metadata_is_reserved_and_manifest_profile_cannot_be_relabelled(self):
+        for fault in ("reserved", "wrong_manifest_path", "both_manifests", "undeclared_ai"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                manifest = self.fixture(root)
+                with mock.patch.object(verify_cloudflared, "load_manifest", return_value=self.pins(manifest)), mock.patch.object(
+                        assembler.subprocess, "run", ASRRoleAdmissionTests().tool):
+                    if fault == "reserved":
+                        manifest["artifacts"].append({**manifest["artifacts"][2],
+                                                      "relative_path": "Contents/CANDIDATE-MANIFEST.JSON"})
+                        with self.assertRaises(ValueError):
+                            self.boundary(root, manifest, "assembly")
+                        self.assertFalse((root / "Synthetic Basic.app").exists())
+                    else:
+                        bundle = self.boundary(root, manifest, "assembly")
+                        candidate = bundle / "Contents/candidate-manifest.json"
+                        if fault == "wrong_manifest_path":
+                            candidate.rename(bundle / "Contents/release-manifest.json")
+                        elif fault == "both_manifests":
+                            shutil.copyfile(candidate, bundle / "Contents/release-manifest.json")
+                        else:
+                            (bundle / "Contents/Resources/unlisted-model").write_bytes(b"not declared")
+                        with self.assertRaises(ValueError):
+                            verifier.verify(str(bundle))
 
 
 if __name__ == "__main__":
