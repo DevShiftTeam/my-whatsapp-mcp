@@ -235,8 +235,8 @@ func (r *Runtime) downloadMedia(ctx context.Context, p *pendingMedia) (resultErr
 
 type mediaTransferCleanup struct{ admission DownloadAdmission }
 
-// transferMedia is synchronous and context-only. Production cancellation belongs
-// to the optional loop; it cannot replace the concurrent history cancellation.
+// transferMedia is synchronous and context-only. Production media cancellation
+// belongs to the optional loop; it never owns an accepted history download.
 func (r *Runtime) transferMedia(ctx context.Context, p *pendingMedia, cleanup *mediaTransferCleanup) (resultErr error) {
 	if r.callbacks.MediaAdmitter == nil {
 		if r.legacyMediaReceiver && r.callbacks.MediaReceiver != nil {

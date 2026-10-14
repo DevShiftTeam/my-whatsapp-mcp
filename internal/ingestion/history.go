@@ -78,16 +78,14 @@ func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.
 		}
 		defer staged.Close()
 		downloadCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		r.activeMu.Lock()
-		r.activeCancel = cancel
-		r.activeMu.Unlock()
+		// A history download owns source records, including controls we have not
+		// seen yet. Received privacy controls may interrupt a media transfer, but
+		// must not cancel this source envelope through the media cancellation slot.
+		// Its bounded context still follows run cancellation on a genuine failure.
 		downloadStarted := time.Now()
 		err = r.downloadAttachment(downloadCtx, notification, staged)
 		r.latency.record(latencyHistory, latencyDownload, time.Since(downloadStarted))
 		cancel()
-		r.activeMu.Lock()
-		r.activeCancel = nil
-		r.activeMu.Unlock()
 		if err != nil {
 			err = historyStage(err, "download", "no_stub")
 			r.historyFailure(err)
