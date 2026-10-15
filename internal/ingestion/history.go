@@ -169,7 +169,14 @@ func historyBodyMissing(message *waWeb.WebMessageInfo) error {
 }
 
 func historyBodylessFailure(message *waWeb.WebMessageInfo, stage string) error {
-	witness := &historyStageError{stage: closedHistoryStage(stage), stub: historyStubClass(message), stubType: -1, cause: errHistoryCorrupt}
+	return historyBodylessStage(errHistoryCorrupt, message, stage)
+}
+
+func historyBodylessStage(cause error, message *waWeb.WebMessageInfo, stage string) error {
+	if cause == nil {
+		return nil
+	}
+	witness := &historyStageError{stage: closedHistoryStage(stage), stub: historyStubClass(message), stubType: -1, cause: cause}
 	if message != nil && message.MessageStubType != nil {
 		witness.rawStub = int32(message.GetMessageStubType())
 		witness.stubPresent = true
@@ -223,6 +230,8 @@ func closedHistoryStage(stage string) string {
 	case "download", "decode", "sync_header", "mapping", "conversation_id", "record_decode", "record_body_missing", "record_safety_metadata", "record_jid_mismatch", "record_parse", "record_structure", "record_projection":
 		return stage
 	case "admin_key_invalid", "admin_chat_invalid", "admin_actor_invalid", "admin_author_invalid", "admin_target_missing", "admin_target_ambiguous", "admin_direction_mismatch", "admin_author_mismatch", "admin_envelope_invalid", "admin_store_failure":
+		return stage
+	case "revoke_key_invalid", "revoke_chat_invalid", "revoke_self_author_invalid", "revoke_direction_mismatch", "revoke_self_author_mismatch", "revoke_author_invalid", "revoke_author_conflict", "revoke_target_lookup_failed", "revoke_target_ambiguous", "revoke_guard_unavailable", "revoke_guard_failed", "revoke_target_missing", "revoke_target_direction_mismatch", "revoke_parse_failed", "revoke_envelope_invalid", "revoke_chat_mismatch", "revoke_author_mismatch", "revoke_target_author_mismatch", "revoke_apply_failed":
 		return stage
 	default:
 		return "unknown"

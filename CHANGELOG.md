@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Handle a reviewed broadcast participant marker on incoming direct-chat history deletions as non-author metadata, matching the SDK's direct-chat author derivation. Retain terminal deletion and strict target, direction, group and retention checks rather than pausing otherwise valid first-link history.
+- Distinguish ordinary history-revocation validation failures with fixed reason codes and actual value-free field presence, instead of collapsing different author, direction and target failures into one generic diagnostic. Keep failure behavior, protected reads and recovery eligibility unchanged.
 - Handle authenticated incoming group-history deletions that arrive without a known original author by durably withholding the exact message across authors and retaining a chat-scoped gap, rather than stopping unrelated import. Recheck unknown targets atomically; invalid claims, conflicting targets and failed guard writes remain strict, and existing safety pauses are not cleared.
 - Keep accepted history downloads independent of the media-cancellation slot, so received privacy controls do not cancel first-link history and falsely pause the archive. Controls remain immediate, download deadlines remain bounded, and genuine source failures still fail closed.
 - Add explicit basic macOS ARM64 app-candidate packaging with the existing logo and license notices, without requiring optional AI runtimes or models. A local-only candidate can omit the tunnel helper explicitly; including it retains its pin and macOS compatibility checks. Preserve native-AI bundle rules and external archive paths; candidates remain unsigned and unqualified for public distribution until the separate runtime and release checks pass.

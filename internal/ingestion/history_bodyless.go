@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
@@ -20,18 +21,24 @@ type unknownHistoryDeletionRecorder interface {
 // A linked phone can supply authenticated history metadata without a body.
 // Understood stubs do not authorize a fabricated original message.
 func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, web *waWeb.WebMessageInfo) error {
+	kind := web.GetMessageStubType()
+	stage := func(cause error, legacy, revoke string) error {
+		if kind == waWeb.WebMessageInfo_REVOKE {
+			return historyBodylessStage(cause, web, revoke)
+		}
+		return historyStage(cause, legacy, historyStubClass(web))
+	}
 	if web == nil || web.GetMessage() != nil || web.GetKey() == nil || web.GetKey().GetID() == "" || len(web.GetKey().GetID()) > 256 || !utf8.ValidString(web.GetKey().GetID()) || strings.IndexByte(web.GetKey().GetID(), 0) >= 0 {
 		if web.GetMessageStubType() == waWeb.WebMessageInfo_ADMIN_REVOKE {
 			return historyAdminStage(errHistoryCorrupt, "admin_key_invalid")
 		}
-		return historyStage(errHistoryCorrupt, "record_structure", historyStubClass(web))
+		return stage(errHistoryCorrupt, "record_structure", "revoke_key_invalid")
 	}
 	// Unresolved expiry or embedded control metadata must not disappear merely
 	// because this record has no message body.
 	if web.EphemeralStartTimestamp != nil || web.EphemeralDuration != nil || web.EphemeralExpirationTimestamp != nil || web.EphemeralOffToOn != nil || web.EphemeralOutOfSync != nil || web.KeepInChat != nil || len(web.FutureproofData) != 0 || web.TargetMessageID != nil || len(web.MessageAddOns) != 0 || web.QuarantinedMessage != nil || web.GroupHistoryBundleInfo != nil {
 		return historyBodylessFailure(web, "record_safety_metadata")
 	}
-	kind := web.GetMessageStubType()
 	// A bodyless pin notice is display metadata only. Explicit control fields
 	// retain their presence semantics even when their values are zero or false.
 	if kind == waWeb.WebMessageInfo_PINNED_MESSAGE_IN_CHAT && (web.PinInChat != nil || web.RevokeMessageTimestamp != nil || web.ClearMedia != nil) {
@@ -45,7 +52,7 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		if kind == waWeb.WebMessageInfo_ADMIN_REVOKE {
 			return historyAdminStage(err, "admin_chat_invalid")
 		}
-		return historyStage(err, "record_jid_mismatch", historyStubClass(web))
+		return stage(err, "record_jid_mismatch", "revoke_chat_invalid")
 	}
 	if kind == waWeb.WebMessageInfo_ADMIN_REVOKE {
 		return r.projectBodylessAdminRevoke(ctx, chat, canonicalChat, web)
@@ -54,12 +61,28 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		if claim := web.GetOriginalSelfAuthorUserJIDString(); claim != "" {
 			self, err := r.historyUserClaim(ctx, claim)
 			own, ownErr := r.canonical(ctx, r.SourceAccount())
-			if err != nil || ownErr != nil || !web.GetKey().GetFromMe() || self != own {
-				return historyStage(errHistoryCorrupt, "record_structure", "revoke")
+			if err != nil || ownErr != nil {
+				return stage(errHistoryCorrupt, "record_structure", "revoke_self_author_invalid")
+			}
+			if !web.GetKey().GetFromMe() {
+				return stage(errHistoryCorrupt, "record_structure", "revoke_direction_mismatch")
+			}
+			if self != own {
+				return stage(errHistoryCorrupt, "record_structure", "revoke_self_author_mismatch")
 			}
 		}
 	}
 	keyParticipant, webParticipant := web.GetKey().GetParticipant(), web.GetParticipant()
+	if kind == waWeb.WebMessageInfo_REVOKE && (chat.Server == types.DefaultUserServer || chat.Server == types.HiddenUserServer) && web.GetKey().FromMe != nil && !web.GetKey().GetFromMe() && keyParticipant == "" {
+		// Own-device history can attach a broadcast marker to an incoming
+		// direct-chat deletion. The SDK derives the original author from the
+		// direct chat and does not use this field as author evidence. Admit only
+		// the reviewed marker shape; never use it to invent a sender or widen a
+		// group, direction or conflicting-key-author deletion.
+		if reviewedHistoryBroadcastMarker(webParticipant) {
+			webParticipant = ""
+		}
+	}
 	var author string
 	for _, claim := range []string{keyParticipant, webParticipant} {
 		if claim == "" {
@@ -72,8 +95,11 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		} else {
 			canonical, err = r.canonical(ctx, claim)
 		}
-		if err != nil || (author != "" && author != canonical) {
-			return historyStage(errHistoryCorrupt, "record_structure", historyStubClass(web))
+		if err != nil {
+			return stage(errHistoryCorrupt, "record_structure", "revoke_author_invalid")
+		}
+		if author != "" && author != canonical {
+			return stage(errHistoryCorrupt, "record_structure", "revoke_author_conflict")
 		}
 		author = canonical
 	}
@@ -86,10 +112,10 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 	if web.GetMessageStubType() == waWeb.WebMessageInfo_REVOKE {
 		targets, err = r.store.MutationTargets(ctx, r.SourceAccount(), canonicalChat, web.GetKey().GetID())
 		if err != nil {
-			return historyStage(err, "record_projection", "revoke")
+			return stage(err, "record_projection", "revoke_target_lookup_failed")
 		}
 		if len(targets) > 1 {
-			return historyStage(errHistoryCorrupt, "record_structure", "revoke")
+			return stage(errHistoryCorrupt, "record_structure", "revoke_target_ambiguous")
 		}
 	}
 	var info types.MessageInfo
@@ -101,10 +127,10 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 			// the unknown-target condition inside the writer's guard transaction.
 			recorder, ok := r.store.(unknownHistoryDeletionRecorder)
 			if !ok {
-				return historyStage(archive.ErrArchiveUnavailable, "record_projection", "revoke")
+				return stage(archive.ErrArchiveUnavailable, "record_projection", "revoke_guard_unavailable")
 			}
 			if err := recorder.RecordUnresolvedDeletionIfUnknown(ctx, r.SourceAccount(), canonicalChat, web.GetKey().GetID()); err != nil {
-				return historyStage(err, "record_projection", "revoke")
+				return stage(err, "record_projection", "revoke_guard_failed")
 			}
 			r.mu.Lock()
 			found := false
@@ -119,35 +145,44 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		}
 		// A unique retained target can establish the original author. The actor
 		// who performed a group deletion cannot establish that author's identity.
-		if len(targets) != 1 || targets[0].Key.FromMe {
-			return historyStage(errHistoryCorrupt, "record_structure", historyStubClass(web))
+		if len(targets) != 1 {
+			return stage(errHistoryCorrupt, "record_structure", "revoke_target_missing")
+		}
+		if targets[0].Key.FromMe {
+			return stage(errHistoryCorrupt, "record_structure", "revoke_target_direction_mismatch")
 		}
 		sender, err := types.ParseJID(targets[0].Key.Sender)
 		if err != nil {
-			return historyStage(errHistoryCorrupt, "record_structure", "revoke")
+			return stage(errHistoryCorrupt, "record_structure", "revoke_author_invalid")
 		}
 		info = types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: sender, IsGroup: true}, ID: web.GetKey().GetID()}
 	} else {
 		event, err := r.client.ParseWebMessage(chat, web)
 		if err != nil {
-			return historyStage(errHistoryCorrupt, "record_parse", historyStubClass(web))
+			return stage(errHistoryCorrupt, "record_parse", "revoke_parse_failed")
 		}
 		info = event.Info
 	}
 	key, err := r.envelopeKey(ctx, info)
 	if err != nil {
-		return historyStage(err, "record_structure", historyStubClass(web))
+		return stage(err, "record_structure", "revoke_envelope_invalid")
 	}
-	if key.Chat != canonicalChat || (author != "" && author != key.Sender) {
-		return historyStage(errHistoryCorrupt, "record_structure", historyStubClass(web))
+	if key.Chat != canonicalChat {
+		return stage(errHistoryCorrupt, "record_structure", "revoke_chat_mismatch")
+	}
+	if author != "" && author != key.Sender {
+		return stage(errHistoryCorrupt, "record_structure", "revoke_author_mismatch")
 	}
 	switch web.GetMessageStubType() {
 	case waWeb.WebMessageInfo_REVOKE:
 		deletion := archive.SourceEvent{Key: key, Kind: archive.EventDelete, SourceRevision: 0, BodyKind: archive.MessageUnsupported}
 		if len(targets) == 1 {
 			target := targets[0]
-			if target.Key.Sender != key.Sender || target.Key.FromMe != key.FromMe {
-				return historyStage(errHistoryCorrupt, "record_structure", "revoke")
+			if target.Key.Sender != key.Sender {
+				return stage(errHistoryCorrupt, "record_structure", "revoke_target_author_mismatch")
+			}
+			if target.Key.FromMe != key.FromMe {
+				return stage(errHistoryCorrupt, "record_structure", "revoke_target_direction_mismatch")
 			}
 			deletion.OriginalSentAt = target.OriginalSentAt
 			deletion.OriginalDateKnown = target.OriginalDateKnown
@@ -156,7 +191,7 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		// Deletion is terminal even without an authenticated operation time.
 		// The stub's receive timestamp must not replace the original's date.
 		_, err = r.apply(ctx, deletion)
-		return historyStage(err, "record_projection", "revoke")
+		return stage(err, "record_projection", "revoke_apply_failed")
 	case waWeb.WebMessageInfo_CIPHERTEXT:
 		if err = r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: key.Account, GapCode: "undecryptable_message", CoverageUnknown: true}); err != nil {
 			return historyStage(err, "record_projection", "ciphertext")
@@ -174,6 +209,14 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 	default:
 		return historyBodyMissing(web)
 	}
+}
+
+func reviewedHistoryBroadcastMarker(claim string) bool {
+	if claim == "" || len(claim) > 256 || !utf8.ValidString(claim) || strings.Count(claim, "@") != 1 || strings.ContainsAny(claim, "/\\") || strings.IndexFunc(claim, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+		return false
+	}
+	marker, err := types.ParseJID(claim)
+	return err == nil && marker.User != "" && marker.Server == types.BroadcastServer && marker.Device == 0 && marker.RawAgent == 0 && marker.String() == claim
 }
 
 func (r *Runtime) projectBodylessAdminRevoke(ctx context.Context, chat types.JID, canonicalChat string, web *waWeb.WebMessageInfo) error {
