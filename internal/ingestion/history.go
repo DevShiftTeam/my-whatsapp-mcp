@@ -18,6 +18,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func (r *Runtime) historyFrom(ctx context.Context, event *events.Message) error {
@@ -60,12 +61,14 @@ func (r *Runtime) history(ctx context.Context, notification *waE2E.HistorySyncNo
 func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.HistorySyncNotification, delivered *deliveredHistoryChunk) error {
 	var reader io.Reader
 	var staged *boundedMemoryFile
+	var compressed []byte
+	var retainedID string
 	if inline := notification.GetInitialHistBootstrapInlinePayload(); len(inline) > 0 {
 		if int64(len(inline)) > compressedMax {
 			r.failClosed("history_limit_exceeded")
 			return errLimitExceeded
 		}
-		reader = bytes.NewReader(inline)
+		compressed = inline
 	} else {
 		if notification.GetFileLength() > uint64(compressedMax) {
 			r.failClosed("history_limit_exceeded")
@@ -91,12 +94,38 @@ func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.
 			r.historyFailure(err)
 			return err
 		}
-		if _, err = staged.Seek(0, io.SeekStart); err != nil {
-			err = historyStage(err, "download", "no_stub")
+		// DownloadToFile returned only after authenticated completion. Borrow its
+		// stable bytes without consulting a possibly canceled processing context,
+		// so a stop between download and decode still preserves the raw batch.
+		staged.mu.Lock()
+		compressed = staged.data[:staged.size]
+		staged.mu.Unlock()
+	}
+	if r.historySpool != nil {
+		capture, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		var err error
+		retainedID, err = r.historySpool.save(capture, notification, compressed, r.SourceAccount())
+		stop()
+		if err != nil {
+			err = historyStage(err, "raw_capture", "no_stub")
 			r.historyFailure(err)
 			return err
 		}
-		reader = staged
+	}
+	reader = bytes.NewReader(compressed)
+	retention := &historyRawRetention{}
+	ctx = context.WithValue(ctx, historyRawRetentionKey{}, retention)
+	if retainedID != "" {
+		policy, policyErr := r.store.SourcePolicy(ctx, r.SourceAccount())
+		if policyErr != nil {
+			return policyErr
+		}
+		// First-run discovery deliberately saves only metadata. Its discarded
+		// bodies have not been imported yet, so preserve them for later diagnosis
+		// or explicitly guarded replay after the owner chooses chats.
+		if policy.ChatMode == archive.ChatsSelective && len(policy.IncludedSourceChats) == 0 {
+			retention.incomplete = true
+		}
 	}
 	decodeStarted := time.Now()
 	raw, err := decodeHistory(ctx, reader, compressedMax, decodedMax)
@@ -113,10 +142,43 @@ func (r *Runtime) historyWithDelivered(ctx context.Context, notification *waE2E.
 	if err = r.projectHistoryWithDelivered(ctx, raw, delivered); err != nil {
 		return err
 	}
+	if retainedID != "" && !retention.incomplete {
+		if err = ctx.Err(); err != nil {
+			return err
+		}
+		if err = r.historySpool.remove(retainedID); err != nil {
+			err = historyStage(err, "raw_cleanup", "no_stub")
+			r.historyFailure(err)
+			return err
+		}
+	}
 	r.mu.Lock()
 	r.status.HistoryChunks++
 	r.mu.Unlock()
 	return r.requestBackfill(ctx)
+}
+
+type historyRawRetentionKey struct{}
+type historyRawRetention struct{ incomplete bool }
+
+func retainIncompleteHistoryRaw(ctx context.Context) {
+	if retention, ok := ctx.Value(historyRawRetentionKey{}).(*historyRawRetention); ok {
+		retention.incomplete = true
+	}
+}
+
+// Retention auditing must not change the selected ingestion policy. Strict
+// processing can ignore fields that the compatibility analyzer identifies as
+// unhandled; such a successful projection is not permission to erase evidence.
+func auditRetainedHistoryRaw(ctx context.Context, raw []byte, descriptor protoreflect.MessageDescriptor) {
+	retention, tracked := ctx.Value(historyRawRetentionKey{}).(*historyRawRetention)
+	if !tracked || retention.incomplete {
+		return
+	}
+	analysis, err := analyzeHistoryWire(ctx, raw, descriptor)
+	if err != nil || analysis.reason() != "" {
+		retention.incomplete = true
+	}
 }
 func (r *Runtime) historyFailure(err error) {
 	r.historyFailureObserved(err, !r.Status().ReconciliationRequired)
@@ -129,7 +191,7 @@ func (r *Runtime) historyFailureObserved(err error, first bool) {
 		_, _ = os.Stderr.Write(historyFailureDiagnostic(err))
 	}
 	code := "history_corrupt"
-	if errors.Is(err, errLimitExceeded) {
+	if errors.Is(err, errLimitExceeded) || errors.Is(err, errHistorySpoolLimit) {
 		code = "history_limit_exceeded"
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -227,7 +289,7 @@ func closedHistoryStubType(value int32) int32 {
 
 func closedHistoryStage(stage string) string {
 	switch stage {
-	case "download", "decode", "sync_header", "mapping", "conversation_id", "record_decode", "record_body_missing", "record_safety_metadata", "record_jid_mismatch", "record_parse", "record_structure", "record_projection":
+	case "download", "raw_capture", "raw_cleanup", "decode", "sync_header", "mapping", "conversation_id", "record_decode", "record_body_missing", "record_safety_metadata", "record_jid_mismatch", "record_parse", "record_structure", "record_projection":
 		return stage
 	case "admin_key_invalid", "admin_chat_invalid", "admin_actor_invalid", "admin_author_invalid", "admin_target_missing", "admin_target_ambiguous", "admin_direction_mismatch", "admin_author_mismatch", "admin_envelope_invalid", "admin_store_failure":
 		return stage
@@ -366,6 +428,7 @@ func (r *Runtime) projectHistoryWithDelivered(ctx context.Context, raw []byte, d
 		return historyStage(errLimitExceeded, "decode", "no_stub")
 	}
 	partialContext := r.config.UnknownHistoryPolicy == UnknownHistoryPartial
+	auditRetainedHistoryRaw(ctx, raw, envelopeHistoryDescriptor())
 	var envelopeAnalysis *historyAnalysis
 	if partialContext {
 		analysis, scanErr := analyzeHistoryWire(ctx, raw, envelopeHistoryDescriptor())
@@ -463,6 +526,7 @@ func (r *Runtime) projectConversationContext(ctx context.Context, raw []byte, pa
 	return r.projectConversationDelivered(ctx, raw, partialContext, nil)
 }
 func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, partialContext bool, delivered *deliveredHistoryChunk) (result error) {
+	auditRetainedHistoryRaw(ctx, raw, conversationHistoryDescriptor())
 	var conversationAnalysis *historyAnalysis
 	defer func() { result = prependHistoryDiagnostic(result, conversationAnalysis) }()
 	if partialContext {
@@ -532,6 +596,7 @@ func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, 
 			return historyStage(errLimitExceeded, "record_decode", "no_stub")
 		}
 		var recordAnalysis historyAnalysis
+		auditRetainedHistoryRaw(ctx, value, recordHistoryDescriptor())
 		if partialContext {
 			var scanErr error
 			recordAnalysis, scanErr = analyzeHistoryWire(ctx, value, recordHistoryDescriptor())

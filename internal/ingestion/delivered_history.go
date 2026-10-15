@@ -108,6 +108,7 @@ func (r *Runtime) deliveredAdmission(ctx context.Context, e *archive.SourceEvent
 func (r *Runtime) projectDeliveredHistoryMessage(ctx context.Context, event *events.Message, chunk *deliveredHistoryChunk) error {
 	err := r.messageWithDeliveredAdmission(ctx, event, &chunk.admission)
 	if err == archive.ErrSourceRevisionConflict {
+		retainIncompleteHistoryRaw(ctx)
 		return nil // committed quarantine; no positive or frontier promotion
 	}
 	if err != nil && !r.recordMediaOutcome(err) {

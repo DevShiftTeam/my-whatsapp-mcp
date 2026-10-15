@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Encrypt and retain downloaded raw history batches before decoding/import, removing only fully processed captures after successful archive work. Preserve failed, cancelled and incompletely handled batches across restart for diagnosis instead of losing the unvisited suffix; keep raw data out of logs and MCP, enforce bounded storage without evicting pending batches, and do not replay or clear safety pauses automatically.
 - Handle a reviewed broadcast participant marker on incoming direct-chat history deletions as non-author metadata, matching the SDK's direct-chat author derivation. Retain terminal deletion and strict target, direction, group and retention checks rather than pausing otherwise valid first-link history.
 - Distinguish ordinary history-revocation validation failures with fixed reason codes and actual value-free field presence, instead of collapsing different author, direction and target failures into one generic diagnostic. Keep failure behavior, protected reads and recovery eligibility unchanged.
 - Handle authenticated incoming group-history deletions that arrive without a known original author by durably withholding the exact message across authors and retaining a chat-scoped gap, rather than stopping unrelated import. Recheck unknown targets atomically; invalid claims, conflicting targets and failed guard writes remain strict, and existing safety pauses are not cleared.

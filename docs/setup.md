@@ -155,6 +155,12 @@ The data directory keeps its original `WA Indexer` name so existing archives rem
 
 The databases are unencrypted. Enable OS disk encryption. Stop the app before copying the entire data directory for a backup, preserve its private permissions, and keep it out of public or shared folders. Do not open or modify its SQLite files while the app is running.
 
+### Raw history retained until processing finishes
+
+Downloaded history batches are encrypted and saved in `working/history-spool` before decoding or import. A completely processed batch is removed only after its archive work succeeds under your current chat/date choices. Failed, cancelled and incompletely handled batches remain across restarts, including discovery-only batches received before any chats are chosen, ignored fields, unresolved deletions and records accepted as gaps in explicit partial mode. These captures include the whole delivered batch, potentially including chats or dates you did not select; they are private diagnostic data, not searchable archive content or an MCP data source. Selecting chats does not automatically replay an older capture in this version.
+
+Keep the spool's encryption key with the rest of your private backup. Never upload the spool or its key. The key is stored in the same private directory: encryption protects batch files alone, not against someone who can copy the whole directory or act as your OS user. There is no age-based eviction of unprocessed batches. Its limit is 128 retained entries and 512 MiB; if exhausted, protected import stops with a safety pause instead of deleting pending raw data. A new batch that cannot be stored is not retained. Only completed downloads are captured; a failed or interrupted download may still require fetching the bytes again. Retention does not clear a safety pause, prove complete phone history or automatically authorize replay; it preserves received evidence for diagnosis and guarded recovery.
+
 Disconnecting WhatsApp keeps the saved archive. **Chats and dates → Delete all local data** removes the archive, linked session, and client credentials on this computer; it does not delete phone messages.
 
 ## Recover the committed archive snapshot

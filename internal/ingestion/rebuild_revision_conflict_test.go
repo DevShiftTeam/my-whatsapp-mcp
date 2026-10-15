@@ -91,11 +91,16 @@ func TestRebuildCommittedRevisionConflictContinuesHistory(t *testing.T) {
 	discovery := historyRecord("following-discovery", "WITHHELD_REBUILD_DISCOVERY_CANARY")
 	revoke := rebuildConflictHistoryRecord("revocable", waE2E.ProtocolMessage_REVOKE, 3000000)
 	edit := rebuildConflictHistoryRecord("editable", waE2E.ProtocolMessage_MESSAGE_EDIT, 3000000)
-	if err = r.projectHistory(ctx, historyWire(conflictEdit, discovery, revoke, edit)); err != nil {
+	retention := &historyRawRetention{}
+	historyCtx := context.WithValue(ctx, historyRawRetentionKey{}, retention)
+	if err = r.projectHistory(historyCtx, historyWire(conflictEdit, discovery, revoke, edit)); err != nil {
 		t.Fatalf("committed quarantine stopped rebuild history suffix: %v", err)
 	}
 	if r.Status().ReconciliationRequired {
 		t.Fatal("per-message conflict became an account fence")
+	}
+	if !retention.incomplete {
+		t.Fatal("quarantined history edit was falsely eligible for raw deletion")
 	}
 	guard, err := store.RebuildGuard(ctx, key)
 	if err != nil || guard.RevisionBarrier != string(archive.ErrSourceRevisionConflict) {

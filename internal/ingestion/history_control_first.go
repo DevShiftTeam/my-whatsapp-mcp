@@ -36,6 +36,7 @@ func (r *Runtime) recordHistoryUncertainty(ctx context.Context, reason archive.H
 	if err := store.RecordHistoryUncertainty(ctx, r.SourceAccount(), reason, observation); err != nil {
 		return err
 	}
+	retainIncompleteHistoryRaw(ctx)
 	return nil
 }
 

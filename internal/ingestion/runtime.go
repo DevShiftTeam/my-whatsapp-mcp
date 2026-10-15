@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -54,6 +55,7 @@ type Runtime struct {
 	client                    *whatsmeow.Client
 	connection                connection
 	session                   interface{ Close() error }
+	historySpool              *historySpool
 	op                        sync.Mutex
 	mu                        sync.Mutex
 	status                    Status
@@ -159,6 +161,11 @@ func New(config Config, store archive.ConnectorStore, callbacks Callbacks) (*Run
 		_ = container.Close()
 		return nil, archive.ErrUnauthorized
 	}
+	spool, err := openHistorySpool(filepath.Join(config.TemporaryDir, "history-spool"))
+	if err != nil {
+		_ = container.Close()
+		return nil, err
+	}
 	max, _ := mediaCiphertextMaximum(config.MediaMax)
 	if compressedMax+1024 > max {
 		max = compressedMax + 1024
@@ -166,6 +173,7 @@ func New(config Config, store archive.ConnectorStore, callbacks Callbacks) (*Run
 	client.SetMediaHTTPClient(&http.Client{Transport: &capTransport{base: http.DefaultTransport, max: max}, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }})
 	r := newRuntime(config, store, callbacks, client, client)
 	r.session = container
+	r.historySpool = spool
 	return r, nil
 }
 func newRuntime(config Config, store archive.ConnectorStore, callbacks Callbacks, client *whatsmeow.Client, c connection) *Runtime {
@@ -455,6 +463,11 @@ func (r *Runtime) Close() error {
 			r.mu.Lock()
 			r.sessionCloseFailed = true
 			r.mu.Unlock()
+			return archive.ErrSourceUnavailable
+		}
+	}
+	if r.historySpool != nil {
+		if closeErr := r.historySpool.close(); closeErr != nil {
 			return archive.ErrSourceUnavailable
 		}
 	}

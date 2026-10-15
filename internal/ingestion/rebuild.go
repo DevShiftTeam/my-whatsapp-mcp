@@ -149,6 +149,7 @@ func (r *Runtime) rebuildDiscovery(ctx context.Context, event *events.Message) e
 	anchor := archive.SourceAnchor{Key: key, OriginalSentAt: event.Info.Timestamp}
 	if err = store.RecordRebuildDiscovery(ctx, anchor); err != nil {
 		if errors.Is(err, archive.ErrQueueLimitExceeded) {
+			retainIncompleteHistoryRaw(ctx)
 			return nil
 		} // positive capacity never drops controls
 		return err
@@ -307,6 +308,7 @@ func (r *Runtime) rebuildHistoryMutation(ctx context.Context, event *events.Mess
 	if err == archive.ErrSourceRevisionConflict {
 		// The writer committed this message's quarantine and scoped gap.
 		// Continue unrelated history without admitting the withheld edit body.
+		retainIncompleteHistoryRaw(ctx)
 		return nil
 	}
 	return err

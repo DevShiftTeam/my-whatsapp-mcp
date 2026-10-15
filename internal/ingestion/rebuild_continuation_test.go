@@ -116,7 +116,9 @@ func TestRebuildSharedCadenceSurvivesRuntimeRestart(t *testing.T) {
 func TestRebuildMetadataCapacityDoesNotDiscardControls(t *testing.T) {
 	r, s := rebuildFixture()
 	s.discoveryErr = archive.ErrQueueLimitExceeded
-	if err := r.message(context.Background(), liveMessage("at-capacity", "BODY")); err != nil {
+	retention := &historyRawRetention{}
+	ctx := context.WithValue(context.Background(), historyRawRetentionKey{}, retention)
+	if err := r.message(ctx, liveMessage("at-capacity", "BODY")); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.message(context.Background(), mutation("at-capacity", waE2E.ProtocolMessage_REVOKE)); err != nil {
@@ -124,6 +126,9 @@ func TestRebuildMetadataCapacityDoesNotDiscardControls(t *testing.T) {
 	}
 	if r.Status().ReconciliationRequired || len(s.events) != 1 || s.events[0].Kind != archive.EventDelete {
 		t.Fatal("positive metadata capacity swallowed security control")
+	}
+	if !retention.incomplete {
+		t.Fatal("capacity-dropped history was falsely eligible for raw deletion")
 	}
 }
 func TestRebuildLateResponseRemainsExactAndPolicyGuarded(t *testing.T) {

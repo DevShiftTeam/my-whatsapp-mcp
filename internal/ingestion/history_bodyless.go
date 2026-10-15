@@ -141,6 +141,7 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 				r.status.Codes = append(r.status.Codes, "unresolved_deletion")
 			}
 			r.mu.Unlock()
+			retainIncompleteHistoryRaw(ctx)
 			return nil
 		}
 		// A unique retained target can establish the original author. The actor
@@ -196,6 +197,7 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 		if err = r.store.SetSyncStatus(ctx, archive.SyncUpdate{Account: key.Account, GapCode: "undecryptable_message", CoverageUnknown: true}); err != nil {
 			return historyStage(err, "record_projection", "ciphertext")
 		}
+		retainIncompleteHistoryRaw(ctx)
 		r.mu.Lock()
 		found := false
 		for _, code := range r.status.Codes {
@@ -302,6 +304,7 @@ func (r *Runtime) projectBodylessAdminRevoke(ctx context.Context, chat types.JID
 				r.status.Codes = append(r.status.Codes, "unresolved_deletion")
 			}
 			r.mu.Unlock()
+			retainIncompleteHistoryRaw(ctx)
 			return nil
 		}
 		deletion.Key = archive.SourceKey{Account: r.SourceAccount(), Chat: canonicalChat, Sender: author, Message: web.GetKey().GetID(), FromMe: fromMe}
