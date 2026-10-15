@@ -34,7 +34,7 @@
     "buildx": "v0.38.0",
     "buildkit": "moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c",
     "sbomGenerator": "docker/buildkit-syft-scanner:stable-1@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9",
-    "publisher": "quay.io/skopeo/stable:v1.22.3@sha256:97772f3c64fd2fba720b2bafaf37239dc44d8b1c625c8383c64044832efe9ed9",
+    "publisher": "quay.io/skopeo/stable:v1.22.3@sha256:edad588fe8391ce37d5ec5e06d280dd1a666a77da302ceaf3cafa019676c8a3f",
     "publisherVersion": "skopeo version 1.22.3 commit: 92397d5ba399784c6e2f9f229a4244b724743dba",
     "localProofRegistry": "registry:3@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8",
     "node": "24.21.0",

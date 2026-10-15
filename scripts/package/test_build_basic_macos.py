@@ -47,7 +47,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
 
     def test_builder_emits_only_unsigned_basic_candidate_using_offline_pinned_asset(self):
         builder = self.builder()
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp:
             root = pathlib.Path(temp)
             app, asset, pins, digest = self.fixture(root)
             output = root / "My WhatsApp.new.app"
@@ -79,7 +79,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
     def test_wrong_hash_unpinned_helper_invalid_revision_and_existing_output_refuse(self):
         builder = self.builder()
         for fault in ("hash", "helper", "revision", "digest_shape", "existing", "source_symlink", "source_hardlink", "private_parent"):
-            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp:
                 root = pathlib.Path(temp)
                 app, asset, pins, digest = self.fixture(root)
                 output = root / "My WhatsApp.new.app"
@@ -131,7 +131,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
     def test_extracted_helper_is_pinned_and_never_modified_or_executed(self):
         builder = self.builder()
         for fault in (None, "pin", "size", "both", "neither"):
-            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temp:
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp:
                 root = pathlib.Path(temp)
                 app, asset, pins, digest = self.fixture(root)
                 helper = root / "already-extracted-cloudflared"
@@ -164,7 +164,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
 
     def test_cli_reports_only_static_candidate_digest_or_fixed_refusal(self):
         builder = self.builder()
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp:
             root = pathlib.Path(temp)
             output = root / "Synthetic CLI.app"
             (output / "Contents").mkdir(parents=True)
@@ -186,7 +186,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
 
     def test_without_helper_builds_local_candidate_without_reading_or_executing_helper(self):
         builder = self.builder()
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp:
             root = pathlib.Path(temp)
             app, unused_asset, unused_pins, digest = self.fixture(root)
             original = app.stat()
@@ -211,7 +211,7 @@ class BuildBasicMacOSTests(unittest.TestCase):
 
     def test_without_helper_conflicts_with_either_input_and_cli_requires_one_choice(self):
         builder = self.builder()
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory(dir=pathlib.Path.home()) as temp:
             root = pathlib.Path(temp)
             app, asset, unused_pins, digest = self.fixture(root)
             output = root / "Refused.new.app"
