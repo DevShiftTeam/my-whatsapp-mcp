@@ -76,6 +76,8 @@ An authenticated group-history deletion can arrive before its original author is
 
 Incoming direct-chat deletion records can contain a broadcast participant marker rather than an original-author claim. In default strict history handling, the reviewed marker shape uses the original author from the direct chat, as the SDK does, and retains a terminal deletion. It does not treat that marker as message content or a group author; conflicting claims and source-safety failures remain strict. Explicit partial-history mode retains its separate authority rules.
 
+Wire-verified bodyless history notices for ephemeral settings (`CHANGE_EPHEMERAL_SETTING` `72` and `DISAPPEARING_MODE` `130`), business privacy transitions (`BIZ_COEX_PRIVACY_TRANSITION` `202`), limit-sharing changes (`CHANGE_LIMIT_SHARING` `216`), and reviewed unknown notice stubs (`229` in direct chats and `263` in group chats) are not treated as ordinary benign notices. When their exact wire-verified shape arrives during default strict import, the app records durable history uncertainty, keeps a persistent partial-coverage warning on Archive, Stats and MCP reads, and retains the encrypted raw batch in `working/history-spool` across restarts while allowing remaining history to import. They create no message text, contact name, alias or backfill anchor; unverified shapes, extra metadata or failed uncertainty writes still stop import.
+
 ## 5. Verify your import
 
 Select WhatsApp's **Message yourself** chat, or include all chats. Send a harmless, distinctive message from your phone, such as `archivecheck2026 שלום`. Open **Archive**, search for `archivecheck2026`, and open the result to inspect its conversation context.

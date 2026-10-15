@@ -172,6 +172,45 @@ func standaloneDocument(m *waE2E.Message) bool {
 	return valid
 }
 
+func standaloneSenderKeyDistribution(m *waE2E.Message) bool {
+	if m == nil {
+		return false
+	}
+	if dsm := m.GetDeviceSentMessage().GetMessage(); dsm != nil {
+		if len(m.ProtoReflect().GetUnknown()) != 0 {
+			return false
+		}
+		onlyWrapper := true
+		m.ProtoReflect().Range(func(field protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+			switch field.Name() {
+			case "deviceSentMessage", "messageContextInfo":
+				return true
+			default:
+				onlyWrapper = false
+				return false
+			}
+		})
+		if !onlyWrapper {
+			return false
+		}
+		m = dsm
+	}
+	if m.GetSenderKeyDistributionMessage() == nil || len(m.ProtoReflect().GetUnknown()) != 0 {
+		return false
+	}
+	valid := true
+	m.ProtoReflect().Range(func(field protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		switch field.Name() {
+		case "senderKeyDistributionMessage", "messageContextInfo":
+			return true
+		default:
+			valid = false
+			return false
+		}
+	})
+	return valid
+}
+
 func documentMIME(value string) string {
 	if len(value) <= 256 && utf8.ValidString(value) && !strings.ContainsRune(value, 0) {
 		if base, _, err := mime.ParseMediaType(value); err == nil && strings.Contains(base, "/") {

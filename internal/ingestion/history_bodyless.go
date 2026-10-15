@@ -8,8 +8,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/Bodokh/my-whatsapp-mcp/internal/archive"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // The unknown-target fallback requires an atomic writer-side check. Connectors
@@ -39,12 +41,12 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 	if web.EphemeralStartTimestamp != nil || web.EphemeralDuration != nil || web.EphemeralExpirationTimestamp != nil || web.EphemeralOffToOn != nil || web.EphemeralOutOfSync != nil || web.KeepInChat != nil || len(web.FutureproofData) != 0 || web.TargetMessageID != nil || len(web.MessageAddOns) != 0 || web.QuarantinedMessage != nil || web.GroupHistoryBundleInfo != nil {
 		return historyBodylessFailure(web, "record_safety_metadata")
 	}
-	// A bodyless pin notice is display metadata only. Explicit control fields
-	// retain their presence semantics even when their values are zero or false.
-	if kind == waWeb.WebMessageInfo_PINNED_MESSAGE_IN_CHAT && (web.PinInChat != nil || web.RevokeMessageTimestamp != nil || web.ClearMedia != nil) {
+	// A bodyless pin or wire-verified uncertainty notice has no message body.
+	// Explicit control fields retain their presence semantics even when their values are zero or false.
+	if (kind == waWeb.WebMessageInfo_PINNED_MESSAGE_IN_CHAT || strictUncertaintyHistoryStub(kind)) && (web.PinInChat != nil || web.RevokeMessageTimestamp != nil || web.ClearMedia != nil) {
 		return historyBodylessFailure(web, "record_safety_metadata")
 	}
-	if kind != waWeb.WebMessageInfo_REVOKE && kind != waWeb.WebMessageInfo_ADMIN_REVOKE && kind != waWeb.WebMessageInfo_CIPHERTEXT && !benignHistoryStub(kind) {
+	if kind != waWeb.WebMessageInfo_REVOKE && kind != waWeb.WebMessageInfo_ADMIN_REVOKE && kind != waWeb.WebMessageInfo_CIPHERTEXT && !strictUncertaintyHistoryStub(kind) && !benignHistoryStub(kind) {
 		return historyBodyMissing(web)
 	}
 	canonicalChat, err := r.canonical(ctx, chat.ToNonAD().String())
@@ -53,6 +55,9 @@ func (r *Runtime) projectBodylessHistory(ctx context.Context, chat types.JID, we
 			return historyAdminStage(err, "admin_chat_invalid")
 		}
 		return stage(err, "record_jid_mismatch", "revoke_chat_invalid")
+	}
+	if strictUncertaintyHistoryStub(kind) {
+		return r.projectBodylessStrictUncertaintyNotice(ctx, chat, canonicalChat, web)
 	}
 	if kind == waWeb.WebMessageInfo_ADMIN_REVOKE {
 		return r.projectBodylessAdminRevoke(ctx, chat, canonicalChat, web)
@@ -352,6 +357,189 @@ func (r *Runtime) historyUserClaim(ctx context.Context, claim string) (string, e
 		return "", archive.ErrInvalidEvent
 	}
 	return canonical, nil
+}
+
+const (
+	historyStubUnknownDirectNotice229 = waWeb.WebMessageInfo_StubType(229)
+	historyStubUnknownGroupNotice263  = waWeb.WebMessageInfo_StubType(263)
+)
+
+func strictUncertaintyHistoryStub(kind waWeb.WebMessageInfo_StubType) bool {
+	switch kind {
+	case waWeb.WebMessageInfo_BIZ_COEX_PRIVACY_TRANSITION,
+		waWeb.WebMessageInfo_CHANGE_EPHEMERAL_SETTING,
+		waWeb.WebMessageInfo_DISAPPEARING_MODE,
+		waWeb.WebMessageInfo_CHANGE_LIMIT_SHARING,
+		historyStubUnknownDirectNotice229,
+		historyStubUnknownGroupNotice263:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateStrictUncertaintyHistoryWrapper(ctx context.Context, raw []byte, wrapper *waHistorySync.HistorySyncMsg) error {
+	web := wrapper.GetMessage()
+	analysis, err := analyzeHistoryWire(ctx, raw, recordHistoryDescriptor())
+	if err != nil || len(wrapper.ProtoReflect().GetUnknown()) != 0 {
+		return historyBodylessFailure(web, "record_safety_metadata")
+	}
+	switch web.GetMessageStubType() {
+	case historyStubUnknownDirectNotice229, historyStubUnknownGroupNotice263:
+		if analysis.diagnostic.Reason != "" {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+	default:
+		if analysis.reason() != "" {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+	}
+	valid := true
+	wrapper.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		if fd.Number() != 1 && fd.Number() != 2 {
+			valid = false
+			return false
+		}
+		return true
+	})
+	if !valid {
+		return historyBodylessFailure(web, "record_safety_metadata")
+	}
+	return nil
+}
+
+// Strict-mode uncertainty notices are not assumed benign by their SDK enum
+// names or numbers. Admit only the exact wire-verified bodyless stub shapes,
+// and record durable uncertainty while retaining the encrypted raw batch.
+func (r *Runtime) projectBodylessStrictUncertaintyNotice(ctx context.Context, chat types.JID, canonicalChat string, web *waWeb.WebMessageInfo) error {
+	key := web.GetKey()
+	if key == nil || len(web.ProtoReflect().GetUnknown()) != 0 || len(key.ProtoReflect().GetUnknown()) != 0 || web.GetIsMentionedInStatus() {
+		return historyBodylessFailure(web, "record_safety_metadata")
+	}
+	keyValid := true
+	key.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		switch fd.Number() {
+		case 1, 2, 3:
+			return true
+		default:
+			keyValid = false
+			return false
+		}
+	})
+	if !keyValid || web.OriginalSelfAuthorUserJIDString != nil || web.MessageTimestamp == nil || web.GetMessageTimestamp() == 0 {
+		return historyBodylessFailure(web, "record_structure")
+	}
+	params := web.GetMessageStubParameters()
+	switch web.GetMessageStubType() {
+	case waWeb.WebMessageInfo_BIZ_COEX_PRIVACY_TRANSITION:
+		if len(params) != 0 || !strictUncertaintyWebFields(web, false, false) {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+		if historyPresence(web) != 155 || !partialHistoryJID(chat.String(), false) || !partialHistoryJID(key.GetRemoteJID(), false) || !partialHistoryJID(canonicalChat, false) {
+			return historyBodylessFailure(web, "record_structure")
+		}
+	case historyStubUnknownDirectNotice229:
+		if len(params) != 0 || !strictUncertaintyWebFields(web, false, false) {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+		if historyPresence(web) != 155 || !key.GetFromMe() || !partialHistoryJID(chat.String(), false) || !partialHistoryJID(key.GetRemoteJID(), false) || !partialHistoryJID(canonicalChat, false) {
+			return historyBodylessFailure(web, "record_structure")
+		}
+	case historyStubUnknownGroupNotice263:
+		if len(params) != 0 || !strictUncertaintyWebFields(web, false, false) {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+		if historyPresence(web) != 155 || !key.GetFromMe() || !strictUncertaintyGroupJID(chat.String()) || !strictUncertaintyGroupJID(key.GetRemoteJID()) || !strictUncertaintyGroupJID(canonicalChat) {
+			return historyBodylessFailure(web, "record_structure")
+		}
+	case waWeb.WebMessageInfo_CHANGE_EPHEMERAL_SETTING:
+		if !strictUncertaintyWebFields(web, false, true) || len(params) != 1 || !strictUncertaintyDigitParam(params[0]) {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+		if historyPresence(web) != 411 || !key.GetFromMe() || !partialHistoryJID(chat.String(), false) || !partialHistoryJID(key.GetRemoteJID(), false) || !partialHistoryJID(canonicalChat, false) {
+			return historyBodylessFailure(web, "record_structure")
+		}
+	case waWeb.WebMessageInfo_DISAPPEARING_MODE:
+		if !strictUncertaintyWebFields(web, false, true) || len(params) != 2 || !strictUncertaintyDigitParam(params[0]) || !partialHistoryJID(params[1], false) {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+		if historyPresence(web) != 411 || !key.GetFromMe() || !partialHistoryJID(chat.String(), false) || !partialHistoryJID(key.GetRemoteJID(), false) || !partialHistoryJID(canonicalChat, false) {
+			return historyBodylessFailure(web, "record_structure")
+		}
+		if _, err := r.historyUserClaim(ctx, params[1]); err != nil {
+			return historyBodylessStage(err, web, "record_safety_metadata")
+		}
+	case waWeb.WebMessageInfo_CHANGE_LIMIT_SHARING:
+		if !strictUncertaintyWebFields(web, true, true) || len(params) != 3 || (params[0] != "true" && params[0] != "false") || !strictUncertaintyDigitParam(params[1]) || !partialHistoryJID(params[2], false) {
+			return historyBodylessFailure(web, "record_safety_metadata")
+		}
+		if historyPresence(web) != 475 || key.GetFromMe() || !strictUncertaintyGroupJID(chat.String()) || !strictUncertaintyGroupJID(key.GetRemoteJID()) || !strictUncertaintyGroupJID(canonicalChat) || !partialHistoryJID(web.GetParticipant(), false) {
+			return historyBodylessFailure(web, "record_structure")
+		}
+		if _, err := r.historyUserClaim(ctx, web.GetParticipant()); err != nil {
+			return historyBodylessStage(err, web, "record_structure")
+		}
+		if _, err := r.historyUserClaim(ctx, params[2]); err != nil {
+			return historyBodylessStage(err, web, "record_safety_metadata")
+		}
+	default:
+		return historyBodylessFailure(web, "record_safety_metadata")
+	}
+	actualChat, err := r.canonical(ctx, key.GetRemoteJID())
+	if err != nil || actualChat != canonicalChat {
+		return historyBodylessStage(errHistoryCorrupt, web, "record_jid_mismatch")
+	}
+	if _, err := r.canonical(ctx, r.SourceAccount()); err != nil {
+		return historyBodylessStage(err, web, "record_structure")
+	}
+	if err := r.recordHistoryUncertainty(ctx, archive.HistoryUncertaintyUnsupportedNotice); err != nil {
+		return historyBodylessStage(err, web, "record_projection")
+	}
+	return nil
+}
+
+func strictUncertaintyWebFields(web *waWeb.WebMessageInfo, allowParticipant, allowStubParams bool) bool {
+	valid := true
+	web.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		switch fd.Number() {
+		case 1, 3, 4, 24, 65:
+			return true
+		case 5:
+			if allowParticipant {
+				return true
+			}
+		case 26:
+			if allowStubParams {
+				return true
+			}
+		}
+		valid = false
+		return false
+	})
+	return valid
+}
+
+func strictUncertaintyGroupJID(raw string) bool {
+	if strings.TrimSpace(raw) != raw || raw == "" {
+		return false
+	}
+	jid, err := types.ParseJID(raw)
+	if err != nil || jid.Device != 0 || jid.RawAgent != 0 || jid.User == "" || jid.Server != types.GroupServer {
+		return false
+	}
+	return jid.String() == raw
+}
+
+func strictUncertaintyDigitParam(raw string) bool {
+	if len(raw) == 0 || len(raw) > 10 {
+		return false
+	}
+	for i := 0; i < len(raw); i++ {
+		if raw[i] < '0' || raw[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func benignHistoryStub(kind waWeb.WebMessageInfo_StubType) bool {

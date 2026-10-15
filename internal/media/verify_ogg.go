@@ -186,7 +186,7 @@ func (v mediaVerification) ogg() (string, bool) {
 				return "", false
 			}
 			serial = binary.LittleEndian.Uint32(h[14:18])
-		} else if h[5]&2 != 0 {
+		} else if h[5]&2 != 0 && !(codec == "opus" && audio && h[5] == 2 && binary.LittleEndian.Uint64(h[6:14]) == 0 && h[26] == 1) {
 			return "", false
 		}
 		if binary.LittleEndian.Uint32(h[14:18]) != serial || binary.LittleEndian.Uint32(h[18:22]) != sequence || (h[5]&1 != 0) != (len(packet) != 0) || h[26] == 0 {
@@ -194,7 +194,7 @@ func (v mediaVerification) ogg() (string, bool) {
 		}
 		sequence++
 		laces, err := v.read(offset+27, int64(h[26]))
-		if err != nil {
+		if err != nil || (offset != 0 && h[5]&2 != 0 && laces[0] == 255) {
 			return "", false
 		}
 		bodySize := int64(0)

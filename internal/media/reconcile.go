@@ -88,11 +88,27 @@ func (s *Store) Reconcile(ctx context.Context, limit int) (ReconcileReport, erro
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			// The application executable namespace owns this one working child.
-			// Validate its retained directory without treating it as a media file.
-			if dir == s.working && name == "native-exec" {
+			// The application executable namespace and history spool own these working children.
+			// Validate their retained directories without treating them as media files.
+			if dir == s.working && (name == "native-exec" || name == "history-spool") {
 				child, err := dir.subdirectory(name)
 				if err != nil {
+					return err
+				}
+				if name == "history-spool" {
+					err = child.walkNames(func(entry string) error {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+						f, err := child.open(entry, 0)
+						if err != nil {
+							return err
+						}
+						return f.Close()
+					})
+					if closeErr := child.close(); err == nil {
+						err = closeErr
+					}
 					return err
 				}
 				return child.close()

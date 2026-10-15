@@ -335,3 +335,40 @@ func TestDocumentRuntimeHasBoundedOwnerRedelivery(t *testing.T) {
 		t.Fatal("runtime lacks targeted owner document redelivery")
 	}
 }
+
+func TestStandaloneSenderKeyDistributionDoesNotConflictWithCompanionPayload(t *testing.T) {
+	s, _ := durableFixture(t)
+	r := durableRuntime(t, s)
+	ctx := context.Background()
+	if err := r.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	content := liveMessage("group-stanza-1", "groupstanzacompanionreceipt")
+	content.Info.IsGroup = true
+	content.Info.Chat = types.NewJID("300", types.GroupServer)
+	content.Info.Sender = types.NewJID("200", types.DefaultUserServer)
+
+	skdm := *content
+	skdm.Message = &waE2E.Message{
+		SenderKeyDistributionMessage: &waE2E.SenderKeyDistributionMessage{
+			GroupID:                             proto.String("300@g.us"),
+			AxolotlSenderKeyDistributionMessage: []byte{1, 2, 3, 4},
+		},
+		MessageContextInfo: &waE2E.MessageContextInfo{},
+	}
+	skdm.RawMessage = skdm.Message
+
+	if err := r.messageWithMediaOutcome(ctx, &skdm); err != nil {
+		t.Fatalf("standalone sender key distribution failed: %v", err)
+	}
+	if err := r.messageWithMediaOutcome(ctx, content); err != nil {
+		t.Fatalf("companion group message failed after sender key distribution: %v", err)
+	}
+	if err := r.messageWithMediaOutcome(ctx, &skdm); err != nil {
+		t.Fatalf("trailing standalone sender key distribution failed: %v", err)
+	}
+	page, err := durableSearch(t, s, "groupstanzacompanionreceipt")
+	if err != nil || len(page.Hits) != 1 {
+		t.Fatalf("companion group message was not searchable: hits=%d err=%v", len(page.Hits), err)
+	}
+}

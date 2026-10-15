@@ -633,6 +633,11 @@ func (r *Runtime) projectConversationDelivered(ctx context.Context, raw []byte, 
 			}
 		}
 		if wrapper.GetMessage().GetMessage() == nil {
+			if strictUncertaintyHistoryStub(wrapper.GetMessage().GetMessageStubType()) {
+				if err := validateStrictUncertaintyHistoryWrapper(ctx, value, &wrapper); err != nil {
+					return err
+				}
+			}
 			return r.projectBodylessHistory(ctx, jid, wrapper.GetMessage())
 		}
 		event, err := r.client.ParseWebMessage(jid, wrapper.GetMessage())

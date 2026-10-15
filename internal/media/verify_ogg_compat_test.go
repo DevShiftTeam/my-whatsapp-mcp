@@ -116,3 +116,19 @@ func TestVerifyVorbisStillRequiresEOS(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyWhatsAppOpusResumedSegmentBOSPage(t *testing.T) {
+	p := opusCompatibilityHeaders()
+	p = append(p, opusCompatibilityPage(2, 0, 1920, []byte{3}, []byte{0xf8, 0xff, 0xfe})...)
+	p = append(p, opusCompatibilityPage(3, 2, 0, []byte{3}, []byte{0xf8, 0xff, 0xfe})...)
+	p = append(p, opusCompatibilityPage(4, 0, 3840, []byte{3}, []byte{0xf8, 0xff, 0xfe})...)
+	_, _, format, err := verifyMediaFile(context.Background(), verificationFile(t, p), archive.MessageVoice, int64(len(p)))
+	if err != nil || format != "opus" {
+		t.Fatalf("resumed WhatsApp Opus segment BOS page rejected: format=%q err=%v", format, err)
+	}
+	earlyBOS := opusCompatibilityHeaders()
+	earlyBOS = append(earlyBOS, opusCompatibilityPage(2, 2, 0, []byte{3}, []byte{0xf8, 0xff, 0xfe})...)
+	if _, _, _, err := verifyMediaFile(context.Background(), verificationFile(t, earlyBOS), archive.MessageVoice, int64(len(earlyBOS))); !errors.Is(err, ErrFormat) {
+		t.Fatalf("BOS before initial audio page accepted: %v", err)
+	}
+}

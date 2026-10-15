@@ -463,3 +463,7 @@ html[data-historical-snapshot="true"] #remote-access-open { display: none !impor
 @media(max-width:720px) { .history-import-progress { margin-inline: 18px; padding: 14px 16px; flex-wrap: wrap; gap: 12px; } }
 
 .historical-provenance{font-size:11px;color:var(--muted);font-weight:400;line-height:1.5}
+button{transition:background-color .14s ease,border-color .14s ease,color .14s ease,opacity .14s ease}
+button[aria-busy="true"]:not(.icon-button){display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:progress}
+button[aria-busy="true"]:not(.icon-button)::before{content:"";width:12px;height:12px;flex-shrink:0;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:saved-refresh-spin .8s linear infinite}
+@media(prefers-reduced-motion:reduce){button[aria-busy="true"]:not(.icon-button)::before{animation:none}}

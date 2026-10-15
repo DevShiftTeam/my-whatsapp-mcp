@@ -1574,6 +1574,7 @@
     const selected=choice.encoder_profile||choice.ocr_profile||choice.caption||choice.speech_language;
     const eligible=off||selected&&(!choice.encoder_profile||localAIEligible("encoder",choice.encoder_profile,choice.mode))&&(!choice.ocr_profile||localAIEligible("ocr",choice.ocr_profile,choice.mode))&&(!choice.caption||localAIEligible("caption",undefined,choice.mode))&&(!choice.speech_language||localAIEligible("speech",choice.speech_language,choice.mode));
     $("local-ai-save").disabled=disabled||!eligible;
+    $("local-ai-save").setAttribute("aria-busy", String(Boolean(localAIBusy)));
     refreshSelects("local-ai-mode", "local-ai-encoder", "local-ai-ocr", "local-ai-speech");
   }
 
@@ -1672,6 +1673,7 @@
 
   function updateVoiceRetryControls() {
     $("voice-retry-button").disabled = voiceRetryBusy || authExpired;
+    $("voice-retry-button").setAttribute("aria-busy", String(Boolean(voiceRetryBusy)));
   }
 
   function stopVoiceRecovery() {
@@ -1743,6 +1745,7 @@
   function updateBudgetControls() {
     const disabled=budgetBusy||!budgetSnapshot;
     for(const id of ["original-budget-preset","original-budget-unit","original-budget-size","original-budget-save"])$(id).disabled=disabled;
+    $("original-budget-save").setAttribute("aria-busy", String(Boolean(budgetBusy)));
     refreshSelects("original-budget-preset", "original-budget-unit");
   }
 
@@ -1811,7 +1814,7 @@
   async function modelAction(button, profileID, kind, operationID) {
     if (modelBusy || authExpired) return;
     const epoch = authEpoch;
-    modelBusy = true; button.disabled = true; modelVersion++;
+    modelBusy = true; button.disabled = true; button.setAttribute("aria-busy", "true"); modelVersion++;
     feedback("models-feedback", kind === "cancel" ? "Requesting cancellation…" : "Requesting model task…");
     let failure = "";
     try {
@@ -1820,7 +1823,7 @@
       assertOwner(epoch);
       modelRenderKey = "";
     } catch (error) { failure = error.message; }
-    finally { if(epoch===authEpoch){modelBusy = false; button.disabled = false;} }
+    finally { if(epoch===authEpoch){modelBusy = false; button.disabled = false; button.setAttribute("aria-busy", "false");} }
     if(epoch!==authEpoch||authExpired)return;
     await refreshModels();
     if (failure && !authExpired) feedback("models-feedback", failure, true);
@@ -2109,6 +2112,7 @@
     const epoch = authEpoch, permissionVersion = sendPermissionVersion;
     const input = {id:item.id,revision:item.revision,mode:sendPermissionMode,chats:sendPermissionMode === "selected" ? Array.from(sendPermissionSelection) : [],expected_send_revision:sendPermissionBinding.sendRevision};
     clientBusy = true;
+    $("client-send-save").setAttribute("aria-busy", "true");
     const version = ++clientVersion;
     updateConnectionFields();
     feedback("client-send-feedback", "Saving send permissions…");
@@ -2130,7 +2134,7 @@
         }
       }
     } finally {
-      if (epoch === authEpoch) { clientBusy = false; updateConnectionFields(); }
+      if (epoch === authEpoch) { clientBusy = false; $("client-send-save").setAttribute("aria-busy", "false"); updateConnectionFields(); }
     }
     if (epoch !== authEpoch || authExpired || version !== clientVersion || !$("clients-dialog").open) return;
     clientRenderKey = "";
@@ -2261,7 +2265,7 @@
     if(kind==="reveal") { await revealRemoteCredential(button,item); return; }
     if(clientBusy||authExpired)return;
     const epoch=authEpoch;
-    clientBusy=true; clientVersion++; button.disabled=true; updateConnectionFields();
+    clientBusy=true; clientVersion++; button.disabled=true; button.setAttribute("aria-busy", "true"); updateConnectionFields();
     clientFocusHint={id:item.id,action:kind};
     const version=clientVersion;
     feedback("clients-feedback",kind==="revoke"?"Revoking client access…":"Preparing inert setup instructions…");
@@ -2276,7 +2280,7 @@
       assertOwner(epoch);
       if(version===clientVersion&&$("clients-dialog").open)feedback("clients-feedback",kind==="revoke"?"Client access revoked. Remove its registration from the AI client as well.":"Instructions are ready to review and copy. They do not run automatically.");
     } catch(error) { if(version===clientVersion&&!authExpired&&$("clients-dialog").open)feedback("clients-feedback",error.message,true); }
-    finally { if(epoch===authEpoch){clientBusy=false; button.disabled=false; updateConnectionFields();} }
+    finally { if(epoch===authEpoch){clientBusy=false; button.disabled=false; button.setAttribute("aria-busy", "false"); updateConnectionFields();} }
     if(epoch!==authEpoch||authExpired)return;
     clientRenderKey=""; await refreshConnections();
   }
@@ -2284,7 +2288,7 @@
   async function createConnection(event) {
     event.preventDefault(); if(clientBusy||authExpired||$("client-create").disabled)return;
     const epoch=authEpoch;
-    clientBusy=true; clientVersion++; updateConnectionFields(); clearClientGuide(); clearRemoteSecret(); clearSendPermissions();
+    clientBusy=true; $("client-create").setAttribute("aria-busy", "true"); clientVersion++; updateConnectionFields(); clearClientGuide(); clearRemoteSecret(); clearSendPermissions();
     const version=clientVersion;
     feedback("clients-feedback","Creating the private read-only connection…");
     try {
@@ -2305,7 +2309,7 @@
       clientFocusHint={id:item.id,action:"guide"};
       clientRenderKey="";
     } catch(error) { if(version===clientVersion&&!authExpired&&$("clients-dialog").open)feedback("clients-feedback",error.message,true); }
-    finally { if(epoch===authEpoch){clientBusy=false; updateConnectionFields();} }
+    finally { if(epoch===authEpoch){clientBusy=false; $("client-create").setAttribute("aria-busy", "false"); updateConnectionFields();} }
     if(epoch!==authEpoch||authExpired)return;
     await refreshConnections();
   }
@@ -2685,7 +2689,8 @@
     if (authExpired) return;
     if (historicalSettings()) { feedback("policy-feedback", historicalSettingsNotice()); return; }
     const epoch = authEpoch;
-    const button = $("save-policy"); button.disabled = true;
+    const button = $("save-policy"); button.disabled = true; button.setAttribute("aria-busy", "true");
+    feedback("policy-feedback", "Saving archive choices…");
     try {
       const mode = document.querySelector("input[name=date-mode]:checked").value;
       const chatMode = document.querySelector("input[name=chat-mode]:checked").value;
@@ -2720,13 +2725,13 @@
         feedback("search-feedback", "Archive choices saved. Refreshing permitted saved messages…");
       }
     } catch (error) { if(epoch===authEpoch&&!authExpired)feedback("policy-feedback", error.message, true); }
-    finally { if(epoch===authEpoch)button.disabled = false; }
+    finally { if(epoch===authEpoch){button.disabled = false; button.setAttribute("aria-busy", "false");} }
   }
 
   function clearResults() {
     searchVersion++; contextVersion++;
     searchController?.abort(); searchController = null;
-    searching = false; $("search-submit").disabled = false; $("search-more").disabled = false;
+    searching = false; $("search-submit").disabled = false; $("search-submit").setAttribute("aria-busy", "false"); $("search-more").disabled = false; $("search-more").setAttribute("aria-busy", "false");
     nextCursor = ""; selectedMessage = ""; selectedResultKey = ""; visibleMessages = [];
     archiveHits = []; archivePages = 0; archiveReadSnapshot = null; archiveRows.clear();
     setArchiveLoading(false);
@@ -2775,6 +2780,7 @@
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     searching = true; archiveRefreshNeeded = false;
     $("search-submit").disabled = true; $("search-more").disabled = true;
+    $(more ? "search-more" : "search-submit").setAttribute("aria-busy", String(!refresh));
     setArchiveLoading(true);
     if (!refresh) feedback("search-feedback", $("search-query").value.trim() ? "Searching saved messages…" : "Loading recent saved messages…");
     let retryRequest = null;
@@ -2884,7 +2890,8 @@
       if (version === searchVersion && epoch === authEpoch) {
         searching = false; searchController = null;
         setArchiveLoading(false);
-        $("search-submit").disabled = false; $("search-more").disabled = false;
+        $("search-submit").disabled = false; $("search-submit").setAttribute("aria-busy", "false");
+        $("search-more").disabled = false; $("search-more").setAttribute("aria-busy", "false");
         retryRequest?.();
         if (!retryRequest && archiveRefreshNeeded && activeView === "archive" && !document.hidden) {
           const expected = searchVersion;
@@ -3171,10 +3178,10 @@
   async function command(button, path, target, success) {
     if (authExpired) return false;
     const epoch = authEpoch;
-    button.disabled=true;
+    button.disabled=true; button.setAttribute("aria-busy", "true");
     try { await api(path,"POST",{}); assertOwner(epoch); feedback(target,success); await refreshStatus(); return epoch===authEpoch&&!authExpired; }
     catch(error) { if(epoch===authEpoch&&!authExpired)feedback(target,error.message,true); return false; }
-    finally { if(epoch===authEpoch)button.disabled=false; }
+    finally { if(epoch===authEpoch){button.disabled=false; button.setAttribute("aria-busy", "false");} }
   }
 
   async function startPairing() {
@@ -3297,12 +3304,12 @@
   window.addEventListener("pagehide",()=>clearRemoteSecret());
   $("settings-close").addEventListener("click",()=>$("settings-dialog").close());
   $("settings-dialog").addEventListener("cancel",event=>{if(!setup?.configured)event.preventDefault();});
-  $("refresh-chats").addEventListener("click",async()=>{const epoch=authEpoch;try{await loadChats();}catch(error){if(epoch===authEpoch&&!authExpired)feedback("policy-feedback",error.message,true);}});
+  $("refresh-chats").addEventListener("click",async()=>{if(authExpired||historicalSettings())return;const epoch=authEpoch,button=$("refresh-chats");button.disabled=true;button.setAttribute("aria-busy","true");feedback("policy-feedback","Refreshing discovered chats…");try{await loadChats();if(epoch===authEpoch&&!authExpired)feedback("policy-feedback","Discovered chat list updated.");}catch(error){if(epoch===authEpoch&&!authExpired)feedback("policy-feedback",error.message,true);}finally{if(epoch===authEpoch){button.disabled=historicalSettings();button.setAttribute("aria-busy","false");}}});
   $("connection-open").addEventListener("click",()=>setup?.configured?openConnection():openSettings());
   $("connection-close").addEventListener("click",()=>$("connection-dialog").close());
   $("connection-settings").addEventListener("click",()=>{$("connection-dialog").close();openSettings();});
-  $("connection-check").addEventListener("click",async()=>{const epoch=authEpoch;await refreshStatus();if(epoch===authEpoch&&!authExpired)await refreshPairing();});
-  $("import-check").addEventListener("click",refreshStatus);
+  $("connection-check").addEventListener("click",async()=>{const epoch=authEpoch,button=$("connection-check");button.disabled=true;button.setAttribute("aria-busy","true");try{await refreshStatus();if(epoch===authEpoch&&!authExpired)await refreshPairing();}finally{if(epoch===authEpoch){button.disabled=false;button.setAttribute("aria-busy","false");}}});
+  $("import-check").addEventListener("click",async()=>{const epoch=authEpoch,button=$("import-check");button.disabled=true;button.setAttribute("aria-busy","true");try{await refreshStatus();}finally{if(epoch===authEpoch){button.disabled=false;button.setAttribute("aria-busy","false");}}});
   $("import-action").addEventListener("click",async()=>{
     if(authExpired)return;
     const action=$("import-action").dataset.action;
@@ -3324,7 +3331,7 @@
   $("delete-open").addEventListener("click",()=>{if(historicalSettings()||liveRebuildSettings())return;$("delete-confirmation").value="";$("delete-confirm").disabled=true;feedback("delete-feedback","");$("delete-dialog").showModal();});
   $("delete-cancel").addEventListener("click",()=>$("delete-dialog").close());
   $("delete-confirmation").addEventListener("input",()=>{$("delete-confirm").disabled=$("delete-confirmation").value!=="DELETE LOCAL DATA";});
-  $("delete-form").addEventListener("submit",async event=>{event.preventDefault();if(authExpired||historicalSettings()||liveRebuildSettings()||$("delete-confirmation").value!=="DELETE LOCAL DATA")return;const epoch=authEpoch;$("delete-confirm").disabled=true;try{await api("/api/data/delete","POST",{confirmation:$("delete-confirmation").value});assertOwner(epoch);expireAuth();$("auth-message").textContent="Local data deleted. Restart the app to create a new archive.";}catch(error){if(epoch===authEpoch&&!authExpired){feedback("delete-feedback",error.message,true);$("delete-confirm").disabled=false;}}});
+  $("delete-form").addEventListener("submit",async event=>{event.preventDefault();if(authExpired||historicalSettings()||liveRebuildSettings()||$("delete-confirmation").value!=="DELETE LOCAL DATA")return;const epoch=authEpoch;$("delete-confirm").disabled=true;$("delete-confirm").setAttribute("aria-busy","true");try{await api("/api/data/delete","POST",{confirmation:$("delete-confirmation").value});assertOwner(epoch);expireAuth();$("auth-message").textContent="Local data deleted. Restart the app to create a new archive.";}catch(error){if(epoch===authEpoch&&!authExpired){feedback("delete-feedback",error.message,true);$("delete-confirm").disabled=false;}}finally{if(epoch===authEpoch)$("delete-confirm").setAttribute("aria-busy","false");}});
   $("admin-login-form").addEventListener("submit", loginRemote);
   $("admin-logout").addEventListener("click", logoutRemote);
 
@@ -3333,6 +3340,7 @@
     if (!remoteMode || $("remote-login-submit").disabled) return;
     const epoch = authEpoch;
     $("remote-login-submit").disabled = true;
+    $("remote-login-submit").setAttribute("aria-busy", "true");
     feedback("remote-login-feedback", "Unlocking…");
     let password = $("remote-password").value;
     $("remote-password").value = "";
@@ -3356,6 +3364,7 @@
     } finally {
       password = "";
       $("remote-login-submit").disabled = false;
+      $("remote-login-submit").setAttribute("aria-busy", "false");
       if (authExpired) $("remote-password").focus();
     }
   });

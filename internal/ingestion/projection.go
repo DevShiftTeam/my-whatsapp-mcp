@@ -448,6 +448,9 @@ func (r *Runtime) messageWithDeliveredAdmission(ctx context.Context, event *even
 		}
 		e = archive.SourceEvent{Key: key, Kind: archive.EventOriginal, OriginalSentAt: event.Info.Timestamp, OriginalDateKnown: !event.Info.Timestamp.IsZero(), SourceRevision: event.Info.Timestamp.UnixMilli(), BodyKind: archive.MessageUnsupported}
 		body = event.Message
+		if !event.IsViewOnce && event.UnavailableRequestID == "" && event.SourceWebMsg == nil && standaloneSenderKeyDistribution(body) && (event.RawMessage == nil || standaloneSenderKeyDistribution(event.RawMessage)) {
+			return nil
+		}
 	}
 	if err = r.sourceExpiry(ctx, &e, event); err != nil {
 		return sourceOperationFailure(ctx, "source_expiry", err)

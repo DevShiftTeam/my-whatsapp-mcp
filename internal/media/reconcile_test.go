@@ -671,3 +671,31 @@ func TestReconcileRejectsUnsafeNativeSocket(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcileAllowsValidatedHistorySpoolAndRejectsUnsafeEntries(t *testing.T) {
+	f := newRepository()
+	s, paths, _ := testStore(t, f, Options{})
+	spoolDir := filepath.Join(paths.WorkingDir, "history-spool")
+	if err := os.Mkdir(spoolDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(spoolDir, "key")
+	batchPath := filepath.Join(spoolDir, "0123456789abcdef0123456789abcdef.batch")
+	if err := os.WriteFile(keyPath, make([]byte, 32), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(batchPath, []byte("encrypted-batch"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.Reconcile(context.Background(), 256)
+	if err != nil || report.Cleaned != 0 || report.Active != 0 {
+		t.Fatalf("validated history-spool blocked media reconciliation: report=%+v err=%v", report, err)
+	}
+	if err := os.Chmod(batchPath, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(batchPath, 0600) })
+	if _, err := s.Reconcile(context.Background(), 256); !errors.Is(err, ErrUnsafeFile) {
+		t.Fatalf("world-readable history-spool file was accepted: %v", err)
+	}
+}
