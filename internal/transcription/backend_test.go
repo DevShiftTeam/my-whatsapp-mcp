@@ -28,7 +28,7 @@ func testRecipe() recipe {
 		ProtocolVersion: 1, Backend: "faster-whisper", Model: "ivrit-ai/whisper-large-v3-turbo-ct2",
 		Revision: strings.Repeat("a", 40), ModelSHA256: strings.Repeat("b", 64),
 		ModelFiles: []modelFile{{Path: "config.json", SHA256: strings.Repeat("c", 64)}, {Path: "model.bin", SHA256: strings.Repeat("b", 64)}, {Path: "tokenizer.json", SHA256: strings.Repeat("d", 64)}},
-		Runtime:    runtimeRecipe{FasterWhisper: "1.2.1", CTranslate2: "4.8.2", AV: "18.0.0", ONNXRuntime: "1.31.0", Tokenizers: "0.22.1", ComputeType: "int8", CPUThreads: 4, NumWorkers: 1, Language: "he", VADFilter: true},
+		Runtime:    runtimeRecipe{FasterWhisper: "1.2.1", CTranslate2: "4.8.2", AV: "18.0.0", ONNXRuntime: "1.31.0", Tokenizers: "0.22.1", ComputeType: "int8", NumWorkers: 1, Language: "he", VADFilter: true},
 	}
 }
 
@@ -138,7 +138,7 @@ func TestNewFreezesVerifiedRecipeAndReadyRejectsChange(t *testing.T) {
 		}
 		rc := testRecipe()
 		if changed.Load() {
-			rc.Runtime.CPUThreads++
+			rc.Runtime.FasterWhisper = "1.2.2"
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(testInfo(t, rc))
@@ -179,7 +179,6 @@ func TestNewRejectsMalformedUnverifiedMetadata(t *testing.T) {
 		{"duplicate file", func(x *infoResponse) { x.Recipe.ModelFiles[1].Path = x.Recipe.ModelFiles[0].Path }},
 		{"invalid language", func(x *infoResponse) { x.Recipe.Runtime.Language = "Auto" }},
 		{"wrong language", func(x *infoResponse) { x.Recipe.Runtime.Language = "en" }},
-		{"threads", func(x *infoResponse) { x.Recipe.Runtime.CPUThreads = 128 }},
 		{"workers", func(x *infoResponse) { x.Recipe.Runtime.NumWorkers = 2 }},
 		{"vad", func(x *infoResponse) { x.Recipe.Runtime.VADFilter = false }},
 		{"float compute", func(x *infoResponse) { x.Recipe.Runtime.ComputeType = "float32" }},

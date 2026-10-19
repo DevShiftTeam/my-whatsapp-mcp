@@ -98,7 +98,7 @@ class WhisperEngine:
         self.configuration = configuration
         self.recipe = {
             "protocol_version": 1, "backend": "faster-whisper", **verified,
-            "runtime": {**RUNTIME_VERSIONS, "compute_type": "int8", "cpu_threads": configuration.cpu_threads,
+            "runtime": {**RUNTIME_VERSIONS, "compute_type": "int8",
                         "num_workers": 1, "language": configuration.language, "vad_filter": True},
         }
         self.model = WhisperModel(str(configuration.model_dir), device="cpu", compute_type="int8",

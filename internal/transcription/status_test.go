@@ -127,7 +127,7 @@ func TestHebrewStatusBusyRequiresUnbrokenVerifiedIdentity(t *testing.T) {
 	f.status.Store(0)
 	check(true, nil)
 	r := hebrewStatusRecipe()
-	r.Runtime.CPUThreads++
+	r.Runtime.FasterWhisper = "1.2.2"
 	changed := testInfo(t, r)
 	f.info.Store(&changed)
 	check(false, ErrModelChanged)

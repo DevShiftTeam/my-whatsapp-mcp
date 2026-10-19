@@ -96,7 +96,7 @@ These app variables can also come from the process environment. Incomplete confi
 | `WA_TRANSCRIPTION_LISTEN` | `127.0.0.1:6971`; loopback only. |
 | `WA_TRANSCRIPTION_MODEL_DIR` | Verified local model directory created by the installer. |
 | `WA_TRANSCRIPTION_LANGUAGE` | `auto`, or a supported language code such as `he`. Keep it consistent with the app. |
-| `WA_TRANSCRIPTION_CPU_THREADS` | `4`; applies to CTranslate2 inference. |
+| `WA_TRANSCRIPTION_CPU_THREADS` | `4`; applies to CTranslate2 inference (1–32). Changing it does not change the extraction recipe or re-transcribe saved recordings. |
 | `WA_TRANSCRIPTION_BODY_TIMEOUT_SECONDS` | `30`; upload deadline and socket read timeout while receiving a recording. |
 
 ## Choose a model and language

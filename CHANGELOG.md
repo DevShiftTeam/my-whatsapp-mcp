@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Exclude `WA_TRANSCRIPTION_CPU_THREADS` from the voice transcription recipe identity so tuning CPU thread counts does not invalidate the running worker identity or re-queue retained voice recordings for transcription.
 - Record wire-verified bodyless history notices (`CHANGE_EPHEMERAL_SETTING` `72`, `DISAPPEARING_MODE` `130`, `BIZ_COEX_PRIVACY_TRANSITION` `202`, `CHANGE_LIMIT_SHARING` `216`, direct notice `229` and group notice `263`) as durable history uncertainty during default strict import instead of treating them as benign notices or stopping import. Keep persistent partial-coverage warnings, retain the encrypted raw batch in `working/history-spool`, and validate `working/history-spool` during startup media reconciliation, while still rejecting unverified shapes, extra metadata or failed uncertainty writes.
 - Ignore standalone `SenderKeyDistributionMessage` companion envelopes during live message projection after recording sender identity metadata, preventing false `source_revision_conflict` quarantine when WhatsApp delivers a key-distribution envelope alongside a group or broadcast message under the same stanza ID.
 - Accept paused-and-resumed WhatsApp Ogg Opus voice recordings whose resumed segment starts with a single-lace `BOS` (`granule = 0`) audio page on the same logical stream, while still rejecting chained streams, duplicate Opus headers or malformed pages.

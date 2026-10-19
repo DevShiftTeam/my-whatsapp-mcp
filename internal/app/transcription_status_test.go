@@ -30,16 +30,16 @@ type appStatusService struct {
 
 func appStatusInfo(t *testing.T, change bool) []byte {
 	t.Helper()
-	threads := 4
+	fasterWhisper := "1.2.1"
 	if change {
-		threads++
+		fasterWhisper = "1.2.2"
 	}
 	modelSHA := "db2a2265aa012c16c7db9edda3d699c99f984efdd3f2e22a72a8ce7e9720f3a2"
 	r := map[string]any{
 		"protocol_version": 1, "backend": "faster-whisper", "model": "ivrit-ai/whisper-large-v3-turbo-ct2",
 		"revision": "72ad623a37947395efcc3933132353790e5a12f5", "model_sha256": modelSHA,
 		"model_files": []map[string]string{{"path": "config.json", "sha256": strings.Repeat("c", 64)}, {"path": "model.bin", "sha256": modelSHA}, {"path": "tokenizer.json", "sha256": strings.Repeat("d", 64)}},
-		"runtime":     map[string]any{"faster_whisper": "1.2.1", "ctranslate2": "4.8.2", "av": "18.0.0", "onnxruntime": "1.31.0", "tokenizers": "0.22.1", "compute_type": "int8", "cpu_threads": threads, "num_workers": 1, "language": "he", "vad_filter": true},
+		"runtime":     map[string]any{"faster_whisper": fasterWhisper, "ctranslate2": "4.8.2", "av": "18.0.0", "onnxruntime": "1.31.0", "tokenizers": "0.22.1", "compute_type": "int8", "num_workers": 1, "language": "he", "vad_filter": true},
 	}
 	encoded, err := json.Marshal(r)
 	if err != nil {

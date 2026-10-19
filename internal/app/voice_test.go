@@ -38,7 +38,7 @@ type voiceHTTPFixture struct {
 
 func newVoiceHTTPFixture(t *testing.T, ready bool) *voiceHTTPFixture {
 	t.Helper()
-	runtime := map[string]any{"faster_whisper": "1.2.1", "ctranslate2": "4.8.2", "av": "18.0.0", "onnxruntime": "1.31.0", "tokenizers": "0.22.1", "compute_type": "int8", "cpu_threads": 4, "num_workers": 1, "language": "he", "vad_filter": true}
+	runtime := map[string]any{"faster_whisper": "1.2.1", "ctranslate2": "4.8.2", "av": "18.0.0", "onnxruntime": "1.31.0", "tokenizers": "0.22.1", "compute_type": "int8", "num_workers": 1, "language": "he", "vad_filter": true}
 	recipe := map[string]any{"protocol_version": 1, "backend": "faster-whisper", "model": "ivrit-ai/whisper-large-v3-turbo-ct2", "revision": strings.Repeat("a", 40), "model_sha256": strings.Repeat("b", 64), "runtime": runtime,
 		"model_files": []map[string]string{{"path": "config.json", "sha256": strings.Repeat("c", 64)}, {"path": "model.bin", "sha256": strings.Repeat("b", 64)}, {"path": "tokenizer.json", "sha256": strings.Repeat("d", 64)}}}
 	encoded, err := json.Marshal(recipe)

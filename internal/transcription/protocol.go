@@ -31,7 +31,6 @@ type runtimeRecipe struct {
 	ONNXRuntime   string `json:"onnxruntime"`
 	Tokenizers    string `json:"tokenizers"`
 	ComputeType   string `json:"compute_type"`
-	CPUThreads    int    `json:"cpu_threads"`
 	NumWorkers    int    `json:"num_workers"`
 	Language      string `json:"language"`
 	VADFilter     bool   `json:"vad_filter"`
@@ -115,7 +114,7 @@ func validateRecipe(info infoResponse, language string) error {
 		return ErrInvalidResponse
 	}
 	x := r.Runtime
-	if !versionPattern.MatchString(x.FasterWhisper) || !versionPattern.MatchString(x.CTranslate2) || !versionPattern.MatchString(x.AV) || !versionPattern.MatchString(x.ONNXRuntime) || !versionPattern.MatchString(x.Tokenizers) || x.ComputeType != "int8" || x.CPUThreads < 1 || x.CPUThreads > 32 || x.NumWorkers != 1 || x.Language != language || (x.Language != "auto" && !languagePattern.MatchString(x.Language)) || !x.VADFilter {
+	if !versionPattern.MatchString(x.FasterWhisper) || !versionPattern.MatchString(x.CTranslate2) || !versionPattern.MatchString(x.AV) || !versionPattern.MatchString(x.ONNXRuntime) || !versionPattern.MatchString(x.Tokenizers) || x.ComputeType != "int8" || x.NumWorkers != 1 || x.Language != language || (x.Language != "auto" && !languagePattern.MatchString(x.Language)) || !x.VADFilter {
 		return ErrInvalidResponse
 	}
 	canonical, err := canonicalJSON(r)

@@ -9,10 +9,13 @@ import tempfile
 import threading
 import socket
 import time
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from server import AudioError, Configuration, Result, TranscriptionService, make_server, recipe_identity
+import server
+from server import AudioError, Configuration, Result, TranscriptionService, WhisperEngine, make_server, recipe_identity
 
 
 TOKEN = "synthetic_test_bearer_" + "a" * 40
@@ -30,7 +33,7 @@ def recipe():
         "runtime": {
             "faster_whisper": "1.2.1", "ctranslate2": "4.8.2", "av": "18.0.0",
             "onnxruntime": "1.31.0", "tokenizers": "0.22.1",
-            "compute_type": "int8", "cpu_threads": 4, "num_workers": 1,
+            "compute_type": "int8", "num_workers": 1,
             "language": "he", "vad_filter": True,
         },
     }
@@ -340,6 +343,28 @@ class ConfigurationTests(unittest.TestCase):
                 "WA_TRANSCRIPTION_LANGUAGE": language,
             })
             self.assertEqual(configuration.language, language)
+
+    def test_cpu_threads_configures_model_without_changing_recipe_identity(self):
+        verified = {
+            "model": "synthetic/test-model", "revision": "a" * 40, "model_sha256": "b" * 64,
+            "model_files": [{"path": "model.bin", "sha256": "b" * 64}],
+        }
+        versions = {("faster-whisper" if k == "faster_whisper" else k): v for k, v in server.RUNTIME_VERSIONS.items()}
+        calls = []
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda *args, **kwargs: calls.append((args, kwargs)) or object()
+        fake_tokenizer = types.ModuleType("faster_whisper.tokenizer")
+        fake_tokenizer._LANGUAGE_CODES = ("he", "en")
+        with mock.patch.object(server, "verify_model", return_value=verified), \
+                mock.patch.object(server.importlib.metadata, "version", side_effect=versions.__getitem__), \
+                mock.patch.dict(sys.modules, {"faster_whisper": fake_fw, "faster_whisper.tokenizer": fake_tokenizer}):
+            four = WhisperEngine(Configuration(TOKEN, "127.0.0.1", 6971, Path("/tmp/model"), "he", 4, 30))
+            eight = WhisperEngine(Configuration(TOKEN, "127.0.0.1", 6971, Path("/tmp/model"), "he", 8, 30))
+        self.assertNotIn("cpu_threads", four.recipe["runtime"])
+        self.assertEqual(four.recipe, eight.recipe)
+        self.assertEqual(recipe_identity(four.recipe), recipe_identity(eight.recipe))
+        self.assertEqual(calls[0][1]["cpu_threads"], 4)
+        self.assertEqual(calls[1][1]["cpu_threads"], 8)
 
 
 if __name__ == "__main__":
