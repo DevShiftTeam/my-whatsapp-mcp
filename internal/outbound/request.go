@@ -176,7 +176,7 @@ func validOpus(data []byte) bool {
 			return false
 		}
 		n := int(page[26])
-		if len(page) < 27+n {
+		if n == 0 || len(page) < 27+n {
 			return false
 		}
 		size := 0
@@ -212,7 +212,8 @@ func validOpus(data []byte) bool {
 			serial = binary.LittleEndian.Uint32(page[14:18])
 		} else {
 			sequence++
-			if page[5]&2 != 0 || binary.LittleEndian.Uint32(page[14:18]) != serial || binary.LittleEndian.Uint32(page[18:22]) != sequence {
+			resumedBOS := audio && page[5] == 2 && binary.LittleEndian.Uint64(page[6:14]) == 0 && n == 1 && page[27] != 255
+			if (page[5]&2 != 0 && !resumedBOS) || binary.LittleEndian.Uint32(page[14:18]) != serial || binary.LittleEndian.Uint32(page[18:22]) != sequence {
 				return false
 			}
 		}
@@ -220,7 +221,7 @@ func validOpus(data []byte) bool {
 			return false
 		}
 		at := 27 + n
-		for _, segment := range page[27 : 27+n] {
+		for laceIndex, segment := range page[27 : 27+n] {
 			length := int(segment)
 			if len(packet)+length > 65536 {
 				return false
@@ -232,11 +233,11 @@ func validOpus(data []byte) bool {
 			}
 			switch packets {
 			case 0:
-				if len(packet) != 19 || string(packet[:8]) != "OpusHead" || packet[8] != 1 || packet[9] == 0 || packet[9] > 2 || packet[18] != 0 {
+				if offset != 0 || n != 1 || binary.LittleEndian.Uint64(page[6:14]) != 0 || !validOpusHead(packet) {
 					return false
 				}
 			case 1:
-				if len(packet) < 16 || string(packet[:8]) != "OpusTags" {
+				if laceIndex != n-1 || binary.LittleEndian.Uint64(page[6:14]) != 0 || len(packet) < 16 || string(packet[:8]) != "OpusTags" || !validOpusComment(packet[8:]) {
 					return false
 				}
 			default:
@@ -353,3 +354,53 @@ func opusFrameLength(p []byte) (int, []byte, bool) {
 	}
 	return n, p, n <= 1275
 }
+
+func validOpusHead(p []byte) bool {
+	if len(p) < 19 || string(p[:8]) != "OpusHead" || p[8] == 0 || p[8] > 15 || p[9] == 0 || p[9] > 8 {
+		return false
+	}
+	if p[18] != 0 && p[18] != 1 && p[18] != 255 {
+		return false
+	}
+	if p[18] == 0 {
+		return p[9] <= 2 && len(p) == 19
+	}
+	if len(p) != 21+int(p[9]) || p[19] != 1 || p[20] > p[19] {
+		return false
+	}
+	for _, channel := range p[21:] {
+		if channel != 255 && int(channel) >= int(p[19])+int(p[20]) {
+			return false
+		}
+	}
+	return true
+}
+
+func validOpusComment(p []byte) bool {
+	if len(p) < 8 {
+		return false
+	}
+	vendor := int64(binary.LittleEndian.Uint32(p[:4]))
+	if vendor > int64(len(p))-8 {
+		return false
+	}
+	offset := 4 + int(vendor)
+	count := binary.LittleEndian.Uint32(p[offset : offset+4])
+	offset += 4
+	if count > 4096 {
+		return false
+	}
+	for range count {
+		if len(p)-offset < 4 {
+			return false
+		}
+		n := int64(binary.LittleEndian.Uint32(p[offset : offset+4]))
+		offset += 4
+		if n > int64(len(p)-offset) {
+			return false
+		}
+		offset += int(n)
+	}
+	return true
+}
+

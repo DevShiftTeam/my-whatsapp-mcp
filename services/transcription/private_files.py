@@ -138,8 +138,8 @@ def load_env_file(path):
             continue
         key, separator, value = line.partition("=")
         if (not separator or key not in ENV_KEYS or key in result or not value
-                or value != value.strip() or value.startswith(("'", '"'))
-                or any(ord(character) < 32 for character in value)):
+                or value != value.strip()
+                or any(character in "\"'`$" or ord(character) < 32 for character in value)):
             raise ValueError("invalid_environment")
         result[key] = value
     return result

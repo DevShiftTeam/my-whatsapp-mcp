@@ -121,3 +121,26 @@ func opusTestChecksum(p []byte) {
 	}
 	binary.LittleEndian.PutUint32(p[22:26], crc)
 }
+
+func TestOpusResumedSegmentBOSPage(t *testing.T) {
+	resumedBOS := opusTestPage(3, 2, []byte{3}, []byte{0xf8, 0xff, 0xfe})
+	binary.LittleEndian.PutUint64(resumedBOS[6:14], 0)
+	opusTestChecksum(resumedBOS)
+	data := opusRecordingWithPages(
+		opusTestPage(2, 0, []byte{3}, []byte{0xf8, 0xff, 0xfe}),
+		resumedBOS,
+		opusTestPage(4, 0, []byte{3}, []byte{0xf8, 0xff, 0xfe}),
+	)
+	for _, kind := range []string{"audio", "voice"} {
+		t.Run(kind, func(t *testing.T) {
+			r := Request{ChatID: "chat", RequestID: "resumed-bos", Kind: kind, MIMEType: "audio/ogg", DataBase64: base64.StdEncoding.EncodeToString(data)}
+			if kind == "voice" {
+				r.Seconds = 2
+			}
+			if _, err := Validate(r); err != nil {
+				t.Fatalf("resumed WhatsApp Opus segment BOS page rejected: %v", err)
+			}
+		})
+	}
+}
+

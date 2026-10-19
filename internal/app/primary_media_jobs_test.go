@@ -27,10 +27,11 @@ func (o *primaryOriginalFixture) Close() error {
 
 type primaryStoreFixture struct {
 	archive.ExtractionStore
-	original *primaryOriginalFixture
-	commits  int
-	retries  []archive.JobRetry
-	retryErr error
+	original   *primaryOriginalFixture
+	commits    int
+	superseded bool
+	retries    []archive.JobRetry
+	retryErr   error
 }
 
 func (s *primaryStoreFixture) CommitExtraction(_ context.Context, result archive.ExtractionResult) (bool, error) {
@@ -38,7 +39,7 @@ func (s *primaryStoreFixture) CommitExtraction(_ context.Context, result archive
 		return false, errors.New("commit_before_physical_close")
 	}
 	s.commits++
-	return true, nil
+	return !s.superseded, nil
 }
 func (s *primaryStoreFixture) RenewExtraction(context.Context, archive.JobLease, time.Duration) (time.Time, error) {
 	return time.Now().Add(time.Minute), nil
@@ -99,6 +100,17 @@ func TestPrimarySuccessPublishesOnlyAfterPhysicalClose(t *testing.T) {
 	}
 	if !original.closed || store.commits != 1 || len(runner.pending) != 0 {
 		t.Fatal("clean result not published at exact boundary")
+	}
+}
+
+func TestPrimarySupersededCommitReturnsSourceUnavailableAfterPhysicalClose(t *testing.T) {
+	runner, store, original, work := primaryFixture(t)
+	store.superseded = true
+	if err := runner.extract(context.Background(), work); !errors.Is(err, archive.ErrSourceUnavailable) {
+		t.Fatalf("superseded commit returned %v, want ErrSourceUnavailable", err)
+	}
+	if !original.closed || store.commits != 1 || len(runner.pending) != 0 {
+		t.Fatal("superseded commit did not close physical input cleanly")
 	}
 }
 

@@ -30,6 +30,13 @@ def data_dir_compatible(data_dir):
                for path in (data_dir, data_dir / "model", data_dir / "transcription.env"))
 
 
+def profile_default_language(model, revision, model_sha256):
+    for pinned_model, pinned_revision, pinned_hash, _, language in PROFILES.values():
+        if (model, revision, model_sha256) == (pinned_model, pinned_revision, pinned_hash):
+            return language
+    return "auto"
+
+
 def configure_environment(data_dir, *, language=None, profile_language="auto", cpu_threads=None, port=None):
     with service_lock(data_dir, "setup.lock"):
         return _configure_environment(data_dir, language=language, profile_language=profile_language,
@@ -40,18 +47,25 @@ def _configure_environment(data_dir, *, language, profile_language, cpu_threads,
     env_path = data_dir / "transcription.env"
     existing = load_env_file(env_path) if env_path.exists() else None
     values = dict(existing or {})
-    configured = Configuration.from_env(values) if existing else None
-    token = values.get("WA_TRANSCRIPTION_TOKEN") or secrets.token_urlsafe(32)
+    if existing and values.get("WA_TRANSCRIPTION_MODEL_DIR", str(data_dir / "model")) != str(data_dir / "model"):
+        raise ValueError("existing_configuration_conflict")
+    token = values.get("WA_TRANSCRIPTION_TOKEN") or values.get("WA_INDEXER_TRANSCRIPTION_TOKEN") or secrets.token_urlsafe(32)
     if language is None:
         language = values.get("WA_TRANSCRIPTION_LANGUAGE", profile_language)
     if cpu_threads is None:
         cpu_threads = int(values.get("WA_TRANSCRIPTION_CPU_THREADS", "4"))
+    listen = values.get("WA_TRANSCRIPTION_LISTEN", "127.0.0.1:6971")
+    host = "::1" if listen.startswith("[::1]:") else "127.0.0.1"
     if port is None:
-        port = configured.listen_port if configured else 6971
-    host = configured.listen_host if configured else "127.0.0.1"
+        if listen.startswith("[::1]:") and listen[6:].isdigit():
+            port = int(listen[6:])
+        elif listen.startswith("127.0.0.1:") and listen[10:].isdigit():
+            port = int(listen[10:])
+        else:
+            raise ValueError("invalid_listen")
+    elif existing and not (listen.startswith("[::1]:") or listen.startswith("127.0.0.1:")):
+        raise ValueError("invalid_listen")
     address = f"[{host}]:{port}" if host == "::1" else f"{host}:{port}"
-    if existing and values.get("WA_TRANSCRIPTION_MODEL_DIR") != str(data_dir / "model"):
-        raise ValueError("existing_configuration_conflict")
     values.update({
         "WA_TRANSCRIPTION_TOKEN": token,
         "WA_TRANSCRIPTION_LISTEN": address,
@@ -65,6 +79,9 @@ def _configure_environment(data_dir, *, language, profile_language, cpu_threads,
         "WA_INDEXER_TRANSCRIPTION_TIMEOUT_SECONDS": values.get("WA_INDEXER_TRANSCRIPTION_TIMEOUT_SECONDS", "600"),
     })
     Configuration.from_env(values)
+    timeout = values["WA_INDEXER_TRANSCRIPTION_TIMEOUT_SECONDS"]
+    if not timeout.isdigit() or not 10 <= int(timeout) <= 1800:
+        raise ValueError("invalid_timeout")
     data = "".join(f"{key}={value}\n" for key, value in values.items()).encode()
     if existing is None:
         write_private(env_path, data)
@@ -108,7 +125,8 @@ def main():
         if args.profile is None and args.model is None and (data_dir / "model").exists():
             verified = verify_model(data_dir / "model")
             model, revision, model_hash = verified["model"], verified["revision"], verified["model_sha256"]
-            profile_language = existing.get("WA_TRANSCRIPTION_LANGUAGE", "auto")
+            profile_language = existing.get("WA_TRANSCRIPTION_LANGUAGE",
+                                            profile_default_language(model, revision, model_hash))
         else:
             pinned_model, pinned_revision, pinned_hash, _, profile_language = PROFILES[args.profile or "multilingual"]
             model, revision, model_hash = args.model or pinned_model, args.revision or pinned_revision, args.model_sha256 or pinned_hash

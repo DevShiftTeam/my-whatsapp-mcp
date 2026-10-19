@@ -88,6 +88,10 @@ class PrivateEnvironmentTests(unittest.TestCase):
             path.write_text("HOME=/changed\n")
             with self.assertRaises(ValueError):
                 load_env_file(path)
+            for unsafe in ("/private/\"model\"", "/private/`model`", "/private/$model"):
+                path.write_text("WA_TRANSCRIPTION_MODEL_DIR=" + unsafe + "\n")
+                with self.assertRaises(ValueError):
+                    load_env_file(path)
 
     def test_rejects_group_readable_environment(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -186,6 +190,28 @@ class InstallerEnvironmentTests(unittest.TestCase):
             path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
             configure_environment(root)
             self.assertEqual(load_env_file(path), values)
+
+    def test_rerun_with_explicit_overrides_repairs_invalid_existing_fields(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            path = configure_environment(root)
+            values = load_env_file(path)
+            values["WA_TRANSCRIPTION_CPU_THREADS"] = "99"
+            values["WA_TRANSCRIPTION_LISTEN"] = "127.0.0.1:80"
+            path.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+            configure_environment(root, cpu_threads=6, port=6973)
+            repaired = load_env_file(path)
+            self.assertEqual(repaired["WA_TRANSCRIPTION_CPU_THREADS"], "6")
+            self.assertEqual(repaired["WA_TRANSCRIPTION_LISTEN"], "127.0.0.1:6973")
+            self.assertEqual(repaired["WA_INDEXER_TRANSCRIPTION_URL"], "http://127.0.0.1:6973")
+
+    def test_profile_default_language_infers_hebrew_for_pinned_ivrit_model(self):
+        from model_setup import PROFILES
+        from setup import profile_default_language
+
+        hebrew_model, hebrew_rev, hebrew_sha, _, _ = PROFILES["hebrew"]
+        self.assertEqual(profile_default_language(hebrew_model, hebrew_rev, hebrew_sha), "he")
+        self.assertEqual(profile_default_language("custom/model", "a" * 40, "b" * 64), "auto")
 
     def test_interrupted_environment_update_can_retry_without_rotating_token(self):
         with tempfile.TemporaryDirectory() as temporary:

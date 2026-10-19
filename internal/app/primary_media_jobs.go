@@ -90,6 +90,10 @@ func (j *primaryMediaJobs) run(ctx context.Context, store *archive.Store, r *res
 					continue
 				}
 				err = j.extract(ctx, input)
+				if errors.Is(err, archive.ErrSourceUnavailable) || errors.Is(err, archive.ErrPolicyChanged) || errors.Is(err, media.ErrSourceChanged) {
+					j.retry(work, "source_unavailable", false)
+					continue
+				}
 				j.mu.Lock()
 				j.code = primaryExtractionCode(err)
 				j.mu.Unlock()
@@ -207,7 +211,7 @@ func (j *primaryMediaJobs) extract(ctx context.Context, work archive.ExtractionW
 		return err
 	}
 	if !committed {
-		return media.ErrInvalidRequest
+		return archive.ErrSourceUnavailable
 	}
 	return nil
 }

@@ -95,18 +95,26 @@ func parseTranscriptionEnv(data []byte) (map[string]string, error) {
 	}
 	values := make(map[string]string)
 	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
 		_, seen := values[key]
-		if !ok || !allowed[key] || seen || value == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n\"'`$") {
+		if !ok || !allowed[key] || seen || value == "" || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n\"'`$") || hasControlByte(value) {
 			return nil, voiceConfigFailure("transcription_env_syntax_invalid")
 		}
 		values[key] = value
 	}
 	return values, nil
+}
+
+func hasControlByte(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] < 32 {
+			return true
+		}
+	}
+	return false
 }
 
 func voiceConfigErrorMessage(err error) (string, bool) {
