@@ -96,8 +96,19 @@ func TestAliasWithoutSourceReferencesPreservesCompletedVoice(t *testing.T) {
 	doc := aliasCommitTranscript(t, s, work, "unrelated")
 	_, imageRef, image := originalDownloadTestSource(t, s, p, "unrelated-image", MessageImage)
 	extensionPublish(t, s, extensionAdmit(t, s, imageRef, image, BudgetOriginals, 128), 64)
+	var beforeDirtyRev int64
+	if err := s.readDB.QueryRow("SELECT COALESCE(MAX(archive_revision),0) FROM dirty_windows").Scan(&beforeDirtyRev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.writeDB.Exec("CREATE TRIGGER disallow_unrelated_alias_message_rewrite BEFORE UPDATE ON messages BEGIN SELECT RAISE(ABORT, 'unrelated message row updated'); END"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.ApplyAlias(context.Background(), SourceAlias{Account: "account", PhoneJID: "123@s.whatsapp.net", LID: "456@lid", Provenance: AliasConnectorMapping}); err != nil {
 		t.Fatal(err)
+	}
+	var afterDirtyRev int64
+	if err := s.readDB.QueryRow("SELECT COALESCE(MAX(archive_revision),0) FROM dirty_windows").Scan(&afterDirtyRev); err != nil || afterDirtyRev != beforeDirtyRev {
+		t.Errorf("unrelated alias dirtied existing chat windows: before=%d after=%d err=%v", beforeDirtyRev, afterDirtyRev, err)
 	}
 	aliasAssertRetained(t, s, p, media, doc)
 	if _, err := s.AuthorizeOriginal(context.Background(), ReadScope{Account: "account", Principal: "owner", AllChats: true, PolicyGeneration: p.Generation}, image); err != nil {

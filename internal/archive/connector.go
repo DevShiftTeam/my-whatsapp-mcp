@@ -396,18 +396,28 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 		if existingMappings == 2 {
 			return nil
 		}
-		if e := invalidateAliasSources(ctx, tx, a); e != nil {
+		var lidChat, lidIdentity string
+		if e := tx.QueryRowContext(ctx, "SELECT id FROM chats WHERE account=? AND source_chat=?", a.Account, a.LID).Scan(&lidChat); e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
-		// Prevent unique-key collision before moving any source key. Incompatible
-		// already-returned messages are denied, never silently retargeted.
-		var n int
-		if e := tx.QueryRowContext(ctx, "SELECT count(*) FROM messages l JOIN messages p ON p.account=l.account AND p.source_message=l.source_message AND p.from_me=l.from_me AND p.source_chat=CASE WHEN l.source_chat=? THEN ? ELSE l.source_chat END AND p.source_sender=CASE WHEN l.source_sender=? THEN ? ELSE l.source_sender END WHERE l.account=? AND (l.source_chat=? OR l.source_sender=?) AND p.id<>l.id", a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.Account, a.LID, a.LID).Scan(&n); e != nil {
+		if e := tx.QueryRowContext(ctx, "SELECT id FROM identities WHERE account=? AND source_identity=?", a.Account, a.LID).Scan(&lidIdentity); e != nil && !errors.Is(e, sql.ErrNoRows) {
 			return e
 		}
-		if n > 0 {
-			conflict = true
-			return ErrIdentityAliasConflict
+		dirtyChats, hasLIDMessages, e := invalidateAliasSources(ctx, tx, a, lidChat, lidIdentity)
+		if e != nil {
+			return e
+		}
+		if hasLIDMessages {
+			// Prevent unique-key collision before moving any source key. Incompatible
+			// already-returned messages are denied, never silently retargeted.
+			var n int
+			if e := tx.QueryRowContext(ctx, "SELECT count(*) FROM messages l JOIN messages p ON p.account=l.account AND p.source_message=l.source_message AND p.from_me=l.from_me AND p.source_chat=CASE WHEN l.source_chat=? THEN ? ELSE l.source_chat END AND p.source_sender=CASE WHEN l.source_sender=? THEN ? ELSE l.source_sender END WHERE l.account=? AND (l.source_chat=? OR l.source_sender=?) AND p.id<>l.id", a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.Account, a.LID, a.LID).Scan(&n); e != nil {
+				return e
+			}
+			if n > 0 {
+				conflict = true
+				return ErrIdentityAliasConflict
+			}
 		}
 		for _, table := range []string{"identity_aliases", "chat_aliases"} {
 			for _, alias := range []string{a.PhoneJID, a.LID} {
@@ -418,44 +428,52 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 		}
 		// Keep public IDs when only one side exists; when both exist the old
 		// metadata ID stays an unavailable identity, never another person's ID.
-		for _, x := range []struct{ table, col, foreign string }{{"chats", "source_chat", "chat_id"}, {"identities", "source_identity", "sender_id"}} {
-			var pn, lid string
+		for _, x := range []struct{ table, col, foreign, lid string }{{"chats", "source_chat", "chat_id", lidChat}, {"identities", "source_identity", "sender_id", lidIdentity}} {
+			if x.lid == "" {
+				continue
+			}
+			var pn string
 			ep := tx.QueryRowContext(ctx, "SELECT id FROM "+x.table+" WHERE account=? AND "+x.col+"=?", a.Account, a.PhoneJID).Scan(&pn)
-			el := tx.QueryRowContext(ctx, "SELECT id FROM "+x.table+" WHERE account=? AND "+x.col+"=?", a.Account, a.LID).Scan(&lid)
 			if ep != nil && !errors.Is(ep, sql.ErrNoRows) {
 				return ep
 			}
-			if el != nil && !errors.Is(el, sql.ErrNoRows) {
-				return el
-			}
-			if el == nil {
-				if ep == nil {
-					if _, e := tx.ExecContext(ctx, "UPDATE messages SET "+x.foreign+"=? WHERE account=? AND "+x.foreign+"=?", pn, a.Account, lid); e != nil {
+			if ep == nil {
+				if _, e := tx.ExecContext(ctx, "UPDATE messages SET "+x.foreign+"=? WHERE account=? AND "+x.foreign+"=?", pn, a.Account, x.lid); e != nil {
+					return e
+				}
+				if x.table == "chats" {
+					delete(dirtyChats, x.lid)
+					dirtyChats[pn] = struct{}{}
+					if e := extensionReconcileCredentialChat(ctx, tx, ChatID(x.lid), ChatID(pn)); e != nil {
 						return e
 					}
-					if x.table == "chats" {
-						if e := extensionReconcileCredentialChat(ctx, tx, ChatID(lid), ChatID(pn)); e != nil {
-							return e
-						}
-						if _, e := tx.ExecContext(ctx, "INSERT OR IGNORE INTO policy_chats(chat_id) SELECT ? FROM policy_chats WHERE chat_id=?", pn, lid); e != nil {
-							return e
-						}
-						if _, e := tx.ExecContext(ctx, "DELETE FROM policy_chats WHERE chat_id=?", lid); e != nil {
-							return e
-						}
+					if _, e := tx.ExecContext(ctx, "INSERT OR IGNORE INTO policy_chats(chat_id) SELECT ? FROM policy_chats WHERE chat_id=?", pn, x.lid); e != nil {
+						return e
 					}
-				} else {
-					if _, e := tx.ExecContext(ctx, "UPDATE "+x.table+" SET "+x.col+"=? WHERE id=?", a.PhoneJID, lid); e != nil {
+					if _, e := tx.ExecContext(ctx, "DELETE FROM policy_chats WHERE chat_id=?", x.lid); e != nil {
 						return e
 					}
 				}
+			} else {
+				if x.table == "chats" {
+					dirtyChats[x.lid] = struct{}{}
+				}
+				if _, e := tx.ExecContext(ctx, "UPDATE "+x.table+" SET "+x.col+"=? WHERE id=?", a.PhoneJID, x.lid); e != nil {
+					return e
+				}
 			}
 		}
-		if _, e := tx.ExecContext(ctx, "UPDATE messages SET source_chat=CASE WHEN source_chat=? THEN ? ELSE source_chat END,source_sender=CASE WHEN source_sender=? THEN ? ELSE source_sender END,reply_chat=CASE WHEN reply_chat=? THEN ? ELSE reply_chat END,reply_sender=CASE WHEN reply_sender=? THEN ? ELSE reply_sender END WHERE account=?", a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.Account); e != nil {
+		if hasLIDMessages {
+			if _, e := tx.ExecContext(ctx, "UPDATE messages SET source_chat=CASE WHEN source_chat=? THEN ? ELSE source_chat END,source_sender=CASE WHEN source_sender=? THEN ? ELSE source_sender END,reply_chat=CASE WHEN reply_chat=? THEN ? ELSE reply_chat END,reply_sender=CASE WHEN reply_sender=? THEN ? ELSE reply_sender END WHERE account=? AND (source_chat=? OR source_sender=? OR reply_chat=? OR reply_sender=?)", a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.Account, a.LID, a.LID, a.LID, a.LID); e != nil {
+				return e
+			}
+		}
+		var hasLIDTombstones bool
+		if e := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM source_tombstones WHERE account=? AND (chat=? OR sender=?)) OR EXISTS(SELECT 1 FROM chat_tombstones WHERE account=? AND chat=?)", a.Account, a.LID, a.LID, a.Account, a.LID).Scan(&hasLIDTombstones); e != nil {
 			return e
 		}
 		for _, table := range []string{"source_tombstones", "source_anchors"} {
-			if _, e := tx.ExecContext(ctx, "UPDATE OR IGNORE "+table+" SET chat=CASE WHEN chat=? THEN ? ELSE chat END,sender=CASE WHEN sender=? THEN ? ELSE sender END WHERE account=?", a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.Account); e != nil {
+			if _, e := tx.ExecContext(ctx, "UPDATE OR IGNORE "+table+" SET chat=CASE WHEN chat=? THEN ? ELSE chat END,sender=CASE WHEN sender=? THEN ? ELSE sender END WHERE account=? AND (chat=? OR sender=?)", a.LID, a.PhoneJID, a.LID, a.PhoneJID, a.Account, a.LID, a.LID); e != nil {
 				return e
 			}
 		}
@@ -470,10 +488,17 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 		if e != nil {
 			return e
 		}
-		if e = terminalizeAliasTombstones(ctx, tx, a, p.Generation, rev); e != nil {
-			return e
+		if hasLIDMessages || hasLIDTombstones {
+			if e = terminalizeAliasTombstones(ctx, tx, a, p.Generation, rev); e != nil {
+				return e
+			}
 		}
-		return reconstructDirty(ctx, tx, p.Generation)
+		for chatID := range dirtyChats {
+			if e = reconstructChatDirty(ctx, tx, p.Generation, chatID); e != nil {
+				return e
+			}
+		}
+		return nil
 	})
 	if conflict {
 		s.denyImmediate(a.Account, "identity_alias_conflict")
@@ -487,35 +512,37 @@ func (s *Store) applyAlias(ctx context.Context, a SourceAlias) error {
 // A new identity mapping revokes only sources whose identity or reply changes.
 // Invalidating each source also removes every dependent multi-source window;
 // unrelated original downloads, transcripts, and extraction leases stay valid.
-func invalidateAliasSources(ctx context.Context, tx *sql.Tx, a SourceAlias) error {
-	rows, err := tx.QueryContext(ctx, `SELECT m.id FROM messages m
- LEFT JOIN chats c ON c.id=m.chat_id LEFT JOIN identities i ON i.id=m.sender_id
+func invalidateAliasSources(ctx context.Context, tx *sql.Tx, a SourceAlias, lidChat, lidIdentity string) (map[string]struct{}, bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT m.id,m.chat_id FROM messages m
  WHERE m.account=? AND (m.source_chat=? OR m.source_sender=? OR m.reply_chat=? OR m.reply_sender=?
- OR (c.account=m.account AND c.source_chat=?) OR (i.account=m.account AND i.source_identity=?))
- ORDER BY m.id`, a.Account, a.LID, a.LID, a.LID, a.LID, a.LID, a.LID)
+ OR (?<>'' AND m.chat_id=?) OR (?<>'' AND m.sender_id=?))
+ ORDER BY m.id`, a.Account, a.LID, a.LID, a.LID, a.LID, lidChat, lidChat, lidIdentity, lidIdentity)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	var ids []MessageID
+	dirtyChats := make(map[string]struct{})
 	for rows.Next() {
 		var id MessageID
-		if err = rows.Scan(&id); err != nil {
+		var chatID string
+		if err = rows.Scan(&id, &chatID); err != nil {
 			rows.Close()
-			return err
+			return nil, false, err
 		}
 		ids = append(ids, id)
+		dirtyChats[chatID] = struct{}{}
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	for _, id := range ids {
 		if err = extensionInvalidate(ctx, tx, id, 0); err != nil {
-			return err
+			return nil, false, err
 		}
 	}
-	return nil
+	return dirtyChats, len(ids) > 0, nil
 }
 
 // A mapped LID deletion can newly cover an existing PN source. Apply the same

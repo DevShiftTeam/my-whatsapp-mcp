@@ -1447,7 +1447,12 @@ func (s *Store) sweepExpired(ctx context.Context) (bool, error) {
 		if p.RollingRetention > 0 {
 			retention = unixms(s.now().Add(-p.RollingRetention))
 		}
-		rows, e := tx.QueryContext(ctx, "SELECT rowid,id,chat_id,original_sent_at,expires_at FROM messages WHERE state='active' AND ((expires_at>0 AND expires_at<=?) OR (?<>0 AND original_sent_at<?)) ORDER BY original_sent_at,id LIMIT 256", now, retention, retention)
+		var rows *sql.Rows
+		if retention == 0 {
+			rows, e = tx.QueryContext(ctx, "SELECT rowid,id,chat_id,original_sent_at,expires_at FROM messages WHERE account IN (SELECT account FROM accounts) AND state='active' AND expires_at>0 AND expires_at<=? ORDER BY original_sent_at,id LIMIT 256", now)
+		} else {
+			rows, e = tx.QueryContext(ctx, "SELECT rowid,id,chat_id,original_sent_at,expires_at FROM messages WHERE state='active' AND ((expires_at>0 AND expires_at<=?) OR (?<>0 AND original_sent_at<?)) ORDER BY original_sent_at,id LIMIT 256", now, retention, retention)
+		}
 		if e != nil {
 			return e
 		}

@@ -343,6 +343,7 @@ func (r *savedOwnerRead) Browse(ctx context.Context, request SavedBrowseRequest)
 		return !a.hist && b.hist
 	})
 	page := SearchPage{Hits: []SearchHit{}, Snapshot: s.snapshot()}
+	selected := make([]savedContributor, 0, limit)
 	for _, c := range candidates {
 		if !c.hist && !frontier.IsZero() && (c.m.Sent.Before(frontier) || (c.m.Sent.Equal(frontier) && c.key > frontierKey)) {
 			continue
@@ -350,13 +351,19 @@ func (r *savedOwnerRead) Browse(ctx context.Context, request SavedBrowseRequest)
 		if len(page.Hits) == limit {
 			break
 		}
+		canonical, e := evidence.canonical(c.m.Key)
+		if e != nil {
+			return SearchPage{}, SavedResponseGuard{}, e
+		}
 		if c.hist {
 			hit, ok, e := s.historicalHit(searchSelection{id: string(c.m.ID), count: 1})
 			if e != nil {
 				return SearchPage{}, SavedResponseGuard{}, e
 			}
 			if ok {
+				meta := c.m
 				page.Hits = append(page.Hits, hit)
+				selected = append(selected, savedContributor{Canonical: canonical, Chat: hit.ChatID, Historical: true, Metadata: &meta})
 			}
 			cursor.HistoryOffset = c.position + 1
 		} else {
@@ -364,9 +371,24 @@ func (r *savedOwnerRead) Browse(ctx context.Context, request SavedBrowseRequest)
 			if e != nil {
 				return SearchPage{}, SavedResponseGuard{}, e
 			}
-			page.Hits = append(page.Hits, hits[c.m.ID])
+			meta := c.m
+			hit := hits[c.m.ID]
+			page.Hits = append(page.Hits, hit)
+			selected = append(selected, savedContributor{Canonical: canonical, Chat: hit.ChatID, Historical: false, Metadata: &meta})
 			cursor.LiveOffset = c.position + 1
 		}
+	}
+	remaining := maxContextDerivedPerPage
+	for index := range page.Hits {
+		if remaining == 0 {
+			break
+		}
+		derived, e := s.contextSavedDerived(selected[index], min(remaining, maxContextDerivedPerMessage))
+		if e != nil {
+			return SearchPage{}, SavedResponseGuard{}, e
+		}
+		page.Hits[index].Derived = derived
+		remaining -= len(derived)
 	}
 	histRemaining := false
 	liveRemaining := false

@@ -2953,9 +2953,9 @@
     appendHistoricalProvenance(meta, hit.MessageID);
     const sender = document.createElement("div"); sender.className="result-sender"; sender.append(bdi(hit.SenderName || "Unknown sender"));
     const snippet = document.createElement("div"); snippet.className="message-text result-snippet";
-    renderText(snippet, hit.Snippet, activeQuery);
+    const extracted = (hit.Derived || []).find(excerpt => excerpt.DocumentID === hit.DocumentID) || (!hit.DocumentID && !hit.Snippet ? (hit.Derived || [])[0] : null);
+    renderText(snippet, hit.Snippet || (extracted ? extracted.Text : ""), activeQuery);
     button.append(meta, sender);
-    const extracted = (hit.Derived || []).find(excerpt => excerpt.DocumentID === hit.DocumentID);
     if (extracted) { const label=document.createElement("div"); label.className="derived-label"; label.append(bdi(extractionLabel(extracted))); button.append(label); }
     button.append(snippet);
     if (hit.Kind && hit.Kind !== "text") { const kind = document.createElement("div"); kind.className="result-kind"; kind.textContent=hit.Kind === "voice" ? "Voice note" : hit.Kind === "image" ? "Image message" : "Media message"; button.append(kind); }

@@ -71,7 +71,7 @@ If you already use a custom `--data-dir`, admin password file, or remote MCP arg
 
 ## 4. Check a recording through MCP
 
-First confirm that message import and search are working. Send a short Hebrew voice note in an included chat. Keep WhatsApp connected while the original recording downloads, then wait for extraction. Search a distinctive spoken phrase and open the surrounding conversation.
+First confirm that message import and search are working. Send a short Hebrew voice note in an included chat. Keep WhatsApp connected while the original recording downloads, then wait for extraction. Completed voice transcripts appear with their **Voice transcript** label in **All saved messages**, in keyword search results, and in the surrounding conversation pane.
 
 An AI client can search that phrase with `search_messages` and inspect `get_context`. The transcript is in `derived[].text`, with `source: "generated_voice_transcript"` and `generated: true`; the original `body` may be empty. There is no top-level `transcript` field. Semantic search is not required for Hebrew keyword search.
 

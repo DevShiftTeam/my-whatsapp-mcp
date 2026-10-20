@@ -52,3 +52,49 @@ func TestSavedViewOverlapAndNegatives(t *testing.T) {
 		t.Fatalf("saved count=%d, want 5", stats.Messages)
 	}
 }
+
+func TestSavedViewBrowseAttachesDerivedAndGuardsContributors(t *testing.T) {
+	var liveVoice, histVoice MessageID
+	var histKey SourceKey
+	f := newHistoricalViewFixtureWith(t, func(f *historicalViewFixture, h *Store, hp ArchivePolicy) {
+		evLive := readerEvent("browse-live-voice", "synthetic-a", "", f.now.Add(-10*time.Second))
+		evLive.BodyKind = MessageVoice
+		evLive.Media = []MediaReference{{Kind: "voice", Availability: "not_retained", ProtocolReference: []byte("live-voice-ref")}}
+		liveVoice = readerApply(t, f.live, f.policy, evLive)
+		candidateRoot(t, f.live, f.policy, "browse-live-root", "live voice transcript preview", []MessageID{liveVoice}, derivedContextProvenance(DocumentTranscript))
+
+		evHist := readerEvent("browse-hist-voice", "synthetic-a", "", f.now.Add(-20*time.Second))
+		evHist.BodyKind = MessageVoice
+		evHist.Media = []MediaReference{{Kind: "voice", Availability: "not_retained", ProtocolReference: []byte("hist-voice-ref")}}
+		histKey = evHist.Key
+		histVoice = readerApply(t, h, hp, evHist)
+		candidateRoot(t, h, hp, "browse-hist-root", "historical voice transcript preview", []MessageID{histVoice}, derivedContextProvenance(DocumentTranscript))
+	})
+	r := savedFixtureReader(t, f)
+	page, guard, err := r.Browse(context.Background(), SavedBrowseRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundLive, foundHist := false, false
+	for _, hit := range page.Hits {
+		if hit.MessageID == liveVoice && len(hit.Derived) == 1 && hit.Derived[0].Text == "live voice transcript preview" {
+			foundLive = true
+		}
+		if hit.MessageID == historicalMessageHandle(f, histVoice) && len(hit.Derived) == 1 && hit.Derived[0].Text == "historical voice transcript preview" {
+			foundHist = true
+		}
+	}
+	if !foundLive || !foundHist {
+		t.Fatalf("browse derived excerpts missing: live=%v hist=%v hits=%#v", foundLive, foundHist, page.Hits)
+	}
+	if err = r.Check(context.Background(), guard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.live.writeDB.Exec("INSERT INTO unresolved_deletions(account,chat,message) VALUES(?,?,?)", histKey.Account, histKey.Chat, histKey.Message); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.Check(context.Background(), guard); err == nil {
+		t.Fatal("deleted historical voice contributor passed browse response guard")
+	}
+}
+
