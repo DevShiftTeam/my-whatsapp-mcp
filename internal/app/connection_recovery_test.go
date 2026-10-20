@@ -733,3 +733,42 @@ func TestConnectionRecoveryNilDialDelayedWitnessRetainsBudget(t *testing.T) {
 		t.Fatal("delayed source commits replenished a no-progress retry budget")
 	}
 }
+
+func TestConnectionRecoveryStandbyReconnectsAfterRetiredChain(t *testing.T) {
+	ctx := context.Background()
+	root := privateTestRoot(t)
+	prepareConnectionRecoveryArchive(t, root, false, false, true, false)
+	f := &connectionRecoveryFixture{account: "synthetic-account", status: ingestion.Status{Connection: "disconnected", HasSession: true}, connectStarted: make(chan struct{}, 4), recoveryStarted: make(chan struct{}, 4), recoveryError: archive.ErrSourceUnavailable}
+	a, err := newApplication(ctx, Config{DataDir: root}, connectionRecoveryFactory(f))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close(ctx)
+	a.connectionOwner.settings = connectionRecoverySettings{pollInterval: time.Millisecond, attemptTimeout: time.Second, backoff: []time.Duration{time.Millisecond}, maxAttempts: 1, standbyInterval: 10 * time.Millisecond}
+	if err = a.StartPairing(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-f.connectStarted:
+	default:
+	}
+	f.mu.Lock()
+	f.status.Connection = "disconnected"
+	f.status.ConnectionDiagnostic = ingestion.ConnectionDiagnostic{Event: "none", ErrorClass: "dial"}
+	f.request = ingestion.RecoveryRequest{Token: 1, Reason: "disconnected"}
+	f.mu.Unlock()
+	a.wakeConnectionRecovery()
+	select {
+	case <-f.recoveryStarted:
+	case <-time.After(time.Second):
+		t.Fatal("initial recovery attempt did not run")
+	}
+	select {
+	case <-f.connectStarted:
+	case <-time.After(time.Second):
+		t.Fatal("standby reconnect did not restore disconnected saved session")
+	}
+	if f.Status().Connection != "connected" {
+		t.Fatal("standby reconnect did not re-establish connected state")
+	}
+}

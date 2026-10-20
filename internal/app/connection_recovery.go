@@ -16,10 +16,11 @@ type recoverableConnector interface {
 }
 
 type connectionRecoverySettings struct {
-	pollInterval   time.Duration
-	attemptTimeout time.Duration
-	backoff        []time.Duration
-	maxAttempts    int
+	pollInterval    time.Duration
+	attemptTimeout  time.Duration
+	backoff         []time.Duration
+	maxAttempts     int
+	standbyInterval time.Duration
 }
 
 func (s connectionRecoverySettings) defaults() connectionRecoverySettings {
@@ -34,6 +35,9 @@ func (s connectionRecoverySettings) defaults() connectionRecoverySettings {
 	}
 	if s.maxAttempts <= 0 {
 		s.maxAttempts = 120
+		if s.standbyInterval <= 0 {
+			s.standbyInterval = 30 * time.Second
+		}
 	}
 	return s
 }
@@ -158,6 +162,21 @@ func (a *Application) connectSavedSession(ctx context.Context) {
 	_ = a.runtime.Connect(ctx)
 }
 
+func (a *Application) standbyConnectEligible(ctx context.Context) bool {
+	if !a.lockConnectionRead(ctx) {
+		return false
+	}
+	defer a.data.RUnlock()
+	if !a.connectionAllowed(ctx) {
+		return false
+	}
+	status := a.runtime.Status()
+	if status.Connection != "" && status.Connection != "disconnected" {
+		return false
+	}
+	return a.runtime.Quiesced() || status.ConnectionDiagnostic.Event == "disconnected"
+}
+
 func (a *Application) connectionRequest(ctx context.Context) (ingestion.RecoveryRequest, bool) {
 	if !a.lockConnectionRead(ctx) {
 		return ingestion.RecoveryRequest{}, false
@@ -262,6 +281,7 @@ func (a *Application) runConnectionRecovery(ctx context.Context, startup bool, s
 	var attempts int
 	var initialAttempts int
 	var next time.Time
+	var standbyNext time.Time
 	retired := false
 	for {
 		if ctx.Err() != nil {
@@ -277,6 +297,7 @@ func (a *Application) runConnectionRecovery(ctx context.Context, startup bool, s
 			}
 			retired = attempts >= settings.maxAttempts
 			next = time.Now().Add(settings.delay(0))
+			standbyNext = time.Time{}
 		}
 		if ready && !retired && !time.Now().Before(next) {
 			attemptCtx, cancel := context.WithTimeout(ctx, settings.attemptTimeout)
@@ -288,6 +309,22 @@ func (a *Application) runConnectionRecovery(ctx context.Context, startup bool, s
 			retired = !retry || attempts >= settings.maxAttempts
 			if !retired {
 				next = time.Now().Add(settings.delay(attempts - initialAttempts))
+			} else if settings.standbyInterval > 0 {
+				standbyNext = time.Now().Add(settings.standbyInterval)
+			}
+		} else if settings.standbyInterval > 0 && (!ready || retired) {
+			if a.standbyConnectEligible(ctx) {
+				now := time.Now()
+				if standbyNext.IsZero() {
+					standbyNext = now.Add(settings.standbyInterval)
+				} else if !now.Before(standbyNext) {
+					standbyNext = now.Add(settings.standbyInterval)
+					attemptCtx, cancel := context.WithTimeout(ctx, settings.attemptTimeout)
+					a.connectSavedSession(attemptCtx)
+					cancel()
+				}
+			} else {
+				standbyNext = time.Time{}
 			}
 		}
 		select {
