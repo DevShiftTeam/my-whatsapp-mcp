@@ -30,10 +30,10 @@ func (s connectionRecoverySettings) defaults() connectionRecoverySettings {
 		s.attemptTimeout = 10 * time.Second
 	}
 	if len(s.backoff) == 0 {
-		s.backoff = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}
+		s.backoff = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second, time.Minute}
 	}
 	if s.maxAttempts <= 0 {
-		s.maxAttempts = 5
+		s.maxAttempts = 120
 	}
 	return s
 }

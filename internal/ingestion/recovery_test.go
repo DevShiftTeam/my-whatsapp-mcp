@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"slices"
 	"sync"
@@ -412,7 +413,10 @@ func TestRecoveryTransientClassifierRejectsUnqualifiedFailures(t *testing.T) {
 	}{
 		{context.DeadlineExceeded, true},
 		{fmt.Errorf("%w: %w", socket.ErrDialFailed, &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsTimeout: true}}), true},
+		{fmt.Errorf("%w: %w", socket.ErrDialFailed, &net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{IsNotFound: true}}), true},
 		{fmt.Errorf("%w: %w", socket.ErrDialFailed, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ENETUNREACH}), true},
+		{fmt.Errorf("%w: %w", socket.ErrDialFailed, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNRESET}), true},
+		{fmt.Errorf("%w: %w", socket.ErrDialFailed, io.EOF), true},
 		{fmt.Errorf("%w: %w", socket.ErrDialFailed, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.EACCES}), false},
 		{fmt.Errorf("%w: %w", socket.ErrDialFailed, &net.DNSError{IsNotFound: true}), false},
 		{socket.ErrWithStatusCode{StatusCode: 408}, true},

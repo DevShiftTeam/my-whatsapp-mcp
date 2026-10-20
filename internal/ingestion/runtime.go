@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -262,8 +263,24 @@ func connectionErrorClass(err error) (string, int) {
 		return "network_timeout", 0
 	}
 	var operation *net.OpError
-	if errors.As(err, &operation) && operation.Op == "dial" &&
-		(errors.Is(operation.Err, syscall.ENETDOWN) || errors.Is(operation.Err, syscall.ENETUNREACH) || errors.Is(operation.Err, syscall.EHOSTUNREACH)) {
+	if errors.As(err, &operation) {
+		var dnsErr *net.DNSError
+		if (operation.Op == "dial" && errors.As(operation.Err, &dnsErr)) ||
+			errors.Is(operation.Err, syscall.ENETDOWN) ||
+			errors.Is(operation.Err, syscall.ENETUNREACH) ||
+			errors.Is(operation.Err, syscall.ENETRESET) ||
+			errors.Is(operation.Err, syscall.EHOSTUNREACH) ||
+			errors.Is(operation.Err, syscall.EHOSTDOWN) ||
+			errors.Is(operation.Err, syscall.EADDRNOTAVAIL) ||
+			errors.Is(operation.Err, syscall.ECONNRESET) ||
+			errors.Is(operation.Err, syscall.ECONNABORTED) ||
+			errors.Is(operation.Err, syscall.ECONNREFUSED) ||
+			errors.Is(operation.Err, syscall.ENOBUFS) ||
+			errors.Is(operation.Err, syscall.EPIPE) {
+			return "network_unavailable", 0
+		}
+	}
+	if errors.Is(err, socket.ErrDialFailed) && (errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)) {
 		return "network_unavailable", 0
 	}
 	if errors.Is(err, socket.ErrDialFailed) {
