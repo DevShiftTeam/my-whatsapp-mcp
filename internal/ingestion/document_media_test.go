@@ -371,4 +371,18 @@ func TestStandaloneSenderKeyDistributionDoesNotConflictWithCompanionPayload(t *t
 	if err != nil || len(page.Hits) != 1 {
 		t.Fatalf("companion group message was not searchable: hits=%d err=%v", len(page.Hits), err)
 	}
+
+	adminRevokeSKDM := skdm
+	adminRevokeSKDM.Info.ID = "group-admin-revoke-1"
+	adminRevokeSKDM.Info.Sender = types.NewJID("201", types.DefaultUserServer)
+	adminRevokeSKDM.Info.Edit = types.EditAttributeAdminRevoke
+	if controlled, err := r.applyInvalidation(ctx, &adminRevokeSKDM); controlled || err != nil {
+		t.Fatalf("admin-revoke sender key distribution companion treated as control invalidation: controlled=%t err=%v", controlled, err)
+	}
+	if err := r.messageWithMediaOutcome(ctx, &adminRevokeSKDM); err != nil {
+		t.Fatalf("admin-revoke sender key distribution companion failed: %v", err)
+	}
+	if r.Status().ReconciliationRequired {
+		t.Fatal("admin-revoke sender key distribution companion quarantined archive")
+	}
 }

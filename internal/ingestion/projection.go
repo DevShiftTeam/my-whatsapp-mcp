@@ -125,8 +125,13 @@ func mutationProtocol(e *events.Message) *waE2E.ProtocolMessage {
 	}
 	return p
 }
+func standaloneSenderKeyDistributionEnvelope(event *events.Message) bool {
+	return event != nil && !event.IsEdit && !event.IsViewOnce && event.UnavailableRequestID == "" && event.SourceWebMsg == nil &&
+		(event.NewsletterMeta == nil || event.NewsletterMeta.EditTS.IsZero()) &&
+		standaloneSenderKeyDistribution(event.Message) && (event.RawMessage == nil || standaloneSenderKeyDistribution(event.RawMessage))
+}
 func isMutation(e *events.Message) bool {
-	if e == nil || e.Message == nil {
+	if e == nil || e.Message == nil || standaloneSenderKeyDistributionEnvelope(e) {
 		return false
 	}
 	p := mutationProtocol(e)
@@ -448,7 +453,7 @@ func (r *Runtime) messageWithDeliveredAdmission(ctx context.Context, event *even
 		}
 		e = archive.SourceEvent{Key: key, Kind: archive.EventOriginal, OriginalSentAt: event.Info.Timestamp, OriginalDateKnown: !event.Info.Timestamp.IsZero(), SourceRevision: event.Info.Timestamp.UnixMilli(), BodyKind: archive.MessageUnsupported}
 		body = event.Message
-		if !event.IsViewOnce && event.UnavailableRequestID == "" && event.SourceWebMsg == nil && standaloneSenderKeyDistribution(body) && (event.RawMessage == nil || standaloneSenderKeyDistribution(event.RawMessage)) {
+		if standaloneSenderKeyDistributionEnvelope(event) {
 			return nil
 		}
 	}
