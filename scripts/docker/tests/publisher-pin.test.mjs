@@ -4,10 +4,9 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {pins,classifyPullFailure,verifyPublisher} from '../oci-tools.mjs';
 
-// Primary-registry index retrieved 2026-10-15 using an anonymous Registry v2
-// pull token, then fetched by its digest. The retired 97772f3c digest returned
-// authenticated 404 MANIFEST_UNKNOWN on that date. These tests check the
-// committed fixture only and do not assert current registry availability.
+// Primary-registry index and native manifests/configs retrieved by digest on
+// 2026-10-29. The previous edad588f index returned 404 MANIFEST_UNKNOWN that day.
+// These tests check the committed fixture, not current registry availability.
 const raw=readFileSync(new URL('./fixtures/skopeo-v1.22.3-index.json',import.meta.url));
 const manifest=JSON.parse(raw);
 const digest='sha256:'+createHash('sha256').update(raw).digest('hex');

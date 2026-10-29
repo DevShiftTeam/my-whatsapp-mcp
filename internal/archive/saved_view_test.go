@@ -97,4 +97,3 @@ func TestSavedViewBrowseAttachesDerivedAndGuardsContributors(t *testing.T) {
 		t.Fatal("deleted historical voice contributor passed browse response guard")
 	}
 }
-

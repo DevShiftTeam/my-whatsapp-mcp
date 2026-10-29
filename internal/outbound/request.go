@@ -403,4 +403,3 @@ func validOpusComment(p []byte) bool {
 	}
 	return true
 }
-
