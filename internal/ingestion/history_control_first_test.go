@@ -98,6 +98,92 @@ func TestControlFirstPartialMetadataAndNoticeContinueStrictSuffix(t *testing.T) 
 		})
 	}
 }
+func TestControlFirstPartialGroupNoticeActorClaimsBecomeGap(t *testing.T) {
+	for _, kind := range []waWeb.WebMessageInfo_StubType{waWeb.WebMessageInfo_GROUP_CREATE, waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD} {
+		for _, actors := range []string{"unmapped_lid", "direction_mismatch", "consistent"} {
+			t.Run(kind.String()+"/"+actors, func(t *testing.T) {
+				r, s := controlFirstFixture()
+				notice := bodylessHistoryStub("300@g.us", "discarded-group-notice", kind)
+				notice.Message.Key.Participant = proto.String("200@s.whatsapp.net")
+				notice.Message.MessageStubParameters = []string{"discarded-notice-metadata"}
+				switch actors {
+				case "unmapped_lid":
+					notice.Message.Participant = proto.String("900@lid")
+				case "direction_mismatch":
+					notice.Message.Key.FromMe = proto.Bool(true)
+				}
+				if err := r.projectHistory(t.Context(), unknownHistoryWire(t, unknownHistoryChunk(notice, controlFirstTail()...))); err != nil {
+					t.Fatalf("bodyless group notice stopped partial import: %v", err)
+				}
+				if len(s.reasons) != 1 || s.reasons[0] != archive.HistoryUncertaintyUnsupportedNotice || len(s.order) == 0 || s.order[0] != "uncertainty" || r.Status().ReconciliationRequired {
+					t.Fatal("group notice did not commit a gap before continuing")
+				}
+				kinds := map[archive.SourceEventKind]bool{}
+				for _, event := range s.events {
+					if event.Key.Message == "discarded-group-notice" {
+						t.Fatal("discarded group notice manufactured a source event")
+					}
+					kinds[event.Kind] = true
+				}
+				if !kinds[archive.EventOriginal] || !kinds[archive.EventDelete] || !kinds[archive.EventEditInvalidation] || len(s.aliases) != 0 || len(s.names) != 0 {
+					t.Fatal("notice changed identities or hid the following body and controls")
+				}
+			})
+		}
+	}
+}
+
+func TestControlFirstGroupNoticeCompatibilityKeepsSafetyChecks(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		strict bool
+		mutate func(*waWeb.WebMessageInfo)
+	}{
+		{"strict_default", true, nil},
+		{"different_notice", false, func(w *waWeb.WebMessageInfo) { w.MessageStubType = waWeb.WebMessageInfo_GROUP_CHANGE_SUBJECT.Enum() }},
+		{"wrong_chat", false, func(w *waWeb.WebMessageInfo) { w.Key.RemoteJID = proto.String("999@g.us") }},
+		{"invalid_actor", false, func(w *waWeb.WebMessageInfo) { w.Key.Participant = proto.String("@s.whatsapp.net") }},
+		{"missing_id", false, func(w *waWeb.WebMessageInfo) { w.Key.ID = nil }},
+		{"missing_direction", false, func(w *waWeb.WebMessageInfo) { w.Key.FromMe = nil }},
+		{"missing_parameters", false, func(w *waWeb.WebMessageInfo) { w.MessageStubParameters = nil }},
+		{"missing_timestamp", false, func(w *waWeb.WebMessageInfo) { w.MessageTimestamp = nil }},
+		{"expiry", false, func(w *waWeb.WebMessageInfo) { w.EphemeralExpirationTimestamp = proto.Uint64(9000) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, s := controlFirstFixture()
+			if tc.strict {
+				r.config.UnknownHistoryPolicy = UnknownHistoryStrict
+			}
+			notice := bodylessHistoryStub("300@g.us", "guarded-group-notice", waWeb.WebMessageInfo_GROUP_CREATE)
+			notice.Message.Key.Participant = proto.String("900@lid")
+			notice.Message.MessageStubParameters = []string{"discarded-notice-metadata"}
+			if tc.mutate != nil {
+				tc.mutate(notice.Message)
+			}
+			if err := r.projectHistory(t.Context(), unknownHistoryWire(t, unknownHistoryChunk(notice, controlFirstTail()[0]))); err == nil || !r.Status().ReconciliationRequired {
+				t.Fatal("unverified group notice bypassed the source fence")
+			}
+			if len(s.events) != 0 || len(s.reasons) != 0 || len(s.aliases) != 0 || len(s.names) != 0 {
+				t.Fatal("unverified group notice created state or admitted its suffix")
+			}
+		})
+	}
+}
+
+func TestControlFirstGroupNoticeGapFailureStopsSuffix(t *testing.T) {
+	r, s := controlFirstFixture()
+	s.gapErr = errors.New("synthetic notice gap persistence failure")
+	notice := bodylessHistoryStub("300@g.us", "uncommitted-group-notice", waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD)
+	notice.Message.Key.Participant = proto.String("900@lid")
+	notice.Message.MessageStubParameters = []string{"discarded-notice-metadata"}
+	if err := r.projectHistory(t.Context(), unknownHistoryWire(t, unknownHistoryChunk(notice, controlFirstTail()[0]))); !errors.Is(err, s.gapErr) || !r.Status().ReconciliationRequired {
+		t.Fatalf("gap failure did not stop import: %v", err)
+	}
+	if len(s.events) != 0 || len(s.reasons) != 0 || len(s.aliases) != 0 || len(s.names) != 0 {
+		t.Fatal("failed gap admitted state")
+	}
+}
+
 func TestControlFirstNegativePrecedesUncertainty(t *testing.T) {
 	r, s := controlFirstFixture()
 	revoke := bodylessHistoryStub("300@g.us", "revoked-source", waWeb.WebMessageInfo_REVOKE)

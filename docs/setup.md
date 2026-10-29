@@ -100,6 +100,8 @@ Paging starts from the newest usable anchor for each selected chat and requests 
 
 Partial mode processes supported source controls before handling unsupported noncontent metadata, notices or control shapes. It records unsupported effects as history gaps so readable messages can continue importing and remain available to Archive, Stats and MCP. Supported deletion, edit, expiry and view-once controls, current chat/date policy and client permissions remain enforced. Skipped noncontent data does not generate message text, and genuine source-safety failures still stop protected reads.
 
+Large history batches can include many recent-sticker entries or message containers. Their metadata checks scale with the batch's bounded size; each message retains its separate validation limit. In partial mode, reviewed bodyless **group created** and **participant added** notices with both participant fields and no retention or control metadata are recorded as gaps even when their actor claims disagree. The notice creates no message or identity mapping, its encrypted raw batch remains retained, and remaining messages can import. Default strict handling and existing safety pauses are unchanged.
+
 Choosing partial mode accepts that unsupported metadata, edits, deletions or retention changes may be unreflected. When a gap is encountered, the owner UI and archive reads, including MCP, carry a persistent account-wide warning: history is partial and current phone state is unknown. This warning does not mean every event defined by the WhatsApp SDK is supported. Restarting, switching back to strict or upgrading the recovery destination does not clear an existing warning. This does not establish complete history.
 
 ## Everyday use

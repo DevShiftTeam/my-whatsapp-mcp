@@ -107,6 +107,50 @@ func TestControlFirstEnvelope500RecordsAndFieldBudget(t *testing.T) {
 		t.Fatal("wire budget not enforced")
 	}
 }
+func TestControlFirstLargeStickerMetadataBatchContinues(t *testing.T) {
+	r, s := controlFirstFixture()
+	tail := controlFirstTail()
+	chunk := unknownHistoryChunk(tail[0], tail[1:]...)
+	for i := 0; i < 1500; i++ {
+		chunk.RecentStickers = append(chunk.RecentStickers, &waHistorySync.StickerMetadata{
+			FileSHA256: make([]byte, 32), Mimetype: proto.String("image/webp"),
+		})
+	}
+	if err := r.projectHistory(t.Context(), unknownHistoryWire(t, chunk)); err != nil {
+		t.Fatalf("valid batch metadata stopped message import: %v", err)
+	}
+	if len(s.reasons) != 1 || s.reasons[0] != archive.HistoryUncertaintyUnsupportedMetadata || r.Status().ReconciliationRequired {
+		t.Fatal("large metadata lost its durable uncertainty or paused the archive")
+	}
+	kinds := map[archive.SourceEventKind]bool{}
+	for _, event := range s.events {
+		kinds[event.Kind] = true
+	}
+	if !kinds[archive.EventOriginal] || !kinds[archive.EventDelete] || !kinds[archive.EventEditInvalidation] {
+		t.Fatal("large metadata hid the following body, deletion or edit")
+	}
+}
+
+func TestControlFirstLargeConversationWireStillValidatesSuffix(t *testing.T) {
+	conversation := &waHistorySync.Conversation{ID: proto.String("300@g.us")}
+	for i := 0; i < 5000; i++ {
+		conversation.Messages = append(conversation.Messages, &waHistorySync.HistorySyncMsg{})
+	}
+	raw, err := proto.Marshal(conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = analyzeHistoryWire(t.Context(), raw, conversationHistoryDescriptor()); err != nil {
+		t.Fatalf("valid repeated record containers exhausted a per-record limit: %v", err)
+	}
+	// The larger batch allowance must still validate fields after the repeated records.
+	raw = protowire.AppendVarint(protowire.AppendTag(raw, 1, protowire.VarintType), 0)
+	analysis, err := analyzeHistoryWire(t.Context(), raw, conversationHistoryDescriptor())
+	if !errors.Is(err, errHistoryCorrupt) || analysis.diagnostic.Reason != "duplicate_singular" {
+		t.Fatal("large conversation bypassed trailing duplicate authority validation")
+	}
+}
+
 func TestControlFirstObservationCapturedOnce(t *testing.T) {
 	r, s := controlFirstFixture()
 	r.observation = "initial-observation"

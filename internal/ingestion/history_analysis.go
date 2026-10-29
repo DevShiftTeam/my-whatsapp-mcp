@@ -114,6 +114,10 @@ func historyLayer(desc protoreflect.MessageDescriptor) string {
 func analyzeHistoryWire(ctx context.Context, raw []byte, desc protoreflect.MessageDescriptor) (historyAnalysis, error) {
 	a := historyAnalysis{diagnostic: historyDiagnosticV2{Version: 2, Schema: "whatsmeow-6bb48c0f1ff0", Evidence: "exact_wire"}}
 	budget := 4096
+	if layer := historyLayer(desc); layer == "envelope" || layer == "conversation" {
+		// Batch fields scale with bounded wire bytes; individual records keep their own limit.
+		budget = max(budget, len(raw))
+	}
 	err := a.walk(ctx, raw, desc, 0, nil, historyMetadata, &budget)
 	return a, err
 }

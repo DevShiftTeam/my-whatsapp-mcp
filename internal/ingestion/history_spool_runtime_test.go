@@ -169,6 +169,36 @@ func TestHistorySpoolKeepsExplicitPartialUnknownRecord(t *testing.T) {
 	}
 }
 
+func TestHistorySpoolRetainsPartialGroupNoticeAndImportsTail(t *testing.T) {
+	for _, kind := range []waWeb.WebMessageInfo_StubType{waWeb.WebMessageInfo_GROUP_CREATE, waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD} {
+		t.Run(kind.String(), func(t *testing.T) {
+			r, dir := spoolRuntimeFixture(t)
+			r.config.UnknownHistoryPolicy = UnknownHistoryPartial
+			if err := r.Connect(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			notice := bodylessHistoryStub("300@g.us", "retained-group-notice", kind)
+			notice.Message.Key.Participant = proto.String("900@lid")
+			notice.Message.MessageStubParameters = []string{"discarded-notice-metadata"}
+			tail := bodylessHistoryRecord("300@g.us", "group-notice-tail", "groupnoticetailreceipt")
+			notification := realtimeHistory(r)
+			notification.Message.ProtocolMessage.HistorySyncNotification.InitialHistBootstrapInlinePayload = compressed(unknownHistoryWire(t, unknownHistoryChunk(notice, tail)))
+			if err := r.historyFrom(t.Context(), notification); err != nil {
+				t.Fatalf("bodyless notice blocked authenticated partial history: %v", err)
+			}
+			if len(retainedHistoryBatchIDs(t, dir)) != 1 {
+				t.Fatal("group notice gap discarded its raw evidence")
+			}
+			store := r.store.(*archive.Store)
+			queueBurstAssertSearch(t, store, "groupnoticetailreceipt", 1)
+			status := bodylessHistoryStatus(t, store)
+			if !status.Snapshot.UnknownHistoryGap || status.Coverage != "partial" || r.Status().ReconciliationRequired {
+				t.Fatal("partial group notice did not expose its persistent coverage warning")
+			}
+		})
+	}
+}
+
 func TestHistorySpoolFailureStopsBeforeImport(t *testing.T) {
 	r, dir := spoolRuntimeFixture(t)
 	if err := os.Chmod(dir, 0755); err != nil {

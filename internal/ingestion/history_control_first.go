@@ -45,9 +45,20 @@ func (r *Runtime) recordHistoryUncertainty(ctx context.Context, reason archive.H
 // not passed to the SDK projector, mapping, names or frontier paths.
 func (r *Runtime) projectPartialHistoryRecord(ctx context.Context, chat types.JID, web *waWeb.WebMessageInfo, a historyAnalysis) error {
 	kind := web.GetMessageStubType()
+	discardGroupNotice := a.reason() == "" && chat.Server == types.GroupServer &&
+		(kind == waWeb.WebMessageInfo_GROUP_CREATE || kind == waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD) &&
+		historyPresence(web) == 507 && web.GetMessageTimestamp() > 0 &&
+		!web.GetIsMentionedInStatus() && strictUncertaintyWebFields(web, true, true)
+	if discardGroupNotice {
+		if err := r.validateHistoryRecordScope(ctx, chat, web, false); err != nil {
+			return err
+		}
+		// Discarded notice actors grant no identity or direction authority.
+		return r.recordHistoryUncertainty(ctx, archive.HistoryUncertaintyUnsupportedNotice)
+	}
 	recognized := kind == waWeb.WebMessageInfo_REVOKE || kind == waWeb.WebMessageInfo_ADMIN_REVOKE || kind == waWeb.WebMessageInfo_CIPHERTEXT
 	if recognized || benignHistoryStub(kind) && a.reason() == "" {
-		if err := r.validateHistoryControlScope(ctx, chat, web); err != nil {
+		if err := r.validateHistoryRecordScope(ctx, chat, web, true); err != nil {
 			return err
 		}
 	}
@@ -81,7 +92,7 @@ func (r *Runtime) projectPartialHistoryRecord(ctx context.Context, chat types.JI
 
 // This authority check is intentionally independent of the zero-output fallback.
 // Unused malformed notice actors do not become authority through normalization.
-func (r *Runtime) validateHistoryControlScope(ctx context.Context, chat types.JID, web *waWeb.WebMessageInfo) error {
+func (r *Runtime) validateHistoryRecordScope(ctx context.Context, chat types.JID, web *waWeb.WebMessageInfo, requireAuthor bool) error {
 	key := web.GetKey()
 	if key == nil || key.ID == nil || key.GetID() == "" || len(key.GetID()) > 256 || !utf8.ValidString(key.GetID()) || strings.IndexByte(key.GetID(), 0) >= 0 || key.FromMe == nil || !partialHistoryJID(key.GetRemoteJID(), true) || !partialHistoryJID(chat.String(), true) {
 		return historyBodylessFailure(web, "record_structure")
@@ -99,7 +110,7 @@ func (r *Runtime) validateHistoryControlScope(ctx context.Context, chat types.JI
 			return historyBodylessFailure(web, "record_structure")
 		}
 	}
-	if web.GetMessageStubType() != waWeb.WebMessageInfo_ADMIN_REVOKE {
+	if requireAuthor && web.GetMessageStubType() != waWeb.WebMessageInfo_ADMIN_REVOKE {
 		own, err := r.canonical(ctx, r.SourceAccount())
 		if err != nil {
 			return err
@@ -125,7 +136,7 @@ func (r *Runtime) validateHistoryControlScope(ctx context.Context, chat types.JI
 	return nil
 }
 func (r *Runtime) projectPartialHistoryExpiry(ctx context.Context, chat types.JID, web *waWeb.WebMessageInfo) error {
-	if err := r.validateHistoryControlScope(ctx, chat, web); err != nil {
+	if err := r.validateHistoryRecordScope(ctx, chat, web, true); err != nil {
 		return err
 	}
 	if web.GetKey().GetParticipant() != "" && web.GetParticipant() != "" {
