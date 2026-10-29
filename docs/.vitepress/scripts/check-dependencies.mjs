@@ -10,7 +10,7 @@ const accepted = {
   'gray-matter': ['moderate', 'js-yaml'],
   'js-yaml': ['moderate', 'argparse'],
   'sprintf-js': ['moderate', 'https://github.com/advisories/GHSA-hp3w-g68c-fv3c'],
-  vite: ['high', 'esbuild', 'https://github.com/advisories/GHSA-4w7w-66w2-5vf9', 'https://github.com/advisories/GHSA-v6wh-96g9-6wx3', 'https://github.com/advisories/GHSA-fx2h-pf6j-xcff'],
+  vite: ['high', 'esbuild', 'https://github.com/advisories/GHSA-4w7w-66w2-5vf9', 'https://github.com/advisories/GHSA-v6wh-96g9-6wx3', 'https://github.com/advisories/GHSA-fx2h-pf6j-xcff', 'https://github.com/advisories/GHSA-698v-4r3x-3vcv', 'https://github.com/advisories/GHSA-r825-w8mm-5pxw', 'https://github.com/advisories/GHSA-587h-7wmj-h5pm', 'https://github.com/advisories/GHSA-9jrq-w75r-8gcw', 'https://github.com/advisories/GHSA-rq7h-c2jc-7f22'],
   vitepress: ['moderate', 'vite']
 };
 

@@ -16,7 +16,7 @@
   "dependencies": {
     "acorn": "8.19.0",
     "gray-matter": "4.0.3",
-    "markdown-it": "14.3.2",
+    "markdown-it": "14.3.3",
     "parse5": "8.0.1",
     "postcss-value-parser": "4.2.0",
     "vitepress": "1.6.4",
