@@ -2508,10 +2508,20 @@
     return "Historical snapshot" + (captured ? " — captured " + captured : "") + ". Read-only. Import dates, chat choices and retention cannot be changed in this view. Sending and syncing disabled. Newer messages excluded.";
   }
 
+  function firstRunSettings() {
+    return !!setup && !setup.configured && !setup.demo && !historicalSettings();
+  }
+
   function updatePolicyFields() {
     const custom = document.querySelector("input[name=date-mode]:checked").value === "custom";
     $("custom-date-label").hidden = !custom; $("import-start").required = custom;
-    $("selective-panel").hidden = document.querySelector("input[name=chat-mode]:checked").value !== "selective";
+    const chatMode = document.querySelector("input[name=chat-mode]:checked").value;
+    const firstRun = firstRunSettings();
+    // Before linking there are no discovered chats to list; the intro explains discovery.
+    $("selective-panel").hidden = chatMode !== "selective" || firstRun;
+    // History delivered while linking is not replayed later, so the first-run
+    // choice decides whether it is saved or used only to discover chat names.
+    if (firstRun) $("save-policy").textContent = chatMode === "all" ? "Link WhatsApp and save all chats" : "Link WhatsApp to discover chats";
   }
 
   function transcriptionSetupAllowed() {
@@ -2657,11 +2667,10 @@
       const historical = historicalSettings();
       const discoveryFirst = !setup.configured && !setup.demo;
       document.querySelector("input[name=chat-mode][value='" + (discoveryFirst || policy.ChatMode === "selective" ? "selective" : "all") + "']").checked = true;
-      $("settings-intro").textContent = historical ? historicalSettingsNotice() : discoveryFirst ? "Link WhatsApp to discover your chats, then choose which messages to keep. No chat message bodies are saved until you select chats." : "Choose the import range and chats to keep. These choices also apply after linking WhatsApp.";
+      $("settings-intro").textContent = historical ? historicalSettingsNotice() : discoveryFirst ? "Choose what to keep, then link WhatsApp. Only chats I select discovers chat names first and saves no message bodies until you select chats. All chats also saves the history WhatsApp sends while linking." : "Choose the import range and chats to keep. These choices also apply after linking WhatsApp.";
       if (setup?.archive_view && !historical) $("settings-intro").textContent = "Live settings. " + $("settings-intro").textContent;
       if (liveRebuildSettings()) $("settings-intro").textContent += " The saved device requires an explicit session ownership transition before deleting this recovery profile.";
       $("settings-title").textContent = discoveryFirst ? "Set up your archive" : "Chats and dates";
-      $("chat-policy-fieldset").hidden = discoveryFirst;
       $("save-policy").textContent = historical ? "Read-only snapshot" : discoveryFirst ? "Link WhatsApp to discover chats" : "Save choices";
       $("retention-days").value = Math.round((policy.RollingRetention || 0) / 86400000000000);
       $("settings-close").hidden = !setup.configured;

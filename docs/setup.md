@@ -51,7 +51,12 @@ Optional: run `./bin/wa-indexer demo` instead to explore sample conversations. D
 
 ## 3. Choose dates and start discovery
 
-On the first run, choose **Set up your archive**, set a date range, and click **Link WhatsApp to discover chats**. The first-run flow discovers chat names without saving message bodies, so you can choose contacts after linking.
+On the first run, choose **Set up your archive**, set a date range, and choose **Chats to archive**:
+
+- **Only chats I select** (the default) discovers chat names without saving message bodies, so you can choose contacts after linking. Click **Link WhatsApp to discover chats**.
+- **All chats** also saves the history WhatsApp sends while linking. Click **Link WhatsApp and save all chats**.
+
+History that WhatsApp sends while linking is not replayed after you select chats. If you want your existing conversations in the archive, choose **All chats** before linking.
 
 For optional Hebrew voice notes, choose **Voice notes → Hebrew transcription** in that local window. The guide supplies commands for the separate service and verifies the running archive's Hebrew worker. It does not install software or restart the app from the browser. You can skip it and return through **Models and media** later; see [browser transcription setup](transcription.md#use-the-browser-setup-guide).
 

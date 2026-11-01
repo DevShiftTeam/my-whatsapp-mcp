@@ -404,6 +404,20 @@ try {
     assert.equal(statusRequests(f.world).length, 1, 'saving never claims the voice service is installed');
   });
 
+  await check('first run offers the chat choice before linking, keeps discovery as the default and saves All chats before pairing', async use => {
+    const f = await use({world: makeWorld()});
+    await waitStartup(f);
+    assert.equal(await f.page.locator('#chat-policy-fieldset').isVisible(), true, 'the chat choice is visible before linking');
+    assert.equal(await f.page.locator('input[name=chat-mode][value=selective]').isChecked(), true, 'discovery-only selection stays the default');
+    assert.equal((await f.page.locator('#save-policy').textContent()).trim(), 'Link WhatsApp to discover chats');
+    await f.page.locator('input[name=chat-mode][value=all]').check();
+    assert.equal((await f.page.locator('#save-policy').textContent()).trim(), 'Link WhatsApp and save all chats', 'the button names the chosen mode');
+    await f.page.locator('#save-policy').click();
+    await until(() => f.world.policyWrites === 1, 5000, 'the archive policy save');
+    assert.equal(f.world.policy.ChatMode, 'all', 'All chats is the policy in effect when pairing starts');
+    await until(() => f.world.pairingStarts === 1, 5000, 'the first-run pairing start');
+  });
+
   for (const [name, state, hebrewReady, copy, isError] of [
     ['connecting', 'connecting', false, /configured and connecting/i, false],
     ['ready', 'ready', true, /Hebrew transcription connected\./, false],

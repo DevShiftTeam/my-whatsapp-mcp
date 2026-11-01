@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Show **Chats to archive** in the first-run **Set up your archive** dialog instead of forcing discovery-only selective mode. **Only chats I select** stays the default; choosing **All chats** before linking saves the history WhatsApp delivers during pairing, which was previously discarded and never replayed. The save button names the chosen mode.
 - Update the documentation export parser to Markdown-it 14.3.3, review new development-only Vite advisories, and document the bundled VitePress parser's remaining build-time risk under the existing static-build restrictions.
 - Refresh the pinned Skopeo 1.22.3 helper after its previous registry digest became unavailable, retaining digest-bound AMD64/ARM64 fixtures and the exact version check. Fix trailing blank lines that stopped the Go formatting check.
 - Let bounded history batches with many metadata entries or message containers pass validation without consuming an individual record's 4,096-field limit. Keep per-record limits and malformed-wire checks.
