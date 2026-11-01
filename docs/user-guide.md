@@ -33,7 +33,7 @@ By default, data is stored outside the source checkout in your OS application-da
 ## Choose what to keep, then link WhatsApp
 
 1. Open **Set up your archive** (later, **Chats and dates**) and choose **Last 30 days**, **Last 90 days**, **A date I choose**, or **All available history**. The start date is inclusive.
-2. Choose **All chats** or **Only chats I select**, then **Save choices** (on first run, **Link WhatsApp to discover chats**). With no selected chat, selective mode saves no message bodies. Chat discovery retains metadata while discarding bodies until their chat is selected.
+2. Choose **All chats** or **Only chats I select**, then **Save choices** (on first run, **Link WhatsApp to discover chats** or **Link WhatsApp and save all chats**). With no selected chat, selective mode saves no message bodies, including the history WhatsApp sends while linking. Chat discovery retains metadata while discarding bodies until their chat is selected.
 3. Use **Link WhatsApp** in the WhatsApp connection card, then choose **Show linking code**.
 4. On your phone, open **WhatsApp → Linked devices → Link a device** and scan the private QR code. Use an account you own or have permission to archive. If the code expires, request a new one.
 5. Watch **WhatsApp connection**, **Saved messages**, and **Keyword search** in the status panel. Search becomes useful as allowed messages arrive.
